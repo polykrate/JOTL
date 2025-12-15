@@ -227,7 +227,7 @@ Matches: 19, Mismatches: 0
 
 - **Gray Paper**: https://graypaper.com (v0.7.2)
 - **Test Vectors**: https://github.com/w3f/jamtestvectors
-- **Strawberry**: https://github.com/eigerco/strawberry (Go reference)
+- **Strawberry**: https://github.com/eigerco/strawberry (Go reference) used for the Kekkash for EVM compatibility
 
 ---
 
