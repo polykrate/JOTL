@@ -199,4 +199,8 @@
    
    ;; Encoding/Decoding
    #:encode-chain-block
-   #:decode-chain-block))
+   #:decode-chain-block
+   
+   ;; Block aliases
+   #:encode-block
+   #:decode-block))

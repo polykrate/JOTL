@@ -7,11 +7,14 @@
 ;;; Ticket T
 ;;;
 ;;; Graypaper Equation 6.6:
-;;; T ≡ (y ∈ H, e ∈ N)
+;;; T ≡ (y, e ∈ N)
 ;;;
 ;;; Where:
-;;; - y: ticket identifier (H, 32-byte hash)
+;;; - y: ticket signature (784 bytes - Bandersnatch ring VRF signature)
 ;;; - e: attempt number (natural number)
+;;;
+;;; Note: Graypaper says "y ∈ H" (32 bytes) but actual implementation uses
+;;; 784-byte ring signatures for anonymity.
 ;;;
 ;;; Graypaper Appendix C.17:
 ;;; ET(ET) = E(↕ET)
@@ -20,33 +23,48 @@
 ;;; Tickets are encoded as a length-prefixed sequence.
 ;;; Each ticket T = (y, e) is encoded as E(T) = E(y, e) = E(y) ⌢ E(e)
 ;;; where:
-;;; - y ∈ H (32 bytes, identity encoding per C.2)
-;;; - e ∈ NN (natural, variable-length encoding per C.5)
+;;; - y: 784 bytes (identity encoding)
+;;; - e ∈ N (natural, variable-length encoding per C.5)
 
 (defun encode-tickets (tickets)
   "Encode tickets (ET).
    
    Graypaper Appendix C.17: ET(ET) = E(↕ET)
+   where ↕ means length-prefixed sequence (count of elements, then elements)
    
    Args:
      tickets: List of ticket structures
    
    Returns:
      Encoded octet sequence"
-  (let ((encoded-tickets
-         (mapcar (lambda (ticket)
-                   (concat-octets 
-                    (ticket-identifier ticket)
-                    (encode-natural (ticket-attempt ticket))))
-                 tickets)))
-    (let ((concatenated (apply #'concat-octets encoded-tickets)))
-      (concat-octets (encode-natural (length concatenated))
-                     concatenated))))
+  (encode-length-prefixed-sequence
+   (mapcar (lambda (ticket)
+             (concat-octets 
+              (ticket-identifier ticket)
+              (encode-natural (ticket-attempt ticket))))
+           tickets)))
+
+(defun decode-ticket (octets &optional (start 0))
+  "Decode a single ticket.
+   
+   E(T) = y ⌢ E(e) where y is 784-byte signature, e ∈ N is attempt
+   
+   Note: Graypaper uses 'y ∈ H' but the actual implementation uses
+   784-byte ring signatures (Bandersnatch ring VRF).
+   
+   Returns: (values ticket bytes-consumed)"
+  (let ((pos start))
+    (decode>> (octets pos)
+      (signature (decode-fixed-bytes octets pos 784))
+      (attempt (decode-natural octets pos))
+      (values (make-ticket :identifier signature :attempt attempt)
+              (- pos start)))))
 
 (defun decode-tickets (octets &optional (start 0))
   "Decode tickets from octets.
    
    Inverse of encode-tickets (Appendix C.17).
+   ↕ET means count-prefixed sequence of tickets.
    
    Args:
      octets: Encoded tickets data
@@ -54,19 +72,7 @@
    
    Returns:
      values: (list-of-ticket bytes-consumed)"
-  (multiple-value-bind (total-length length-bytes)
-      (decode-natural octets start)
-    (let ((tickets '())
-          (pos (+ start length-bytes))
-          (end-pos (+ start length-bytes total-length)))
-      (loop while (< pos end-pos) do
-        (let ((y (subseq octets pos (+ pos 32))))
-          (incf pos 32)
-          (multiple-value-bind (e e-consumed)
-              (decode-natural octets pos)
-            (incf pos e-consumed)
-            (push (make-ticket :identifier y :attempt e) tickets))))
-      (values (nreverse tickets) (+ length-bytes total-length)))))
+  (decode-length-prefixed-sequence octets #'decode-ticket start))
 
 ;;; Winning Tickets (HW)
 ;;; Unlike ET (extrinsic tickets), HW has NO length prefix because

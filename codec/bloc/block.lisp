@@ -138,3 +138,13 @@
         :header header
         :extrinsic extrinsic)
        (- pos start)))))
+
+;;; Convenience aliases
+
+(defun encode-block (block &key (as-blob nil))
+  "Alias for encode-chain-block."
+  (encode-chain-block block :as-blob as-blob))
+
+(defun decode-block (blob &optional (start 0))
+  "Alias for decode-chain-block."
+  (decode-chain-block blob start))
