@@ -49,7 +49,36 @@
      (:module "state"
       :serial t
       :components ((:file "package")
-                   (:file "types")))
+                   (:file "types")
+                   
+                   ;; Simple components (no sub-structures)
+                   (:file "tau")      ; τ - Timeslot (equation 6.1)
+                   (:file "eta")      ; η - Entropy pool (equation 6.21)
+                   
+                   ;; Core & Authorization
+                   (:file "alpha")    ; α - Core authorizations (equation 8.1)
+                   (:file "phi")      ; ϕ - Authorization queue (equation 8.1)
+                   
+                   ;; Validators (base dependencies for composites)
+                   (:file "kappa")    ; κ - Current validators (equation 6.7)
+                   (:file "lambda")   ; λ - Archived validators (equation 6.7)
+                   (:file "iota")     ; ι - Validator queue (equation 6.7)
+                   (:file "pi")       ; π - Validator statistics (equation 13.1)
+                   
+                   ;; Services
+                   (:file "delta")    ; δ - Service accounts (equation 9.1)
+                   
+                   ;; Work processing
+                   (:file "rho")      ; ρ - Pending reports (equation 11.1)
+                   (:file "omega")    ; ω - Accumulation queue (equation 12.3)
+                   (:file "xi")       ; ξ - Accumulation history (equation 12.1)
+                   (:file "theta")    ; θ - Accumulation outputs (equations 7.4, 12.25)
+                   
+                   ;; Composite components (depend on base components)
+                   (:file "beta")     ; β - Recent blocks: βH + βB (equations 7.1-7.7)
+                   (:file "gamma")    ; γ - SAFROLE: γA + γP + γS + γZ (equations 6.3-6.7)
+                   (:file "chi")      ; χ - Privileged services: χM + χA + χV + χR + χZ (equations 9.9, 12.27)
+                   (:file "psi")))
      
      ;; Bloc: Block structures and encoding (C.16-C.35)
      (:module "bloc"
