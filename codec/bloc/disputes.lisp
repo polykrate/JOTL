@@ -4,6 +4,17 @@
 
 (in-package :jotl-bloc)
 
+;;; System parameters for test vectors
+;;; ASN.1: validators-super-majority = ceil(validators-count * 2/3 + 1)
+(defconstant +validators-super-majority-tiny+ 5
+  "Validators super-majority for tiny test vectors")
+
+(defconstant +validators-super-majority-full+ 683
+  "Validators super-majority for full test vectors")
+
+(defparameter *validators-super-majority* +validators-super-majority-tiny+
+  "Current validators super-majority (defaults to tiny)")
+
 ;;; Disputes structure
 ;;;
 ;;; Graypaper Appendix C.21:
@@ -120,7 +131,7 @@
     (mapcar #'encode-fault (disputes-faults disputes))
     :pre-encoded t)))
 
-(defun decode-disputes (octets &optional (start 0))
+(defun decode-disputes (octets &optional (start 0) (validators-super-majority 5))
   "Decode disputes from octets.
    
    Inverse of encode-disputes (Appendix C.21).
@@ -128,6 +139,7 @@
    Args:
      octets: Encoded disputes data
      start: Starting position
+     validators-super-majority: Number of judgements per verdict (default 5 for tiny)
    
    Returns:
      values: (disputes bytes-consumed)"
@@ -138,7 +150,8 @@
        (decode-length-prefixed-sequence
         octets
         (lambda (o s)
-          ;; Decode verdict manually without nested decode>>
+          ;; Decode verdict with judgement count from system parameter
+          ;; ASN.1: votes SEQUENCE (SIZE(validators-super-majority)) OF Judgement
           (let ((p s))
             ;; target : hash (FIXED 32 bytes!)
             (multiple-value-bind (target tc) (decode-hash o p)
@@ -146,9 +159,11 @@
               ;; age : E4 (4 bytes)
               (multiple-value-bind (age ac) (decode-e4 o p)
                 (incf p ac)
-                ;; judgements : FIXED SIZE = 5 (no count!)
+                
+                ;; Decode FIXED SIZE sequence of judgements
+                ;; Number determined by validators-super-majority system parameter
                 (let ((judgements '()))
-                  (dotimes (i 5)
+                  (dotimes (i validators-super-majority)
                     (multiple-value-bind (vote-byte vc) (decode-e1 o p)
                       (incf p vc)
                       (multiple-value-bind (idx ic) (decode-e2 o p)
@@ -156,6 +171,7 @@
                         (multiple-value-bind (sig sc) (decode-fixed-bytes o p 64)
                           (incf p sc)
                           (push (list (not (zerop vote-byte)) idx sig) judgements)))))
+                  
                   (values
                    (make-verdict-entry
                     :target target

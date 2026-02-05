@@ -54,7 +54,7 @@
    ;; ED(ED) : disputes (Appendix C.21)
    (encode-disputes (extrinsic-disputes extrinsic))))
 
-(defun decode-extrinsic (octets &optional (start 0))
+(defun decode-extrinsic (octets &optional (start 0) (validators-super-majority 5))
   "Decode extrinsic data from octets.
    
    Inverse of encode-extrinsic.
@@ -62,6 +62,7 @@
    Args:
      octets: Encoded extrinsic data
      start: Starting position
+     validators-super-majority: Number of judgements per verdict (default 5 for tiny)
    
    Returns:
      values: (extrinsic bytes-consumed)"
@@ -80,7 +81,7 @@
       (availability (decode-availability octets pos))
       
       ;; ED(ED) : disputes (Appendix C.21)
-      (disputes (decode-disputes octets pos))
+      (disputes (decode-disputes octets pos validators-super-majority))
       
       (values
        (make-extrinsic
@@ -126,18 +127,29 @@
      values: (chain-block bytes-consumed)"
   (let ((octets (coerce blob 'list))
         (pos start))
-    (decode>> (octets pos)
-      ;; H : header
-      (header (decode-header octets pos))
+    ;; Decode header first
+    (multiple-value-bind (header header-consumed)
+        (decode-header octets pos)
+      (incf pos header-consumed)
       
-      ;; E : extrinsic
-      (extrinsic (decode-extrinsic octets pos))
-      
-      (values
-       (make-chain-block
-        :header header
-        :extrinsic extrinsic)
-       (- pos start)))))
+      ;; Calculate validators-super-majority from header if epoch-marker exists
+      (let ((vsm (if (and (header-epoch-marker header)
+                          (not (eq (header-epoch-marker header) +empty+)))
+                     ;; Extract from epoch-marker validators and calculate
+                     (validators-super-majority (length (epoch-marker-validators (header-epoch-marker header))))
+                     ;; Default from current chainspec
+                     (validators-super-majority))))
+        
+        ;; Decode extrinsic with calculated vsm
+        (multiple-value-bind (extrinsic extrinsic-consumed)
+            (decode-extrinsic octets pos vsm)
+          (incf pos extrinsic-consumed)
+          
+          (values
+           (make-chain-block
+            :header header
+            :extrinsic extrinsic)
+           (- pos start)))))))
 
 ;;; Convenience aliases
 

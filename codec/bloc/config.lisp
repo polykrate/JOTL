@@ -96,3 +96,20 @@
 (defun epoch-duration ()
   "Get the current epoch duration from active chainspec."
   (chainspec-epoch-duration *chainspec*))
+
+(defun validators-super-majority (&optional (num-vals (num-validators)))
+  "Calculate validators super-majority: ceil(num-validators * 2/3 + 1).
+   
+   This is the minimum number of validator signatures required for a super-majority
+   consensus, used in judgements within disputes.
+   
+   Args:
+     num-vals: Number of validators (defaults to current chainspec)
+   
+   Returns:
+     Integer representing the super-majority threshold
+   
+   Examples:
+     For tiny (6 validators): ceil(6 * 2/3 + 1) = ceil(5) = 5
+     For full (1023 validators): ceil(1023 * 2/3 + 1) = ceil(683) = 683"
+  (ceiling (+ (* num-vals 2/3) 1)))

@@ -1,114 +1,182 @@
-;;;; sequence-encoding.lisp
-;;;; Sequence Encoding for JAM codec primitives
-;;;; Implements C.6 from graypaper
+;;;; trivial-encodings.lisp
+;;;; Trivial Encodings for JAM codec primitives
+;;;; Implements C.1-C.5 from graypaper
 
 (in-package :jotl-codec)
 
-;;; C.6: E([i0, i1, ...]) ≡ E(i0) ⌢ E(i1) ⌢ ...
-;;; Simply concatenate serializations of each element in sequence
+;;; Constants
+(defconstant +empty+ :empty
+  "Represents ∅ (empty/nothing)")
 
-(defun encode-sequence (sequence)
-  "Encode a sequence by concatenating the encoding of each element.
-   Implements C.6: E([i0, i1, ...]) ≡ E(i0) ⌢ E(i1) ⌢ ...
-   
-   Note: Fixed-length octet sequences (e.g. hashes H) have identity serialization
-   because they are already octet sequences and C.2 applies: E(x ∈ B) ≡ x
-   
-   Args:
-     sequence: List/vector of values to encode
-   
-   Returns:
-     Concatenated octet sequence
-   
-   Examples:
-     E([]) = []
-     E([0, 1, 255]) = [0] ⌢ [1] ⌢ [128, 255] = [0, 1, 128, 255]
-     E([hash32bytes]) = hash32bytes (identity for fixed-length octets)"
-  (if (null sequence)
-      '()
-      (apply #'concat-octets
-             (mapcar #'encode sequence))))
+;;; Utility: concatenate octet sequences
+(defun concat-octets (&rest sequences)
+  "Concatenate multiple octet sequences (lists)"
+  (apply #'append sequences))
 
-(defun decode-sequence (octets element-decoder &optional count)
-  "Decode a sequence from octets.
-   
-   Since sequences are just concatenated encodings without length prefix,
-   you need to either:
-   - Know the number of elements (count parameter)
-   - Have element-decoder that can determine element boundaries
-   
-   Args:
-     octets: The octet sequence to decode
-     element-decoder: Function (octets start) -> (values element bytes-consumed)
-     count: Optional number of elements to decode (if nil, decode until exhausted)
-   
-   Returns:
-     List of decoded elements
-   
-   Example:
-     (decode-sequence '(0 1 127) #'decode-natural 3) => (0 1 127)"
-  (let ((result '())
-        (pos 0))
-    (loop
-      (when (or (>= pos (length octets))
-                (and count (<= count 0)))
-        (return (nreverse result)))
-      (multiple-value-bind (element consumed)
-          (funcall element-decoder octets pos)
-        (push element result)
-        (incf pos consumed)
-        (when count (decf count))))))
+;;; C.1: E(∅) ≡ []
+(defun encode-empty ()
+  "Encode the empty value ∅ as empty sequence"
+  '())
 
-(defun encode-length-prefixed-sequence (sequence &key (pre-encoded nil))
-  "Encode a length-prefixed sequence.
-   Implements C.7 + C.6: ↕x where x is a sequence
-   E(↕x) = E(|x|) ⌢ E(x) = E(count) ⌢ E(elem0) ⌢ E(elem1) ⌢ ...
-   
-   Args:
-     sequence: List/vector of elements
-     pre-encoded: If t, elements are already encoded (lists of octets),
-                  just concatenate them. If nil, encode each element first.
-   
-   Returns:
-     Length-prefixed encoded sequence
-   
-   Examples:
-     E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2
-     
-   Note: Use pre-encoded=t when elements are already encoded to avoid
-         double-encoding (which would flatten nested lists incorrectly)."
-  (concat-octets 
-   (encode-natural (length sequence))
-   (if pre-encoded
-       ;; Elements are already encoded, just concatenate
-       (apply #'concat-octets sequence)
-       ;; Elements need encoding first
-       (encode-sequence sequence))))
+;;; C.2: E(x ∈ B) ≡ x
+(defun encode-octet-sequence (octets)
+  "An octet sequence encodes as itself"
+  octets)
 
-(defun decode-length-prefixed-sequence (octets element-decoder &optional (start 0))
-  "Decode a length-prefixed sequence.
-   Implements C.7 + C.6: ↕x where x is a sequence
+;;; C.3: E((a,b,...)) ≡ E(a) ⌢ E(b) ⌢ ...
+(defun encode-tuple (tuple)
+  "Encode a tuple as concatenation of encoded elements"
+  (apply #'concat-octets
+         (mapcar #'encode tuple)))
+
+;;; C.4: E(a,b,...) ≡ E((a,b,...))
+;;; This is handled by the main encode function accepting multiple args
+
+;;; C.5: General natural number encoding N_{2^64} -> B_{1:9}
+(defun encode-natural (x)
+  "Encode a natural number up to 2^64 with variable-length prefix.
+   Implements C.5 from graypaper.
    
-   First reads the count (number of elements), then decodes that many elements.
+   Three cases:
+   1. x = 0 → [0]
+   2. ∃l ∈ N8 : 2^(7l) ≤ x < 2^(7(l+1)) 
+      → [2^8 - 2^(8-l) + ⌊x/2^(8l)⌋] ⌢ El(x mod 2^(8l))
+   3. otherwise if x < 2^64 → [2^8 - 1] ⌢ E8(x)"
+  (cond
+    ;; Case 1: x = 0
+    ((zerop x) '(0))
+    
+    ;; Case 2: find appropriate l where 2^(7l) ≤ x < 2^(7(l+1))
+    (t
+     (let ((l (find-encoding-length x)))
+       (if (null l)
+           ;; Case 3: fallback for large numbers >= 2^56
+           (cons 255  ; 2^8 - 1
+                 (encode-fixed-integer x 8))
+           ;; Case 2: standard encoding
+           (let* ((delta (* 8 l))  ; δ = 8l bits
+                  (prefix (+ (- 256 (expt 2 (- 8 l)))  ; 2^8 - 2^(8-l)
+                            (floor x (expt 2 delta))))  ; ⌊x/2^δ⌋
+                  (remainder (mod x (expt 2 delta))))   ; x mod 2^δ
+             (if (zerop l)
+                 ;; Special case l=0: no remainder bytes
+                 (list prefix)
+                 (cons prefix
+                       (encode-fixed-integer remainder l)))))))))
+
+(defun find-encoding-length (x)
+  "Find l such that 2^(7l) ≤ x < 2^(7(l+1)), where l ∈ N8 = {0,1,2,3,4,5,6,7}
+   Note: l=0 covers range [1, 128), l=1 covers [128, 16384), etc."
+  (cond
+    ((< x 1) (error "Natural must be >= 0"))
+    ;; l=0: 2^0=1 ≤ x < 2^7=128
+    ((< x 128) 0)
+    ;; l=1: 2^7=128 ≤ x < 2^14=16384
+    ((< x 16384) 1)
+    ;; l=2: 2^14=16384 ≤ x < 2^21=2097152
+    ((< x 2097152) 2)
+    ;; l=3: 2^21 ≤ x < 2^28=268435456
+    ((< x 268435456) 3)
+    ;; l=4: 2^28 ≤ x < 2^35
+    ((< x (expt 2 35)) 4)
+    ;; l=5: 2^35 ≤ x < 2^42
+    ((< x (expt 2 42)) 5)
+    ;; l=6: 2^42 ≤ x < 2^49
+    ((< x (expt 2 49)) 6)
+    ;; l=7: 2^49 ≤ x < 2^56
+    ((< x (expt 2 56)) 7)
+    ;; Otherwise use fallback [255] + E8
+    (t nil)))
+
+;;; Main encode function (generic dispatcher)
+(defun encode (value &rest more-values)
+  "Main encoding function E.
+   Dispatches based on value type.
    
-   Args:
-     octets: The octet sequence to decode from
-     element-decoder: Function (octets start) -> (values element bytes-consumed)
-     start: Starting position in octets
-   
-   Returns:
-     values: (decoded-sequence total-bytes-consumed)
-   
-   Examples:
-     Decode ↕[hash1, hash2] where each hash is 32 bytes:
-     [2, ...hash1 32bytes..., ...hash2 32bytes...]"
-  (multiple-value-bind (count count-bytes)
-      (decode-natural octets start)
-    (let ((pos (+ start count-bytes))
-          (result '()))
-      (dotimes (i count)
-        (multiple-value-bind (element consumed)
-            (funcall element-decoder octets pos)
-          (push element result)
-          (incf pos consumed)))
-      (values (nreverse result) (- pos start)))))
+   - E(∅) = []
+   - E(x ∈ B) = x (octet sequence)
+   - E((a,b,...)) = E(a) ⌢ E(b) ⌢ ...
+   - E(a,b,...) = E((a,b,...))
+   - E(x ∈ N) = encode-natural(x)"
+  (cond
+    ;; Multiple arguments → tuple (C.4)
+    (more-values
+     (encode-tuple (cons value more-values)))
+    
+    ;; Empty value (C.1)
+    ((eq value +empty+)
+     (encode-empty))
+    
+    ;; Octet sequence as list (C.2: E(x ∈ B) ≡ x)
+    ((and (listp value)
+          (every (lambda (x) (and (integerp x) (<= 0 x 255))) value))
+     (encode-octet-sequence value))
+    
+    ;; Octet sequence as vector/blob (C.2: E(x ∈ B) ≡ x)
+    ;; Blobs are octet sequences, they encode as themselves (identity)
+    ;; We convert to list for uniform representation
+    ((and (vectorp value)
+          (every (lambda (x) (and (integerp x) (<= 0 x 255))) value))
+     (coerce value 'list))
+    
+    ;; Tuple (nested list or explicitly marked)
+    ((and (listp value) (not (null value)))
+     (encode-tuple value))
+    
+    ;; Natural number (C.5)
+    ((and (integerp value) (>= value 0))
+     (encode-natural value))
+    
+    ;; Unknown type
+    (t
+     (error "Cannot encode value of type ~A: ~A" (type-of value) value))))
+
+;;; Decode functions
+(defun decode-natural (octets &optional (start 0))
+  "Decode a natural number encoded with encode-natural.
+   Returns (values number bytes-consumed)"
+  (let ((first-octet (nth start octets)))
+    (cond
+      ;; Case 1: x = 0
+      ((zerop first-octet)
+       (values 0 1))
+      
+      ;; Case 3: [255] prefix for large numbers
+      ((= first-octet 255)
+       (let* ((remaining-octets (nthcdr (1+ start) octets))
+              (value-octets (subseq remaining-octets 0 (min 8 (length remaining-octets)))))
+         (values (decode-fixed-integer value-octets)
+                 9)))
+      
+      ;; Case 2: variable length encoding
+      (t
+       (let* ((l (decode-length-from-prefix first-octet))
+              (delta (* 8 l))
+              (prefix-bits (expt 2 (- 8 l)))
+              (high-bits (- first-octet (- 256 prefix-bits))))
+         (if (zerop l)
+             ;; l=0: value is just the prefix itself
+             (values first-octet 1)
+             ;; l>0: read l additional octets
+             (let* ((remaining-octets (nthcdr (1+ start) octets))
+                    (low-octets (subseq remaining-octets 0 (min l (length remaining-octets))))
+                    (low-bits (decode-fixed-integer low-octets))
+                    (value (+ (* high-bits (expt 2 delta)) low-bits)))
+               (values value (1+ l)))))))))
+
+(defun decode-length-from-prefix (prefix-octet)
+  "Given a prefix octet, determine the length l.
+   l=0: [1..127]   -> 2^8 - 2^8 = 0, so prefix in [0, 127] but 0 is reserved for 0
+   l=1: [128..191] -> 2^8 - 2^7 = 128
+   l=2: [192..223] -> 2^8 - 2^6 = 192
+   etc."
+  (cond
+    ((< prefix-octet 128) 0)  ; 2^8 - 2^8 = 0, but [1..127] for l=0
+    ((< prefix-octet 192) 1)  ; 2^8 - 2^7 = 128
+    ((< prefix-octet 224) 2)  ; 2^8 - 2^6 = 192
+    ((< prefix-octet 240) 3)  ; 2^8 - 2^5 = 224
+    ((< prefix-octet 248) 4)  ; 2^8 - 2^4 = 240
+    ((< prefix-octet 252) 5)  ; 2^8 - 2^3 = 248
+    ((< prefix-octet 254) 6)  ; 2^8 - 2^2 = 252
+    ((< prefix-octet 255) 7)  ; 2^8 - 2^1 = 254
+    (t 8)))
