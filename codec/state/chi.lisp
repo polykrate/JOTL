@@ -179,10 +179,13 @@
    
    Returns:
      (values (service-id . gas-allowance) new-position)"
-  (decode>> (octets position)
-    (service-id     <- decode-e4)
-    (gas-allowance  <- decode-e8)
-    :result (cons service-id gas-allowance)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (service-id     (decode-e4 octets pos))
+      (gas-allowance  (decode-e8 octets pos))
+      (values
+       (cons service-id gas-allowance)
+       pos))))
 
 (defun decode-always-accumulate (octets position)
   "Decode always-accumulate services χZ.
@@ -230,15 +233,18 @@
    
    Returns:
      (values privileged-services new-position)"
-  (decode>> (octets position)
-    (blessed              <- decode-blessed-service)
-    (authorizer-assigners <- decode-authorizer-assigners)
-    (designate            <- decode-designate-service)
-    (registrar            <- decode-registrar-service)
-    (always-accumulate    <- decode-always-accumulate)
-    :result (make-privileged-services
-             :blessed blessed
-             :authorizer-assigners authorizer-assigners
-             :designate designate
-             :registrar registrar
-             :always-accumulate always-accumulate)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (blessed              (decode-blessed-service octets pos))
+      (authorizer-assigners (decode-authorizer-assigners octets pos))
+      (designate            (decode-designate-service octets pos))
+      (registrar            (decode-registrar-service octets pos))
+      (always-accumulate    (decode-always-accumulate octets pos))
+      (values
+       (make-privileged-services
+        :blessed blessed
+        :authorizer-assigners authorizer-assigners
+        :designate designate
+        :registrar registrar
+        :always-accumulate always-accumulate)
+       pos))))

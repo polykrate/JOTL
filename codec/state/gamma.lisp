@@ -47,7 +47,7 @@
    
    Returns:
      (values tickets-list new-position)"
-  (decode-length-prefixed-sequence octets position nil))  ; TODO: Implement ticket decoding
+  (decode-length-prefixed-sequence octets nil position))  ; TODO: Implement ticket decoding
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; γP - NEXT VALIDATORS (equation 6.7)
@@ -171,13 +171,16 @@
    
    Returns:
      (values safrole-state new-position)"
-  (decode>> (octets position)
-    (ticket-accumulator <- decode-ticket-accumulator)
-    (next-validators    <- decode-next-validators)
-    (seal-keys          <- decode-seal-keys)
-    (tickets-root       <- decode-tickets-root)
-    :result (make-safrole-state
-             :ticket-accumulator ticket-accumulator
-             :next-validators next-validators
-             :seal-keys seal-keys
-             :tickets-root tickets-root)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (ticket-accumulator (decode-ticket-accumulator octets pos))
+      (next-validators    (decode-next-validators octets pos))
+      (seal-keys          (decode-seal-keys octets pos))
+      (tickets-root       (decode-tickets-root octets pos))
+      (values
+       (make-safrole-state
+        :ticket-accumulator ticket-accumulator
+        :next-validators next-validators
+        :seal-keys seal-keys
+        :tickets-root tickets-root)
+       pos))))

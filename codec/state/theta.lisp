@@ -68,14 +68,17 @@
    
    Returns:
      (values accumulation-output new-position)"
-  (decode>> (octets position)
-    (service-id    <- decode-e4)
-    (output-data   <- decode-length-prefixed-sequence nil)  ; Blob
-    (gas-consumed  <- decode-e8)
-    :result (make-accumulation-output
-             :service-id service-id
-             :output-data output-data
-             :gas-consumed gas-consumed)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (service-id    (decode-e4 octets pos))
+      (output-data   (decode-length-prefixed-sequence octets nil pos))  ; Blob
+      (gas-consumed  (decode-e8 octets pos))
+      (values
+       (make-accumulation-output
+        :service-id service-id
+        :output-data output-data
+        :gas-consumed gas-consumed)
+       pos))))
 
 (defun decode-accumulation-outputs (octets position)
   "Decode the full accumulation outputs θ.

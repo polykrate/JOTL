@@ -65,14 +65,17 @@
    
    Returns:
      (values validator-keys new-position)"
-  (decode>> (octets position)
-    (bandersnatch <- decode-hash)
-    (ed25519      <- decode-hash)
-    (bls          <- decode-optional #'decode-hash)
-    :result (make-validator-keys
-             :bandersnatch bandersnatch
-             :ed25519 ed25519
-             :bls bls)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (bandersnatch (decode-hash octets pos))
+      (ed25519      (decode-hash octets pos))
+      (bls          (decode-optional octets pos #'decode-hash))
+      (values
+       (make-validator-keys
+        :bandersnatch bandersnatch
+        :ed25519 ed25519
+        :bls bls)
+       pos))))
 
 (defun decode-current-validators (octets position)
   "Decode the full current validators set κ.

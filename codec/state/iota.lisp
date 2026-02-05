@@ -68,16 +68,19 @@
    
    Returns:
      (values validator-queue-entry new-position)"
-  (decode>> (octets position)
-    (bandersnatch <- decode-hash)
-    (ed25519      <- decode-hash)
-    (bls          <- decode-optional #'decode-hash)
-    (deposit      <- decode-e8)
-    :result (make-validator-queue-entry
-             :bandersnatch bandersnatch
-             :ed25519 ed25519
-             :bls bls
-             :deposit deposit)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (bandersnatch (decode-hash octets pos))
+      (ed25519      (decode-hash octets pos))
+      (bls          (decode-optional octets pos #'decode-hash))
+      (deposit      (decode-e8 octets pos))
+      (values
+       (make-validator-queue-entry
+        :bandersnatch bandersnatch
+        :ed25519 ed25519
+        :bls bls
+        :deposit deposit)
+       pos))))
 
 (defun decode-validator-queue (octets position)
   "Decode the full validator queue ι.

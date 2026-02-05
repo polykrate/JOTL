@@ -51,12 +51,15 @@
    
    Returns:
      (values recent-blocks-info new-position)"
-  (decode>> (octets position)
-    (block-headers <- decode-length-prefixed-sequence #'decode-hash)
-    (timeslots     <- decode-length-prefixed-sequence #'decode-e4)
-    :result (make-recent-blocks-info
-             :block-headers block-headers
-             :timeslots timeslots)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (block-headers (decode-length-prefixed-sequence octets #'decode-hash pos))
+      (timeslots     (decode-length-prefixed-sequence octets #'decode-e4 pos))
+      (values
+       (make-recent-blocks-info
+        :block-headers block-headers
+        :timeslots timeslots)
+       pos))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; βB - MERKLE MOUNTAIN BELT (equations 7.3, 7.7)
@@ -88,12 +91,15 @@
    
    Returns:
      (values merkle-mountain-belt new-position)"
-  (decode>> (octets position)
-    (peaks        <- decode-length-prefixed-sequence #'decode-hash)
-    (leaves-count <- decode-natural)
-    :result (make-merkle-mountain-belt
-             :peaks peaks
-             :leaves-count leaves-count)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (peaks        (decode-length-prefixed-sequence octets #'decode-hash pos))
+      (leaves-count (decode-natural octets pos))
+      (values
+       (make-merkle-mountain-belt
+        :peaks peaks
+        :leaves-count leaves-count)
+       pos))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; β - COMPOSITE RECENT BLOCKS (equation 7.1)
@@ -124,9 +130,12 @@
    
    Returns:
      (values recent-blocks new-position)"
-  (decode>> (octets position)
-    (info        <- decode-recent-blocks-info)
-    (merkle-belt <- decode-merkle-mountain-belt)
-    :result (make-recent-blocks
-             :info info
-             :merkle-belt merkle-belt)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (info        (decode-recent-blocks-info octets pos))
+      (merkle-belt (decode-merkle-mountain-belt octets pos))
+      (values
+       (make-recent-blocks
+        :info info
+        :merkle-belt merkle-belt)
+       pos))))

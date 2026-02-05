@@ -176,13 +176,16 @@
    
    Returns:
      (values judgements new-position)"
-  (decode>> (octets position)
-    (incorrect-reports     <- decode-incorrect-reports)
-    (correct-reports       <- decode-correct-reports)
-    (unknowable-reports    <- decode-unknowable-reports)
-    (offending-validators  <- decode-offending-validators)
-    :result (make-judgements
-             :incorrect-reports incorrect-reports
-             :correct-reports correct-reports
-             :unknowable-reports unknowable-reports
-             :offending-validators offending-validators)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (incorrect-reports     (decode-incorrect-reports octets pos))
+      (correct-reports       (decode-correct-reports octets pos))
+      (unknowable-reports    (decode-unknowable-reports octets pos))
+      (offending-validators  (decode-offending-validators octets pos))
+      (values
+       (make-judgements
+        :incorrect-reports incorrect-reports
+        :correct-reports correct-reports
+        :unknowable-reports unknowable-reports
+        :offending-validators offending-validators)
+       pos))))

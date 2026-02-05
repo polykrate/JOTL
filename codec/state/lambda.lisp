@@ -66,16 +66,19 @@
    
    Returns:
      (values archived-validator new-position)"
-  (decode>> (octets position)
-    (epoch            <- decode-natural)
-    (validator-index  <- decode-natural)
-    (bandersnatch     <- decode-hash)
-    (ed25519          <- decode-hash)
-    :result (make-archived-validator
-             :epoch epoch
-             :validator-index validator-index
-             :bandersnatch bandersnatch
-             :ed25519 ed25519)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (epoch            (decode-natural octets pos))
+      (validator-index  (decode-natural octets pos))
+      (bandersnatch     (decode-hash octets pos))
+      (ed25519          (decode-hash octets pos))
+      (values
+       (make-archived-validator
+        :epoch epoch
+        :validator-index validator-index
+        :bandersnatch bandersnatch
+        :ed25519 ed25519)
+       pos))))
 
 (defun decode-archived-validators (octets position)
   "Decode the full archived validators set λ.

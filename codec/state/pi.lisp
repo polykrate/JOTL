@@ -68,18 +68,21 @@
    
    Returns:
      (values validator-stats new-position)"
-  (decode>> (octets position)
-    (validator-index   <- decode-natural)
-    (blocks-produced   <- decode-natural)
-    (votes-cast        <- decode-natural)
-    (slashes           <- decode-natural)
-    (rewards           <- decode-e8)
-    :result (make-validator-stats
-             :validator-index validator-index
-             :blocks-produced blocks-produced
-             :votes-cast votes-cast
-             :slashes slashes
-             :rewards rewards)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (validator-index   (decode-natural octets pos))
+      (blocks-produced   (decode-natural octets pos))
+      (votes-cast        (decode-natural octets pos))
+      (slashes           (decode-natural octets pos))
+      (rewards           (decode-e8 octets pos))
+      (values
+       (make-validator-stats
+        :validator-index validator-index
+        :blocks-produced blocks-produced
+        :votes-cast votes-cast
+        :slashes slashes
+        :rewards rewards)
+       pos))))
 
 (defun decode-validator-statistics (octets position)
   "Decode the full validator statistics π.

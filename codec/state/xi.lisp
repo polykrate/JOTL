@@ -64,12 +64,15 @@
    
    Returns:
      (values accumulated-package new-position)"
-  (decode>> (octets position)
-    (package-hash         <- decode-hash)
-    (accumulated-timeslot <- decode-e4)
-    :result (make-accumulated-package
-             :package-hash package-hash
-             :accumulated-timeslot accumulated-timeslot)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (package-hash         (decode-hash octets pos))
+      (accumulated-timeslot (decode-e4 octets pos))
+      (values
+       (make-accumulated-package
+        :package-hash package-hash
+        :accumulated-timeslot accumulated-timeslot)
+       pos))))
 
 (defun decode-accumulation-history (octets position)
   "Decode the full accumulation history ξ.

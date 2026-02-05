@@ -78,26 +78,29 @@
    
    Returns:
      (values service-account new-position)"
-  (decode>> (octets position)
-    (id                  <- decode-e4)
-    (code-hash           <- decode-hash)
-    (balance             <- decode-e8)
-    (gas-limit-accumulate <- decode-e8)
-    (gas-limit-refine    <- decode-e8)
-    (memory-pages        <- decode-natural)
-    (storage-lookup      <- decode-hash)
-    (preimage-lookup     <- decode-hash)
-    (threshold-balance   <- decode-e8)
-    :result (make-service-account
-             :id id
-             :code-hash code-hash
-             :balance balance
-             :gas-limit-accumulate gas-limit-accumulate
-             :gas-limit-refine gas-limit-refine
-             :memory-pages memory-pages
-             :storage-lookup storage-lookup
-             :preimage-lookup preimage-lookup
-             :threshold-balance threshold-balance)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (id                  (decode-e4 octets pos))
+      (code-hash           (decode-hash octets pos))
+      (balance             (decode-e8 octets pos))
+      (gas-limit-accumulate (decode-e8 octets pos))
+      (gas-limit-refine    (decode-e8 octets pos))
+      (memory-pages        (decode-natural octets pos))
+      (storage-lookup      (decode-hash octets pos))
+      (preimage-lookup     (decode-hash octets pos))
+      (threshold-balance   (decode-e8 octets pos))
+      (values
+       (make-service-account
+        :id id
+        :code-hash code-hash
+        :balance balance
+        :gas-limit-accumulate gas-limit-accumulate
+        :gas-limit-refine gas-limit-refine
+        :memory-pages memory-pages
+        :storage-lookup storage-lookup
+        :preimage-lookup preimage-lookup
+        :threshold-balance threshold-balance)
+       pos))))
 
 (defun decode-service-accounts (octets position)
   "Decode the full service accounts state δ.

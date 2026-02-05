@@ -67,14 +67,17 @@
    
    Returns:
      (values pending-accumulation new-position)"
-  (decode>> (octets position)
-    (report-hash <- decode-hash)
-    (service-id  <- decode-e4)
-    (results     <- decode-length-prefixed-sequence nil)  ; TODO: Decode work-results
-    :result (make-pending-accumulation
-             :report-hash report-hash
-             :service-id service-id
-             :results results)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (report-hash (decode-hash octets pos))
+      (service-id  (decode-e4 octets pos))
+      (results     (decode-length-prefixed-sequence octets nil pos))  ; TODO: Decode work-results
+      (values
+       (make-pending-accumulation
+        :report-hash report-hash
+        :service-id service-id
+        :results results)
+       pos))))
 
 (defun decode-accumulation-queue (octets position)
   "Decode the full accumulation queue ω.

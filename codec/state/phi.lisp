@@ -66,14 +66,17 @@
    
    Returns:
      (values authorization-queue-entry new-position)"
-  (decode>> (octets position)
-    (service-id <- decode-e4)
-    (code-hash  <- decode-hash)
-    (auth-pool  <- decode-hash)
-    :result (make-authorization-queue-entry
-             :service-id service-id
-             :code-hash code-hash
-             :auth-pool auth-pool)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (service-id (decode-e4 octets pos))
+      (code-hash  (decode-hash octets pos))
+      (auth-pool  (decode-hash octets pos))
+      (values
+       (make-authorization-queue-entry
+        :service-id service-id
+        :code-hash code-hash
+        :auth-pool auth-pool)
+       pos))))
 
 (defun decode-authorization-queue (octets position)
   "Decode the full authorization queue ϕ.

@@ -72,16 +72,19 @@
    
    Returns:
      (values pending-report new-position)"
-  (decode>> (octets position)
-    (core-index        <- decode-e2)
-    (report-hash       <- decode-hash)
-    (reported-timeslot <- decode-e4)
-    (availability-votes <- decode-length-prefixed-sequence nil)  ; Bitfield
-    :result (make-pending-report
-             :core-index core-index
-             :report-hash report-hash
-             :reported-timeslot reported-timeslot
-             :availability-votes availability-votes)))
+  (let ((pos position))
+    (decode>> (octets pos)
+      (core-index        (decode-e2 octets pos))
+      (report-hash       (decode-hash octets pos))
+      (reported-timeslot (decode-e4 octets pos))
+      (availability-votes (decode-length-prefixed-sequence octets nil pos))  ; Bitfield
+      (values
+       (make-pending-report
+        :core-index core-index
+        :report-hash report-hash
+        :reported-timeslot reported-timeslot
+        :availability-votes availability-votes)
+       pos))))
 
 (defun decode-pending-reports (octets position)
   "Decode the full pending reports state ρ.
