@@ -107,10 +107,17 @@
     ((eq value +empty+)
      (encode-empty))
     
-    ;; Octet sequence (list of integers 0-255) (C.2)
+    ;; Octet sequence as list (C.2: E(x ∈ B) ≡ x)
     ((and (listp value)
           (every (lambda (x) (and (integerp x) (<= 0 x 255))) value))
      (encode-octet-sequence value))
+    
+    ;; Octet sequence as vector/blob (C.2: E(x ∈ B) ≡ x)
+    ;; Blobs are octet sequences, they encode as themselves (identity)
+    ;; We convert to list for uniform representation
+    ((and (vectorp value)
+          (every (lambda (x) (and (integerp x) (<= 0 x 255))) value))
+     (coerce value 'list))
     
     ;; Tuple (nested list or explicitly marked)
     ((and (listp value) (not (null value)))

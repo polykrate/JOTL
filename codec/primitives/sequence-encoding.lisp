@@ -58,3 +58,47 @@
         (push element result)
         (incf pos consumed)
         (when count (decf count))))))
+
+(defun encode-length-prefixed-sequence (sequence)
+  "Encode a length-prefixed sequence.
+   Implements C.7 + C.6: ↕x where x is a sequence
+   E(↕x) = E(|x|) ⌢ E(x) = E(count) ⌢ E(elem0) ⌢ E(elem1) ⌢ ...
+   
+   Args:
+     sequence: List/vector of elements to encode
+   
+   Returns:
+     Length-prefixed encoded sequence
+   
+   Examples:
+     E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2"
+  (concat-octets (encode-natural (length sequence))
+                 (encode-sequence sequence)))
+
+(defun decode-length-prefixed-sequence (octets element-decoder &optional (start 0))
+  "Decode a length-prefixed sequence.
+   Implements C.7 + C.6: ↕x where x is a sequence
+   
+   First reads the count (number of elements), then decodes that many elements.
+   
+   Args:
+     octets: The octet sequence to decode from
+     element-decoder: Function (octets start) -> (values element bytes-consumed)
+     start: Starting position in octets
+   
+   Returns:
+     values: (decoded-sequence total-bytes-consumed)
+   
+   Examples:
+     Decode ↕[hash1, hash2] where each hash is 32 bytes:
+     [2, ...hash1 32bytes..., ...hash2 32bytes...]"
+  (multiple-value-bind (count count-bytes)
+      (decode-natural octets start)
+    (let ((pos (+ start count-bytes))
+          (result '()))
+      (dotimes (i count)
+        (multiple-value-bind (element consumed)
+            (funcall element-decoder octets pos)
+          (push element result)
+          (incf pos consumed)))
+      (values (nreverse result) (- pos start)))))

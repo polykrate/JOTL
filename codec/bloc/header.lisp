@@ -113,8 +113,9 @@
    ;; HV : VRF signature
    (blob-to-list (header-vrf-signature header))
    
-   ;; ↕HO : length-prefixed offenders
-   (encode-with-length (header-offenders header))))
+   ;; ↕HO : length-prefixed offenders sequence
+   ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each)
+   (encode-length-prefixed-sequence (header-offenders header))))
 
 
 (defun decode-header (octets &optional (start 0) (num-validators 6))
@@ -179,9 +180,13 @@
                       (let ((vrf-signature (list-to-blob (subseq octets pos (+ pos 96)))))
                         (incf pos 96)
                         
-                        ;; ↕HO : length-prefixed offenders
+                        ;; ↕HO : length-prefixed offenders sequence
+                        ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each)
                         (multiple-value-bind (offenders offenders-consumed)
-                            (decode-with-length octets pos)
+                            (decode-length-prefixed-sequence 
+                             octets
+                             (lambda (o s) (values (list-to-blob (subseq o s (+ s 32))) 32))
+                             pos)
                           (incf pos offenders-consumed)
                           
                           ;; HS : block seal (96 bytes)

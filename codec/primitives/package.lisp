@@ -22,6 +22,8 @@
    ;; Sequence encoding (C.6)
    #:encode-sequence
    #:decode-sequence
+   #:encode-length-prefixed-sequence
+   #:decode-length-prefixed-sequence
    
    ;; Discriminator encoding (C.7-C.8)
    #:encode-with-length
