@@ -25,87 +25,114 @@
    #:list-to-blob
    #:blob-to-list
    
+   ;; Configuration
+   #:chainspec
+   #:make-chainspec
+   #:chainspec-name
+   #:chainspec-num-validators
+   #:chainspec-num-cores
+   #:*tiny-chainspec*
+   #:*full-chainspec*
+   #:*chainspec*
+   #:set-chainspec
+   #:num-validators
+   
    ;; Block structure (4.2)
-   #:jam-block
-   #:make-jam-block
-   #:jam-block-header
-   #:jam-block-extrinsic
+   #:chain-block
+   #:make-chain-block
+   #:chain-block-header
+   #:chain-block-extrinsic
    
    ;; Extrinsic data (4.3)
-   #:jam-extrinsic
-   #:make-jam-extrinsic
-   #:jam-extrinsic-tickets
-   #:jam-extrinsic-disputes
-   #:jam-extrinsic-preimages
-   #:jam-extrinsic-availability
-   #:jam-extrinsic-reports
+   #:extrinsic
+   #:make-extrinsic
+   #:extrinsic-tickets
+   #:extrinsic-disputes
+   #:extrinsic-preimages
+   #:extrinsic-availability
+   #:extrinsic-reports
    
    ;; Header
-   #:jam-header
-   #:make-jam-header
-   #:jam-header-parent-hash
-   #:jam-header-prior-state-root
-   #:jam-header-extrinsic-hash
-   #:jam-header-timeslot
-   #:jam-header-epoch-marker
-   #:jam-header-winning-tickets
-   #:jam-header-offenders
-   #:jam-header-author-index
-   #:jam-header-vrf-signature
-   #:jam-header-seal
-   #:encode-jam-header
-   #:encode-jam-header-unsigned
-   #:decode-jam-header
+   #:header
+   #:make-header
+   #:header-parent-hash
+   #:header-prior-state-root
+   #:header-extrinsic-hash
+   #:header-timeslot
+   #:header-epoch-marker
+   #:header-winning-tickets
+   #:header-offenders
+   #:header-author-index
+   #:header-vrf-signature
+   #:header-seal
+   #:encode-header
+   #:encode-header-unsigned
+   #:decode-header
+   
+   ;; Epoch Marker
+   #:validator
+   #:make-validator
+   #:validator-bandersnatch
+   #:validator-ed25519
+   #:epoch-marker
+   #:make-epoch-marker
+   #:epoch-marker-entropy
+   #:epoch-marker-tickets-entropy
+   #:epoch-marker-validators
+   #:encode-validator
+   #:decode-validator
+   #:encode-epoch-marker
+   #:decode-epoch-marker
    
    ;; Tickets
-   #:jam-ticket
-   #:make-jam-ticket
-   #:jam-ticket-id
-   #:jam-ticket-entry-index
+   #:ticket
+   #:make-ticket
+   #:ticket-identifier
+   #:ticket-entry-index
    #:encode-tickets
    #:decode-tickets
    
    ;; Preimages
-   #:jam-preimage
-   #:make-jam-preimage
-   #:jam-preimage-service-id
-   #:jam-preimage-data
+   #:preimage
+   #:make-preimage
+   #:preimage-service-id
+   #:preimage-data
    #:encode-preimages
    #:decode-preimages
    
    ;; Reports
-   #:jam-report
-   #:make-jam-report
-   #:jam-report-report-data
-   #:jam-report-timeslot
-   #:jam-report-assurances
+   #:report
+   #:make-report
+   #:report-report-data
+   #:report-timeslot
+   #:report-assurances
    #:encode-reports
    #:decode-reports
    
    ;; Availability
-   #:jam-availability-assurance
-   #:make-jam-availability-assurance
-   #:jam-availability-assurance-assurance-a
-   #:jam-availability-assurance-component-f
-   #:jam-availability-assurance-validator-index
-   #:jam-availability-assurance-signature
+   #:availability-assurance
+   #:make-availability-assurance
+   #:availability-assurance-assurance-a
+   #:availability-assurance-component-f
+   #:availability-assurance-validator-index
+   #:availability-assurance-signature
    #:encode-availability
    #:decode-availability
    
    ;; Disputes
-   #:jam-disputes
-   #:make-jam-disputes
-   #:jam-disputes-verdicts
-   #:jam-disputes-culprits
-   #:jam-disputes-faults
-   #:jam-verdict-entry
-   #:make-jam-verdict-entry
-   #:jam-verdict-entry-report-data
-   #:jam-verdict-entry-component-a
-   #:jam-verdict-entry-judgments
+   #:disputes
+   #:make-disputes
+   #:disputes-verdicts
+   #:disputes-culprits
+   #:disputes-faults
+   #:verdict-entry
+   #:make-verdict-entry
+   #:verdict-entry-report-data
+   #:verdict-entry-component-a
+   #:verdict-entry-judgments
    #:encode-disputes
    #:decode-disputes
    
    ;; Encoding/Decoding
-   #:encode-jam-block
-   #:decode-jam-block))
+   #:encode-chain-block
+   #:decode-chain-block))

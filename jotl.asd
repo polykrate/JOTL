@@ -25,15 +25,17 @@
                               :components ())
                              (:module "bloc"
                               :serial t
-                              :components ((:file "package")
-                                           (:file "types")
-                                           (:file "header")
-                                           (:file "tickets")
-                                           (:file "disputes")
-                                           (:file "preimages")
-                                           (:file "availability")
-                                           (:file "reports")
-                                           (:file "block")))))
+                              :components (               (:file "package")
+               (:file "types")
+               (:file "config")
+               (:file "header")
+               (:file "epoch")
+               (:file "tickets")
+               (:file "disputes")
+               (:file "preimages")
+               (:file "availability")
+               (:file "reports")
+               (:file "block")))))
                (:module "STF"
                 :serial t
                 :components ())))

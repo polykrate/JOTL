@@ -10,7 +10,7 @@
 ;;; Assurances by each validator concerning which of the input data
 ;;; of workloads they have correctly received and are storing locally.
 
-(defstruct jam-availability-assurance
+(defstruct availability-assurance
   "An availability assurance (a, f, v, s).
    
    Indicates that a validator has correctly received and is storing
@@ -40,16 +40,16 @@
    Graypaper Appendix C.20: EA(EA) = E(↕[(a, f, E2(v), s) | (a,f,v,s) ∈ EA])
    
    Args:
-     availability: List of jam-availability-assurance structures
+     availability: List of availability-assurance structures
    
    Returns:
      Encoded octet sequence"
   (let ((encoded-assurances
          (mapcar (lambda (assurance)
-                   (let ((a (jam-availability-assurance-assurance-a assurance))
-                         (f (jam-availability-assurance-component-f assurance))
-                         (v (jam-availability-assurance-validator-index assurance))
-                         (s (jam-availability-assurance-signature assurance)))
+                   (let ((a (availability-assurance-assurance-a assurance))
+                         (f (availability-assurance-component-f assurance))
+                         (v (availability-assurance-validator-index assurance))
+                         (s (availability-assurance-signature assurance)))
                      ;; (a, f, E2(v), s)
                      (concat-octets (encode a)
                                     (encode f)
@@ -109,7 +109,7 @@
                     (incf pos s-consumed)
                     
                     ;; Create assurance
-                    (push (make-jam-availability-assurance
+                    (push (make-availability-assurance
                            :assurance-a a
                            :component-f f
                            :validator-index v

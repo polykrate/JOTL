@@ -10,7 +10,7 @@
 ;;; Reports of newly completed workloads whose accuracy is guaranteed
 ;;; by specific validators.
 
-(defstruct jam-report
+(defstruct report
   "A workload completion report (r, t, a).
    
    Reports newly completed workloads, with accuracy guaranteed
@@ -23,7 +23,7 @@
   (timeslot nil :type (or null natural))  ; t
   (assurances nil :type list))         ; a: list of (v, s) pairs
 
-(deftype jam-reports ()
+(deftype reports ()
   "Sequence of reports/guarantees (EG)"
   'list)
 
@@ -39,15 +39,15 @@
    Graypaper Appendix C.19: EC(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v,s) ∈ a]) | (r,t,a) ∈ EG])
    
    Args:
-     reports: List of jam-report structures
+     reports: List of report structures
    
    Returns:
      Encoded octet sequence"
   (let ((encoded-reports
          (mapcar (lambda (report)
-                   (let* ((r (jam-report-report-data report))
-                          (t-val (jam-report-timeslot report))
-                          (a (jam-report-assurances report))
+                   (let* ((r (report-report-data report))
+                          (t-val (report-timeslot report))
+                          (a (report-assurances report))
                           ;; ↕[(E2(v), s) | (v,s) ∈ a]
                           (encoded-assurances
                            (mapcar (lambda (assurance)
@@ -125,7 +125,7 @@
                           (push (cons v s) assurances))))
                     
                     ;; Create report
-                    (push (make-jam-report
+                    (push (make-report
                            :report-data r
                            :timeslot timeslot
                            :assurances (nreverse assurances))

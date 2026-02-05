@@ -18,7 +18,7 @@
 ;;; - y ∈ H: verifiably random ticket identifier (hash, 32 bytes)
 ;;; - e ∈ NN: ticket's entry-index (natural number)
 
-(defstruct jam-ticket
+(defstruct ticket
   "A ticket for validator selection.
    
    Graypaper Equation 6.6: T ≡ {y ∈ H, e ∈ NN}
@@ -32,7 +32,7 @@
   ;; e ∈ NN : entry-index (natural number)
   (entry-index nil :type (or null natural)))
 
-(deftype jam-tickets ()
+(deftype tickets ()
   "Sequence of tickets (ET)"
   'list)
 
@@ -54,14 +54,14 @@
    E(T) = y ⌢ E(e)
    
    Args:
-     tickets: List of jam-ticket structures
+     tickets: List of ticket structures
    
    Returns:
      Encoded octet sequence"
   (let ((encoded-tickets
          (mapcar (lambda (ticket)
-                   (let ((y (jam-ticket-identifier ticket))
-                         (e (jam-ticket-entry-index ticket)))
+                   (let ((y (ticket-identifier ticket))
+                         (e (ticket-entry-index ticket)))
                      ;; E(y, e) = y ⌢ E(e)
                      ;; y is H (32 bytes) with identity encoding
                      ;; e is natural, encoded with encode-natural
@@ -84,7 +84,7 @@
      start: Starting position
    
    Returns:
-     values: (list-of-jam-ticket bytes-consumed)"
+     values: (list-of-ticket bytes-consumed)"
   ;; First, decode the length prefix
   (multiple-value-bind (total-length length-bytes)
       (decode-natural octets start)
@@ -101,7 +101,7 @@
               (decode-natural octets pos)
             (incf pos e-consumed)
             ;; Create ticket structure
-            (push (make-jam-ticket :identifier y
+            (push (make-ticket :identifier y
                                    :entry-index e)
                   tickets))))
       (values (nreverse tickets) (+ length-bytes total-length)))))

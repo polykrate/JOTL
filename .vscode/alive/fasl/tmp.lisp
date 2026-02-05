@@ -11,7 +11,7 @@
 ;;;
 ;;; Graypaper Section 4.2: The Block (extrinsic data component)
 
-(defstruct jam-preimage
+(defstruct preimage
   "A preimage entry (s, d).
    
    Static data that is made available for workloads to fetch on demand.
@@ -21,7 +21,7 @@
   (service-id nil :type (or null natural))  ; s ∈ N
   (data nil :type (or null blob)))          ; d ∈ B
 
-(deftype jam-preimages ()
+(deftype preimages ()
   "Sequence of preimages (EP)"
   'list)
 
@@ -38,17 +38,17 @@
    Graypaper Appendix C.18: EP(EP) = E(↕[(E4(s), ↕d) | (s,d) ∈ EP])
    
    Args:
-     preimages: List of jam-preimage structures or (service-id . data) pairs
+     preimages: List of preimage structures or (service-id . data) pairs
    
    Returns:
      Encoded octet sequence"
   (let ((encoded-pairs
          (mapcar (lambda (preimage)
-                   (let ((s (if (jam-preimage-p preimage)
-                               (jam-preimage-service-id preimage)
+                   (let ((s (if (preimage-p preimage)
+                               (preimage-service-id preimage)
                                (car preimage)))
-                         (d (if (jam-preimage-p preimage)
-                               (jam-preimage-data preimage)
+                         (d (if (preimage-p preimage)
+                               (preimage-data preimage)
                                (cdr preimage))))
                     ;; E4(s), ↕d
                     ;; Convert blob to list if needed
@@ -90,7 +90,7 @@
               (decode-with-length octets pos)
             (incf pos data-consumed)
             ;; Create preimage structure
-            (push (make-jam-preimage :service-id service-id
+            (push (make-preimage :service-id service-id
                                      :data (list-to-blob data))
                   preimages))))
       (values (nreverse preimages) (+ length-bytes total-length)))))

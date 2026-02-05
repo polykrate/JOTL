@@ -14,16 +14,16 @@
 ;;; - H: Header (metadata and cryptographic references)
 ;;; - E: Extrinsic data (external input data)
 
-(defstruct jam-block
+(defstruct chain-block
   "JAM Block structure.
    
    Graypaper Equation 4.2: B ≡ (H, E)
    - H: Header (immutable, known a priori)
    - E: Extrinsic data (external to the system)"
-  (header nil :type (or null jam-header))
-  (extrinsic nil :type (or null jam-extrinsic)))
+  (header nil :type (or null header))
+  (extrinsic nil :type (or null extrinsic)))
 
-(defstruct jam-extrinsic
+(defstruct extrinsic
   "Extrinsic data structure.
    
    Graypaper Equation 4.3: E ≡ (ET, ED, EP, EA, EG)
@@ -33,7 +33,7 @@
    - EA: Availability (assurances of received data)
    - EG: Reports (guarantees of completed workloads)"
   (tickets nil :type list)            ; ET
-  (disputes nil :type (or null jam-disputes))  ; ED
+  (disputes nil :type (or null disputes))  ; ED
   (preimages nil :type list)          ; EP
   (availability nil :type list)       ; EA
   (reports nil :type list))           ; EG
@@ -45,7 +45,7 @@
 ;;;
 ;;; Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
 
-(defun encode-jam-block (block)
+(defun encode-chain-block (block)
   "Encode a JAM block.
    
    Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
@@ -55,21 +55,21 @@
    
    Returns:
      Encoded octet sequence"
-  (let* ((header (jam-block-header block))
-         (extrinsic (jam-block-extrinsic block))
-         (et (jam-extrinsic-tickets extrinsic))
-         (ep (jam-extrinsic-preimages extrinsic))
-         (eg (jam-extrinsic-reports extrinsic))
-         (ea (jam-extrinsic-availability extrinsic))
-         (ed (jam-extrinsic-disputes extrinsic)))
-    (concat-octets (encode-jam-header header)
+  (let* ((header (chain-block-header block))
+         (extrinsic (chain-block-extrinsic block))
+         (et (extrinsic-tickets extrinsic))
+         (ep (extrinsic-preimages extrinsic))
+         (eg (extrinsic-reports extrinsic))
+         (ea (extrinsic-availability extrinsic))
+         (ed (extrinsic-disputes extrinsic)))
+    (concat-octets (encode-header header)
                    (encode-tickets et)
                    (encode-preimages ep)
                    (encode-reports eg)
                    (encode-availability ea)
                    (encode-disputes ed))))
 
-(defun decode-jam-block (octets &optional (start 0))
+(defun decode-chain-block (octets &optional (start 0))
   "Decode a JAM block from octets.
    
    Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
@@ -83,7 +83,7 @@
   (let ((pos start))
     ;; H : Header
     (multiple-value-bind (header header-consumed)
-        (decode-jam-header octets pos)
+        (decode-header octets pos)
       (incf pos header-consumed)
       
       ;; ET(ET) : Tickets
@@ -113,9 +113,9 @@
                 
                 ;; Construct the block
                 (values
-                 (make-jam-block
+                 (make-chain-block
                   :header header
-                  :extrinsic (make-jam-extrinsic
+                  :extrinsic (make-extrinsic
                               :tickets tickets
                               :disputes disputes
                               :preimages preimages

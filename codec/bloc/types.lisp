@@ -84,3 +84,31 @@
 (defun blob-to-list (blob)
   "Convert blob (vector) to list of octets"
   (coerce blob 'list))
+
+;;; Validator structures
+;;;
+;;; Graypaper Section 5.10, 6.1: Validator keys
+
+(defstruct validator
+  "Validator key pair.
+   
+   Each validator has two keys:
+   - bandersnatch: For block production and VRF (32 bytes)
+   - ed25519: For finalizing and disputes (32 bytes)"
+  (bandersnatch nil :type (or null blob))  ; 32 bytes
+  (ed25519 nil :type (or null blob)))      ; 32 bytes
+
+;;; Epoch Marker structure
+;;;
+;;; Graypaper Section 5.10: Epoch marker (HE)
+
+(defstruct epoch-marker
+  "Epoch marker (HE).
+   
+   Marks the beginning of a new epoch with new validator set.
+   - entropy: Randomness for the new epoch (32 bytes)
+   - tickets-entropy: Ticket-specific randomness (32 bytes)
+   - validators: List of validators for the epoch"
+  (entropy nil :type (or null blob))           ; 32 bytes (H)
+  (tickets-entropy nil :type (or null blob))   ; 32 bytes (H)
+  (validators nil :type list))                 ; list of validator

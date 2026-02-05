@@ -10,7 +10,7 @@
 ;;; Information relating to disputes between validators
 ;;; over the validity of reports.
 
-(defstruct jam-disputes
+(defstruct disputes
   "Disputes structure (v, c, f).
    
    Contains information about disputes between validators
@@ -23,7 +23,7 @@
   (culprits nil :type list)   ; c
   (faults nil :type list))    ; f
 
-(defstruct jam-verdict-entry
+(defstruct verdict-entry
   "A verdict entry (r, a, j).
    - r: report data
    - a: encoded on 4 octets
@@ -46,19 +46,19 @@
    Graypaper Appendix C.21: ED((v, c, f)) = E(↕[...], ↕c, ↕f)
    
    Args:
-     disputes: A jam-disputes structure
+     disputes: A disputes structure
    
    Returns:
      Encoded octet sequence"
-  (let* ((v (jam-disputes-verdicts disputes))
-         (c (jam-disputes-culprits disputes))
-         (f (jam-disputes-faults disputes))
+  (let* ((v (disputes-verdicts disputes))
+         (c (disputes-culprits disputes))
+         (f (disputes-faults disputes))
          ;; Encode verdicts: ↕[(r, E4(a), [(v, E2(i), s) | ...]) | ...]
          (encoded-verdicts
           (mapcar (lambda (verdict)
-                    (let* ((r (jam-verdict-entry-report-data verdict))
-                           (a (jam-verdict-entry-component-a verdict))
-                           (j (jam-verdict-entry-judgments verdict))
+                    (let* ((r (verdict-entry-report-data verdict))
+                           (a (verdict-entry-component-a verdict))
+                           (j (verdict-entry-judgments verdict))
                            ;; [(v, E2(i), s) | (v,i,s) ∈ j]
                            (encoded-judgments
                             (mapcar (lambda (judgment)
@@ -91,7 +91,7 @@
      start: Starting position
    
    Returns:
-     values: (jam-disputes bytes-consumed)"
+     values: (disputes bytes-consumed)"
   (let ((pos start))
     ;; ↕verdicts : length-prefixed sequence of verdict entries
     (multiple-value-bind (verdicts-length verdicts-length-bytes)
@@ -142,7 +142,7 @@
                           (push (list v i s) judgments)))))
                   
                   ;; Create verdict entry
-                  (push (make-jam-verdict-entry
+                  (push (make-verdict-entry
                          :report-data r
                          :component-a a
                          :judgments (nreverse judgments))
@@ -160,7 +160,7 @@
             
             ;; Create disputes structure
             (values
-             (make-jam-disputes
+             (make-disputes
               :verdicts (nreverse verdicts)
               :culprits culprits
               :faults faults)
