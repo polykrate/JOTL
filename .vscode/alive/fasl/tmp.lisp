@@ -1,94 +1,95 @@
-;;;; discriminator-encoding.lisp
-;;;; Discriminator Encoding for JAM codec primitives
-;;;; Implements C.7-C.8 from graypaper
+;;;; sequence-encoding.lisp
+;;;; Sequence Encoding for JAM codec primitives
+;;;; Implements C.6 from graypaper
 
 (in-package :jotl-codec)
 
-;;; C.1.3. Discriminator Encoding
-;;;
-;;; When we have sets of heterogeneous items (union of different kinds of tuples
-;;; or sequences of different length), we require a discriminator to determine
-;;; the nature of the encoded item for successful deserialization.
+;;; C.6: E([i0, i1, ...]) ≡ E(i0) ⌢ E(i1) ⌢ ...
+;;; Simply concatenate serializations of each element in sequence
 
-;;; C.7: Length discriminator ↕x
-;;; ↕x ≡ (|x|, x) thus E(↕x) ≡ E(|x|) ⌢ E(x)
-;;;
-;;; We generally use a length discriminator when serializing sequence terms
-;;; which have variable length (e.g. general blobs B or unbound numeric
-;;; sequences ⟦N⟧), though this is omitted for fixed-length terms (e.g. hashes H).
-
-(defun encode-with-length (value)
-  "Encode a value prefixed with its length discriminator.
-   Implements C.7: ↕x ≡ (|x|, x) thus E(↕x) ≡ E(|x|) ⌢ E(x)
+(defun encode-sequence (sequence)
+  "Encode a sequence by concatenating the encoding of each element.
+   Implements C.6: E([i0, i1, ...]) ≡ E(i0) ⌢ E(i1) ⌢ ...
    
-   The notation ↕x means the term of value x is variable in size and
-   requires a length discriminator.
-   
-   For some term y ∈ (x ∈ B, ...), we would generally define its
-   serialized form to be E(|x|) ⌢ E(x) ⌢ ...
+   Note: Fixed-length octet sequences (e.g. hashes H) have identity serialization
+   because they are already octet sequences and C.2 applies: E(x ∈ B) ≡ x
    
    Args:
-     value: The value to encode (typically a sequence/blob)
+     sequence: List/vector of values to encode
    
    Returns:
-     Length-prefixed encoding: E(|value|) ⌢ E(value)
+     Concatenated octet sequence
    
    Examples:
-     E(↕[1,2,3]) = E(3) ⌢ E([1,2,3]) = [3, 1, 2, 3]
-     E(↕[]) = E(0) ⌢ [] = [0]"
-  (let ((encoded-value (encode value)))
-    (concat-octets (encode-natural (length encoded-value))
-                   encoded-value)))
+     E([]) = []
+     E([0, 1, 255]) = [0] ⌢ [1] ⌢ [128, 255] = [0, 1, 128, 255]
+     E([hash32bytes]) = hash32bytes (identity for fixed-length octets)"
+  (if (null sequence)
+      '()
+      (apply #'concat-octets
+             (mapcar #'encode sequence))))
 
-(defun decode-with-length (octets &optional (start 0))
-  "Decode a length-prefixed value.
-   Returns (values decoded-value total-bytes-consumed)
+(defun decode-sequence (octets element-decoder &optional count)
+  "Decode a sequence from octets.
+   
+   Since sequences are just concatenated encodings without length prefix,
+   you need to either:
+   - Know the number of elements (count parameter)
+   - Have element-decoder that can determine element boundaries
    
    Args:
-     octets: The octet sequence to decode from
-     start: Starting position in octets
+     octets: The octet sequence to decode
+     element-decoder: Function (octets start) -> (values element bytes-consumed)
+     count: Optional number of elements to decode (if nil, decode until exhausted)
    
    Returns:
-     values: (decoded-value bytes-consumed)"
-  (multiple-value-bind (length length-bytes)
-      (decode-natural octets start)
-    (let* ((value-start (+ start length-bytes))
-           (value-octets (subseq octets value-start (+ value-start length))))
-      (values value-octets (+ length-bytes length)))))
-
-;;; C.8: Optional discriminator ¿x
-;;; For terms defined by some serializable set in union with ∅
-;;; (generally denoted for some set S as S?):
-;;;
-;;;   ¿x ≡ 0       if x = ∅
-;;;   ¿x ≡ (1, x)  otherwise
-
-(defun encode-optional (value)
-  "Encode an optional value (S?).
-   Implements C.8: ¿x
+     List of decoded elements
    
-   Convenient discriminator operator specifically for terms defined by
-   some serializable set in union with ∅ (denoted S?).
-   
-   - If x = ∅ → encode as 0
-   - Otherwise → encode as (1, x)
+   Example:
+     (decode-sequence '(0 1 127) #'decode-natural 3) => (0 1 127)"
+  (let ((result '())
+        (pos 0))
+    (loop
+      (when (or (>= pos (length octets))
+                (and count (<= count 0)))
+        (return (nreverse result)))
+      (multiple-value-bind (element consumed)
+          (funcall element-decoder octets pos)
+        (push element result)
+        (incf pos consumed)
+        (when count (decf count))))))
+
+(defun encode-length-prefixed-sequence (sequence &key (pre-encoded nil))
+  "Encode a length-prefixed sequence.
+   Implements C.7 + C.6: ↕x where x is a sequence
+   E(↕x) = E(|x|) ⌢ E(x) = E(count) ⌢ E(elem0) ⌢ E(elem1) ⌢ ...
    
    Args:
-     value: The value to encode (or +empty+ for ∅)
+     sequence: List/vector of elements
+     pre-encoded: If t, elements are already encoded (lists of octets),
+                  just concatenate them. If nil, encode each element first.
    
    Returns:
-     Discriminated encoding
+     Length-prefixed encoded sequence
    
    Examples:
-     E(¿∅) = [0]
-     E(¿42) = E(1, 42) = [1, 42]"
-  (if (eq value +empty+)
-      (encode-natural 0)
-      (concat-octets (encode-natural 1)
-                     (encode value))))
+     E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2
+     
+   Note: Use pre-encoded=t when elements are already encoded to avoid
+         double-encoding (which would flatten nested lists incorrectly)."
+  (concat-octets 
+   (encode-natural (length sequence))
+   (if pre-encoded
+       ;; Elements are already encoded, just concatenate
+       (apply #'concat-octets sequence)
+       ;; Elements need encoding first
+       (encode-sequence sequence))))
 
-(defun decode-optional (octets element-decoder &optional (start 0))
-  "Decode an optional value.
+(defun decode-length-prefixed-sequence (octets element-decoder &optional (start 0))
+  "Decode a length-prefixed sequence.
+   Implements C.7 + C.6: ↕x where x is a sequence
+   
+   First reads the count (number of elements), then decodes that many elements.
    
    Args:
      octets: The octet sequence to decode from
@@ -96,44 +97,18 @@
      start: Starting position in octets
    
    Returns:
-     values: (value bytes-consumed) where value is +empty+ or the decoded element
+     values: (decoded-sequence total-bytes-consumed)
    
    Examples:
-     (decode-optional '(0) ...) => (values +empty+ 1)
-     (decode-optional '(1 42) #'decode-natural) => (values 42 2)"
-  (multiple-value-bind (discriminator disc-bytes)
+     Decode ↕[hash1, hash2] where each hash is 32 bytes:
+     [2, ...hash1 32bytes..., ...hash2 32bytes...]"
+  (multiple-value-bind (count count-bytes)
       (decode-natural octets start)
-    (if (zerop discriminator)
-        (values +empty+ disc-bytes)
-        (multiple-value-bind (element elem-bytes)
-            (funcall element-decoder octets (+ start disc-bytes))
-          (values element (+ disc-bytes elem-bytes))))))
-
-;;; Generic discriminator encoding
-;;; For tagged unions/variants beyond just optional
-
-(defun encode-discriminated (tag value)
-  "Encode a value with a discriminator tag.
-   General form: E(tag) ⌢ E(value)
-   
-   Used for tagged unions/variants where tag indicates which variant.
-   
-   Args:
-     tag: Natural number indicating the variant type
-     value: The value to encode
-   
-   Returns:
-     E(tag) ⌢ E(value)
-   
-   Example:
-     encode-discriminated(2, data) for variant #2"
-  (concat-octets (encode-natural tag)
-                 (encode value)))
-
-(defun decode-discriminator (octets &optional (start 0))
-  "Decode a discriminator tag from octets.
-   
-   Returns (values tag bytes-consumed)
-   
-   This is just an alias for decode-natural but with clearer semantics."
-  (decode-natural octets start))
+    (let ((pos (+ start count-bytes))
+          (result '()))
+      (dotimes (i count)
+        (multiple-value-bind (element consumed)
+            (funcall element-decoder octets pos)
+          (push element result)
+          (incf pos consumed)))
+      (values (nreverse result) (- pos start)))))

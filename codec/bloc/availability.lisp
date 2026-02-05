@@ -30,14 +30,14 @@
   (let ((encoded-assurances
          (mapcar (lambda (assurance)
                    (concat-octets
-                    ;; a : assurance anchor (blob, length-prefixed)
-                    (encode-with-length (availability-assurance-assurance-a assurance))
-                    ;; f : flags (blob, length-prefixed)
+                    ;; a : assurance anchor (FIXED 32 bytes hash!)
+                    (availability-assurance-assurance-a assurance)
+                    ;; f : flags (length-prefixed bitfield)
                     (encode-with-length (availability-assurance-flags assurance))
                     ;; E2(v) : validator index (2 bytes)
                     (e2 (availability-assurance-validator-index assurance))
-                    ;; s : signature (blob, length-prefixed)
-                    (encode-with-length (availability-assurance-signature assurance))))
+                    ;; s : signature (FIXED 64 bytes!)
+                    (availability-assurance-signature assurance)))
                  assurances)))
     ;; ↕[...] : length-prefixed sequence of pre-encoded elements
     (encode-length-prefixed-sequence encoded-assurances :pre-encoded t)))
@@ -58,14 +58,14 @@
    (lambda (o s)
      (let ((pos s))
        (decode>> (o pos)
-         ;; a : assurance anchor (length-prefixed)
-         (assurance-a (decode-with-length o pos))
-         ;; f : flags (length-prefixed)
+         ;; a : assurance anchor (FIXED 32 bytes hash!)
+         (assurance-a (decode-hash o pos))
+         ;; f : flags (length-prefixed bitfield)
          (flags (decode-with-length o pos))
          ;; E2(v) : validator index (2 bytes)
          (validator-index (decode-e2 o pos))
-         ;; s : signature (length-prefixed)
-         (signature (decode-with-length o pos))
+         ;; s : signature (FIXED 64 bytes!)
+         (signature (decode-fixed-bytes o pos 64))
          
          (values
           (make-availability-assurance
