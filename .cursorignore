@@ -1,0 +1,20 @@
+# Cursor/LSP ignore file
+# Évite l'analyse statique de fichiers non-Lisp qui ralentissent le LSP
+
+# Test vectors (binaires + JSON volumineux)
+test/jamtestvectors/**/*.bin
+test/jamtestvectors/**/*.json
+
+# Cache SBCL
+**/*.fasl
+**/*-tmp*.fasl
+
+# Python scripts (pas de Lisp)
+**/*.py
+**/*.pyc
+__pycache__/
+
+# Documentation (pas de code)
+**/*.md
+!README.md
+!jotl.asd
