@@ -7,19 +7,14 @@
 (defpackage #:jotl-bloc
   (:use #:cl #:jotl-codec)
   (:import-from #:jotl-config
-                ;; Import config symbols for internal use only
-                ;; Users should use jotl-config:set-chainspec directly
-                #:chainspec
+                ;; Import only essential config symbols for internal use
+                ;; Use jotl-config:symbol-name for others to avoid conflicts
                 #:chainspec-p
                 #:chainspec-num-validators
                 #:chainspec-avail-bitfield-bytes
                 #:*chainspec*
                 #:*validators-super-majority*
-                #:validators-super-majority
-                #:num-validators
-                #:epoch-duration
-                #:slot-duration
-                #:max-tickets-per-extrinsic)
+                #:validators-super-majority)
   (:documentation "JAM block structures and serialization")
   (:export
    

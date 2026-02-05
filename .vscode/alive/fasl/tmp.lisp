@@ -1,94 +1,290 @@
-;;;; reports.lisp
-;;;; JAM Reports/Guarantees (EG)
-;;;; Graypaper references: Appendix C.19
+;;;; package.lisp
+;;;; Package definition for JOTL block structures
+;;;;
+;;;; This follows Common Lisp convention: one package.lisp per package,
+;;;; with all exports centralized for easy maintenance and visibility.
 
-(in-package :jotl-bloc)
-
-;;; Guarantees (Reports) structure
-;;;
-;;; Graypaper Appendix C.19:
-;;; EG(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v,s) ← a]) | (r, t, a) ← EG])
-;;;
-;;; Where EG is a sequence of guarantees, each containing:
-;;; - r: work report (complete work-report structure from work.lisp)
-;;; - t: timeslot (4 bytes, E4)
-;;; - a: authorizer-guarantor data, sequence of pairs (v, s) where:
-;;;   - v: validator index (2 bytes, E2)
-;;;   - s: signature (length-prefixed blob)
-;;;
-;;; Note: The "r" (report) here is actually a complete work-report structure
-;;;       containing package-spec, context, results, etc.
-
-(defun encode-reports (reports)
-  "Encode reports/guarantees (EG).
+(defpackage #:jotl-bloc
+  (:use #:cl #:jotl-codec)
+  (:import-from #:jotl-config
+                ;; Import only essential config symbols for internal use
+                ;; Use jotl-config:symbol-name for others to avoid conflicts
+                #:chainspec-p
+                #:chainspec-num-validators
+                #:chainspec-avail-bitfield-bytes
+                #:*chainspec*
+                #:*validators-super-majority*
+                #:validators-super-majority)
+  (:documentation "JAM block structures and serialization")
+  (:export
    
-   Graypaper Appendix C.19: EG(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v,s) ← a]) | (r, t, a) ← EG])
+   ;; ══════════════════════════════════════════════════════════════
+   ;; PRIMITIVE TYPES (Hashes, Blobs, Signatures)
+   ;; ══════════════════════════════════════════════════════════════
    
-   Args:
-     reports: List of guarantee structures (from work.lisp)
+   #:hash                       ; 32-byte hash type
+   #:blob                       ; Variable-length octet sequence
+   #:blob-n                     ; Fixed-length octet sequence
+   #:natural                    ; Natural number type
+   #:natural-limited            ; Bounded natural number
+   #:length-type                ; Length discriminator type
    
-   Returns:
-     Encoded octet sequence"
-  (let ((encoded-guarantees
-         (mapcar (lambda (guarantee)
-                   (concat-octets
-                    ;; r : work report (complete structure)
-                    (encode-work-report (guarantee-report guarantee))
-                    ;; E4(t) : timeslot (4 bytes)
-                    (e4 (guarantee-slot guarantee))
-                    ;; ↕[(E2(v), s) | ...] : signatures
-                    ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
-                    (encode-length-prefixed-sequence
-                     (mapcar (lambda (sig-pair)
-                               (destructuring-bind (validator-index signature) sig-pair
-                                 (concat-octets
-                                  (e2 validator-index)  ; validator index
-                                  signature)))  ; signature is already 64 bytes!
-                             (guarantee-signatures guarantee)))))
-                 reports)))
-    ;; ↕[...] : length-prefixed sequence of pre-encoded elements
-    (encode-pre-encoded-sequence encoded-guarantees)))
-
-(defun decode-reports (octets &optional (start 0))
-  "Decode reports/guarantees from octets.
+   ;; Cryptographic primitives
+   #:ed25519-signature          ; Ed25519 signature (64 bytes)
+   #:ed25519-public-key         ; Ed25519 public key (32 bytes)
+   #:bandersnatch-signature     ; Bandersnatch signature
+   #:bandersnatch-public-key    ; Bandersnatch public key
+   #:bandersnatch-vrf-signature ; Bandersnatch VRF signature
+   #:bls-signature              ; BLS signature
+   #:bls-public-key             ; BLS public key
    
-   Inverse of encode-reports (Appendix C.19).
+   ;; Constructors & utilities
+   #:make-hash
+   #:make-blob
+   #:hash-zero
+   #:list-to-blob
+   #:blob-to-list
    
-   Args:
-     octets: Encoded reports/guarantees data
-     start: Starting position
+   ;; ══════════════════════════════════════════════════════════════
+   ;; NOTE: Chainspec configuration is in jotl-config package
+   ;;       Use (jotl-config:set-chainspec :tiny) to configure
+   ;; ══════════════════════════════════════════════════════════════
    
-   Returns:
-     values: (list-of-guarantee bytes-consumed)"
-  (decode-length-prefixed-sequence
-   octets
-   (lambda (o s)
-     (let ((pos s))
-       (decode>> (o pos)
-         ;; r : work report (complete structure)
-         (work-report (decode-work-report o pos))
-         ;; E4(t) : timeslot (4 bytes)
-         (slot (decode-e4 o pos))
-        ;; ↕[(E2(v), s) | ...] : signatures
-        ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
-        (signatures
-         (decode-length-prefixed-sequence
-          o
-          (lambda (o2 s2)
-            (let ((pos2 s2))
-              (decode>> (o2 pos2)
-                ;; E2(v) : validator index (2 bytes)
-                (v (decode-e2 o2 pos2))
-                ;; s : signature (FIXED 64 bytes!)
-                (s (decode-fixed-bytes o2 pos2 64))
-                
-                (values (list v s) (- pos2 s2)))))
-          pos))
-         
-         (values
-          (make-guarantee
-           :report work-report
-           :slot slot
-           :signatures signatures)
-          (- pos s)))))
-   start))
+   ;; ══════════════════════════════════════════════════════════════
+   ;; BLOCK STRUCTURE (4.2 - Top Level)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:chain-block
+   #:make-chain-block
+   #:chain-block-header
+   #:chain-block-extrinsic
+   
+   ;; Block codec (top-level)
+   #:encode-chain-block
+   #:decode-chain-block
+   #:encode-block               ; Alias
+   #:decode-block               ; Alias
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; EXTRINSIC DATA (4.3 - Block Body)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:extrinsic
+   #:make-extrinsic
+   #:extrinsic-tickets
+   #:extrinsic-disputes
+   #:extrinsic-preimages
+   #:extrinsic-availability
+   #:extrinsic-reports
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; HEADER (4.4 - Block Metadata)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:header
+   #:make-header
+   #:header-parent-hash
+   #:header-prior-state-root
+   #:header-extrinsic-hash
+   #:header-timeslot
+   #:header-epoch-marker
+   #:header-winning-tickets
+   #:header-offenders
+   #:header-author-index
+   #:header-vrf-signature
+   #:header-seal
+   
+   ;; Header codec
+   #:encode-header
+   #:encode-header-unsigned
+   #:decode-header
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; EPOCH MARKER (Validator Set Transitions)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:validator
+   #:make-validator
+   #:validator-bandersnatch
+   #:validator-ed25519
+   
+   #:epoch-marker
+   #:make-epoch-marker
+   #:epoch-marker-entropy
+   #:epoch-marker-tickets-entropy
+   #:epoch-marker-validators
+   
+   ;; Epoch codec
+   #:encode-validator
+   #:decode-validator
+   #:encode-epoch-marker
+   #:decode-epoch-marker
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; TICKETS (Consensus Participation)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:ticket
+   #:make-ticket
+   #:ticket-identifier
+   #:ticket-entry-index
+   
+   ;; Tickets codec
+   #:encode-tickets
+   #:decode-tickets
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; PREIMAGES (Service Code/Data)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:preimage
+   #:make-preimage
+   #:preimage-service-id
+   #:preimage-data
+   
+   ;; Preimages codec
+   #:encode-preimages
+   #:decode-preimages
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; GUARANTEES/REPORTS (Work Package Attestations)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:report
+   #:make-report
+   #:report-report-data
+   #:report-timeslot
+   #:report-assurances
+   
+   #:guarantee
+   #:make-guarantee
+   #:guarantee-report
+   #:guarantee-slot
+   #:guarantee-signatures
+   
+   ;; Reports/Guarantees codec
+   #:encode-reports
+   #:decode-reports
+   #:encode-guarantee
+   #:decode-guarantee
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; WORK STRUCTURES (C.24-C.35 - Work Package Components)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   ;; Refine context (C.24)
+   #:refine-context
+   #:make-refine-context
+   #:refine-context-anchor
+   #:refine-context-state-root
+   #:refine-context-beefy-root
+   #:refine-context-lookup-anchor
+   #:refine-context-lookup-anchor-slot
+   #:refine-context-prerequisites
+   #:encode-refine-context
+   #:decode-refine-context
+   
+   ;; Package specification (C.25)
+   #:package-spec
+   #:make-package-spec
+   #:package-spec-hash
+   #:package-spec-length
+   #:package-spec-erasure-root
+   #:package-spec-exports-root
+   #:package-spec-exports-count
+   #:encode-package-spec
+   #:decode-package-spec
+   
+   ;; Refine load metrics
+   #:refine-load
+   #:make-refine-load
+   #:refine-load-gas-used
+   #:refine-load-imports
+   #:refine-load-extrinsic-count
+   #:refine-load-extrinsic-size
+   #:refine-load-exports
+   
+   ;; Work result (C.29)
+   #:work-result
+   #:make-work-result
+   #:work-result-service-id
+   #:work-result-code-hash
+   #:work-result-payload-hash
+   #:work-result-accumulate-gas
+   #:work-result-result
+   #:work-result-refine-load
+   #:encode-work-result
+   #:decode-work-result
+   
+   ;; Work output (C.34)
+   #:encode-work-output
+   #:decode-work-output
+   
+   ;; Work report (complete work package)
+   #:work-report
+   #:make-work-report
+   #:work-report-package-spec
+   #:work-report-context
+   #:work-report-core-index
+   #:work-report-authorizer-hash
+   #:work-report-auth-gas-used
+   #:work-report-auth-output
+   #:work-report-segment-root-lookup
+   #:work-report-results
+   #:encode-work-report
+   #:decode-work-report
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; AVAILABILITY (Data Availability Attestations)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:availability-assurance
+   #:make-availability-assurance
+   #:availability-assurance-assurance-a
+   #:availability-assurance-component-f
+   #:availability-assurance-validator-index
+   #:availability-assurance-signature
+   
+   ;; Availability codec
+   #:encode-availability
+   #:decode-availability
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; DISPUTES (Misbehavior & Judgements)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:disputes
+   #:make-disputes
+   #:disputes-verdicts
+   #:disputes-culprits
+   #:disputes-faults
+   
+   ;; Culprits (misbehaving validators)
+   #:culprit
+   #:make-culprit
+   #:culprit-target
+   #:culprit-key
+   #:culprit-signature
+   #:encode-culprit
+   #:decode-culprit
+   
+   ;; Faults (invalid votes)
+   #:fault
+   #:make-fault
+   #:fault-target
+   #:fault-vote
+   #:fault-key
+   #:fault-signature
+   #:encode-fault
+   #:decode-fault
+   
+   ;; Verdicts (judgements)
+   #:verdict-entry
+   #:make-verdict-entry
+   #:verdict-entry-target
+   #:verdict-entry-age
+   #:verdict-entry-judgement
+   
+   ;; Disputes codec
+   #:encode-disputes
+   #:decode-disputes))

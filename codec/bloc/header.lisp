@@ -103,12 +103,12 @@
       
       ;; ¿HE : optional epoch marker
       (epoch-marker-raw (decode-optional octets 
-                                         (lambda (o s) (decode-epoch-marker o s (num-validators)))
+                                         (lambda (o s) (decode-epoch-marker o s (jotl-config:num-validators)))
                                          pos))
       
       ;; ¿HW : optional winning tickets
       (winning-tickets-raw (decode-optional octets
-                                            (lambda (o s) (decode-winning-tickets o s (epoch-duration)))
+                                            (lambda (o s) (decode-winning-tickets o s (jotl-config:epoch-duration)))
                                             pos))
       
       ;; E2(HI) : author index (2 bytes)
