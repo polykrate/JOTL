@@ -1,0 +1,24 @@
+# Common Lisp
+*.fasl
+*.fas
+*.lib
+*.dx64fsl
+*.lx64fsl
+*.dx32fsl
+*.lx32fsl
+*.FASL
+*.fasl~
+*.lisp~
+
+# Cache
+.cache/
+*.cache
+
+# VS Code
+.vscode/alive/
+
+# Test vectors (external repo)
+jamtestvectors/
+
+# Temporary test files
+test-*.lisp
