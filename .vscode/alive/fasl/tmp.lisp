@@ -1,290 +1,192 @@
-;;;; package.lisp
-;;;; Package definition for JOTL block structures
+;;;; types.lisp
+;;;; Block-specific type definitions for JAM blocks
+;;;; REFACTORED: All byte sequences as LISTS (idiomatique Lisp, rapide)
 ;;;;
-;;;; This follows Common Lisp convention: one package.lisp per package,
-;;;; with all exports centralized for easy maintenance and visibility.
+;;;; Note: Common JAM types (hash, blob, natural, etc.) are in src/types.lisp
 
-(defpackage #:jotl-bloc
-  (:use #:cl #:jotl-codec)
-  (:import-from #:jotl-config
-                ;; Import only essential config symbols for internal use
-                ;; Use jotl-config:symbol-name for others to avoid conflicts
-                #:chainspec-p
-                #:chainspec-num-validators
-                #:chainspec-avail-bitfield-bytes
-                #:*chainspec*
-                #:*validators-super-majority*
-                #:validators-super-majority)
-  (:documentation "JAM block structures and serialization")
-  (:export
+(in-package :jotl-bloc)
+
+;;; Import common types from jotl-config
+;;; (hash, blob, natural, natural-limited, length-type, etc.)
+;;; These are used throughout block structures.
+
+;;; Extrinsic structure (E)
+;;;
+;;; Graypaper Equation 4.3: E ≡ (ET, ED, EP, EA, EG)
+
+(defstruct extrinsic
+  "Extrinsic data (E).
    
-   ;; ══════════════════════════════════════════════════════════════
-   ;; PRIMITIVE TYPES (Hashes, Blobs, Signatures)
-   ;; ══════════════════════════════════════════════════════════════
+   Contains all external data submitted to the block."
+  (tickets nil :type list)           ; List of ticket structures
+  (preimages nil :type list)         ; List of preimage structures
+  (reports nil :type list)           ; List of report structures
+  (availability nil :type list)      ; List of availability-assurance structures
+  (disputes nil :type (or null disputes)))  ; Disputes structure
+
+;;; Block structure (B)
+;;;
+;;; Graypaper Equation 4.2: B ≡ (H, E)
+
+(defstruct chain-block
+  "JAM Block (B).
    
-   #:hash                       ; 32-byte hash type
-   #:blob                       ; Variable-length octet sequence
-   #:blob-n                     ; Fixed-length octet sequence
-   #:natural                    ; Natural number type
-   #:natural-limited            ; Bounded natural number
-   #:length-type                ; Length discriminator type
+   A complete block consists of header and extrinsic data."
+  (header nil :type (or null header))
+  (extrinsic nil :type (or null extrinsic)))
+
+;;; Validator structures
+;;;
+;;; Graypaper Section 5.10, 6.1: Validator keys
+
+(defstruct validator
+  "Validator key pair.
    
-   ;; Cryptographic primitives
-   #:ed25519-signature          ; Ed25519 signature (64 bytes)
-   #:ed25519-public-key         ; Ed25519 public key (32 bytes)
-   #:bandersnatch-signature     ; Bandersnatch signature
-   #:bandersnatch-public-key    ; Bandersnatch public key
-   #:bandersnatch-vrf-signature ; Bandersnatch VRF signature
-   #:bls-signature              ; BLS signature
-   #:bls-public-key             ; BLS public key
+   Each validator has two keys:
+   - bandersnatch: For block production and VRF (32 bytes as list)
+   - ed25519: For finalizing and disputes (32 bytes as list)"
+  (bandersnatch nil :type (or null list))  ; 32 bytes as list
+  (ed25519 nil :type (or null list)))      ; 32 bytes as list
+
+;;; Epoch Marker structure
+;;;
+;;; Graypaper Section 5.10: Epoch marker (HE)
+
+(defstruct epoch-marker
+  "Epoch marker (HE).
    
-   ;; Constructors & utilities
-   #:make-hash
-   #:make-blob
-   #:hash-zero
-   #:list-to-blob
-   #:blob-to-list
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; NOTE: Chainspec configuration is in jotl-config package
-   ;;       Use (jotl-config:set-chainspec :tiny) to configure
-   ;; ══════════════════════════════════════════════════════════════
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; BLOCK STRUCTURE (4.2 - Top Level)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:chain-block
-   #:make-chain-block
-   #:chain-block-header
-   #:chain-block-extrinsic
-   
-   ;; Block codec (top-level)
-   #:encode-chain-block
-   #:decode-chain-block
-   #:encode-block               ; Alias
-   #:decode-block               ; Alias
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; EXTRINSIC DATA (4.3 - Block Body)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:extrinsic
-   #:make-extrinsic
-   #:extrinsic-tickets
-   #:extrinsic-disputes
-   #:extrinsic-preimages
-   #:extrinsic-availability
-   #:extrinsic-reports
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; HEADER (4.4 - Block Metadata)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:header
-   #:make-header
-   #:header-parent-hash
-   #:header-prior-state-root
-   #:header-extrinsic-hash
-   #:header-timeslot
-   #:header-epoch-marker
-   #:header-winning-tickets
-   #:header-offenders
-   #:header-author-index
-   #:header-vrf-signature
-   #:header-seal
-   
-   ;; Header codec
-   #:encode-header
-   #:encode-header-unsigned
-   #:decode-header
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; EPOCH MARKER (Validator Set Transitions)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:validator
-   #:make-validator
-   #:validator-bandersnatch
-   #:validator-ed25519
-   
-   #:epoch-marker
-   #:make-epoch-marker
-   #:epoch-marker-entropy
-   #:epoch-marker-tickets-entropy
-   #:epoch-marker-validators
-   
-   ;; Epoch codec
-   #:encode-validator
-   #:decode-validator
-   #:encode-epoch-marker
-   #:decode-epoch-marker
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; TICKETS (Consensus Participation)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:ticket
-   #:make-ticket
-   #:ticket-identifier
-   #:ticket-entry-index
-   
-   ;; Tickets codec
-   #:encode-tickets
-   #:decode-tickets
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; PREIMAGES (Service Code/Data)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:preimage
-   #:make-preimage
-   #:preimage-service-id
-   #:preimage-data
-   
-   ;; Preimages codec
-   #:encode-preimages
-   #:decode-preimages
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; GUARANTEES/REPORTS (Work Package Attestations)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:report
-   #:make-report
-   #:report-report-data
-   #:report-timeslot
-   #:report-assurances
-   
-   #:guarantee
-   #:make-guarantee
-   #:guarantee-report
-   #:guarantee-slot
-   #:guarantee-signatures
-   
-   ;; Reports/Guarantees codec
-   #:encode-reports
-   #:decode-reports
-   #:encode-guarantee
-   #:decode-guarantee
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; WORK STRUCTURES (C.24-C.35 - Work Package Components)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   ;; Refine context (C.24)
-   #:refine-context
-   #:make-refine-context
-   #:refine-context-anchor
-   #:refine-context-state-root
-   #:refine-context-beefy-root
-   #:refine-context-lookup-anchor
-   #:refine-context-lookup-anchor-slot
-   #:refine-context-prerequisites
-   #:encode-refine-context
-   #:decode-refine-context
-   
-   ;; Package specification (C.25)
-   #:package-spec
-   #:make-package-spec
-   #:package-spec-hash
-   #:package-spec-length
-   #:package-spec-erasure-root
-   #:package-spec-exports-root
-   #:package-spec-exports-count
-   #:encode-package-spec
-   #:decode-package-spec
-   
-   ;; Refine load metrics
-   #:refine-load
-   #:make-refine-load
-   #:refine-load-gas-used
-   #:refine-load-imports
-   #:refine-load-extrinsic-count
-   #:refine-load-extrinsic-size
-   #:refine-load-exports
-   
-   ;; Work result (C.29)
-   #:work-result
-   #:make-work-result
-   #:work-result-service-id
-   #:work-result-code-hash
-   #:work-result-payload-hash
-   #:work-result-accumulate-gas
-   #:work-result-result
-   #:work-result-refine-load
-   #:encode-work-result
-   #:decode-work-result
-   
-   ;; Work output (C.34)
-   #:encode-work-output
-   #:decode-work-output
-   
-   ;; Work report (complete work package)
-   #:work-report
-   #:make-work-report
-   #:work-report-package-spec
-   #:work-report-context
-   #:work-report-core-index
-   #:work-report-authorizer-hash
-   #:work-report-auth-gas-used
-   #:work-report-auth-output
-   #:work-report-segment-root-lookup
-   #:work-report-results
-   #:encode-work-report
-   #:decode-work-report
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; AVAILABILITY (Data Availability Attestations)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:availability-assurance
-   #:make-availability-assurance
-   #:availability-assurance-assurance-a
-   #:availability-assurance-component-f
-   #:availability-assurance-validator-index
-   #:availability-assurance-signature
-   
-   ;; Availability codec
-   #:encode-availability
-   #:decode-availability
-   
-   ;; ══════════════════════════════════════════════════════════════
-   ;; DISPUTES (Misbehavior & Judgements)
-   ;; ══════════════════════════════════════════════════════════════
-   
-   #:disputes
-   #:make-disputes
-   #:disputes-verdicts
-   #:disputes-culprits
-   #:disputes-faults
-   
-   ;; Culprits (misbehaving validators)
-   #:culprit
-   #:make-culprit
-   #:culprit-target
-   #:culprit-key
-   #:culprit-signature
-   #:encode-culprit
-   #:decode-culprit
-   
-   ;; Faults (invalid votes)
-   #:fault
-   #:make-fault
-   #:fault-target
-   #:fault-vote
-   #:fault-key
-   #:fault-signature
-   #:encode-fault
-   #:decode-fault
-   
-   ;; Verdicts (judgements)
-   #:verdict-entry
-   #:make-verdict-entry
-   #:verdict-entry-target
-   #:verdict-entry-age
-   #:verdict-entry-judgement
-   
-   ;; Disputes codec
-   #:encode-disputes
-   #:decode-disputes))
+   Marks the beginning of a new epoch with new validator set.
+   - entropy: Randomness for the new epoch (32 bytes as list)
+   - tickets-entropy: Ticket-specific randomness (32 bytes as list)
+   - validators: List of validators for the epoch"
+  (entropy nil :type (or null list))           ; 32 bytes as list
+  (tickets-entropy nil :type (or null list))   ; 32 bytes as list
+  (validators nil :type list))                 ; list of validator
+
+;;; Block Header structure
+;;;
+;;; Graypaper Section 4.2, 5: Block header (H)
+
+(defstruct header
+  ;; HP ∈ H : parent block hash (Equation 4.2) - 32 bytes as list
+  (parent-hash nil :type (or null list))
+  
+  ;; HR ∈ H : state root after block application (Equation 5.2) - 32 bytes as list
+  (prior-state-root nil :type (or null list))
+  
+  ;; HX ∈ H : Extrinsic hash (Eq. 5.4) - 32 bytes as list
+  (extrinsic-hash nil :type (or null list))
+  
+  ;; HT ∈ NT : Time-slot index (Eq. 5.7)
+  (timeslot nil :type (or null integer))
+  
+  ;; HE : Epoch marker (Eq. 5.10) - can be +empty+ (symbol) or epoch-marker
+  (epoch-marker nil :type (or null epoch-marker symbol))
+  
+  ;; HW : Winning tickets - can be +empty+ (symbol) or list of tickets
+  (winning-tickets nil :type (or null list symbol))
+  
+  ;; HO ∈ ⟦¯H⟧ : offenders marker (Equation 5.10)
+  ;; Ed25519 public keys of newly misbehaving validators (list of 32-byte lists)
+  (offenders nil :type list)
+  
+  ;; HI ∈ NV : block author index (Equation 5.9)
+  (author-index nil :type (or null integer))
+  
+  ;; HV ∈ SB : Bandersnatch VRF signature (entropy-yielding) - 96 bytes as list
+  (vrf-signature nil :type (or null list))
+  
+  ;; HS ∈ SB : Bandersnatch block seal - 96 bytes as list
+  (seal nil :type (or null list)))
+
+;;; Ticket structure
+;;;
+;;; Graypaper Section 6.6: Tickets (T)
+
+(defstruct ticket
+  ;; Ticket identifier/ID - list of octets
+  (identifier nil :type (or null list))
+  
+  ;; Attempt index or additional data
+  (attempt nil :type t))
+
+;;; Preimage structure
+;;;
+;;; Graypaper Section 6.6: Preimages (P)
+
+(defstruct preimage
+  ;; Service ID (4 bytes, little-endian natural)
+  (service-id nil :type (or null integer))
+  
+  ;; Data blob (variable length) - list of octets
+  (data nil :type (or null list)))
+
+;;; Report structure
+;;;
+;;; Graypaper Section 6.6: Reports (R)
+
+(defstruct report
+  ;; Report data/package hash - list of octets
+  (report-data nil :type (or null list))
+  
+  ;; Time slot
+  (timeslot nil :type (or null integer))
+  
+  ;; Authorizer-guarantor data (sequence of pairs)
+  (authorizer-guarantor nil :type list))
+
+;;; Availability Assurance structure
+;;;
+;;; Graypaper Section 6.6: Availability (A)
+
+(defstruct availability-assurance
+  ;; Assurance anchor/hash - list of octets
+  (assurance-a nil :type (or null list))
+  
+  ;; Flags/bitfield - length-prefixed blob (list of octets)
+  (flags nil :type (or null list))
+  
+  ;; Validator index
+  (validator-index nil :type (or null integer))
+  
+  ;; Signature - list of octets
+  (signature nil :type (or null list)))
+
+;;; Disputes structures
+;;;
+;;; Graypaper Section 6.6: Disputes (D)
+
+(defstruct verdict-entry
+  ;; Target hash - FIXED 32 bytes
+  (target nil :type (or null list))
+  
+  ;; Age (E4)
+  (age nil :type (or null integer))
+  
+  ;; Judgement data (sequence of validator, index, signature)
+  (judgement nil :type list))
+
+;; Culprit structure (for disputes)
+(defstruct culprit
+  "Culprit in disputes."
+  (target nil :type (or null list))       ; 32-byte hash
+  (key nil :type (or null list))          ; 32-byte hash  
+  (signature nil :type (or null list)))   ; 64-byte signature
+
+;; Fault structure (for disputes)
+(defstruct fault
+  "Fault in disputes."
+  (target nil :type (or null list))       ; 32-byte hash
+  (vote nil :type (or null boolean))      ; boolean vote
+  (key nil :type (or null list))          ; 32-byte hash
+  (signature nil :type (or null list)))   ; 64-byte signature
+
+(defstruct disputes
+  ;; Verdicts - list of verdict-entry
+  (verdicts nil :type list)
+  
+  ;; Culprits - list of culprit structures
+  (culprits nil :type list)
+  
+  ;; Faults - list of fault structures
+  (faults nil :type list))

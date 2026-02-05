@@ -1,47 +1,14 @@
 ;;;; types.lisp
-;;;; Common type definitions for JAM blocks
+;;;; Block-specific type definitions for JAM blocks
 ;;;; REFACTORED: All byte sequences as LISTS (idiomatique Lisp, rapide)
+;;;;
+;;;; Note: Common JAM types (hash, blob, natural, etc.) are in src/types.lisp
 
 (in-package :jotl-bloc)
 
-;;; Common JAM types from graypaper section 3
-
-;;; 3.8.1. Hashing - all as LISTS
-(deftype hash ()
-  "H = B32 : 256-bit hash (32 octets) - as list"
-  'list)
-
-(deftype blob ()
-  "B : octet sequence of arbitrary length - as list"
-  'list)
-
-;;; 3.4. Numbers
-(deftype natural ()
-  "N : natural numbers including zero"
-  '(integer 0 *))
-
-(deftype natural-limited (n)
-  "Nn : naturals less than n"
-  `(integer 0 (,n)))
-
-(deftype length-type ()
-  "NL = N_{2^32} : lengths of octet sequences"
-  '(integer 0 #.(1- (expt 2 32))))
-
-;;; Helper functions for I/O boundaries (convert to/from vectors when needed)
-
-(defun list-to-blob (list)
-  "Convert list of octets to vector blob (for I/O only)"
-  (make-array (length list) :element-type '(unsigned-byte 8)
-              :initial-contents list))
-
-(defun blob-to-list (blob)
-  "Convert vector blob to list of octets (for I/O only)"
-  (coerce blob 'list))
-
-(defun hash-zero ()
-  "H0 = [0]32 - as list"
-  (make-list 32 :initial-element 0))
+;;; Import common types from jotl-config
+;;; (hash, blob, natural, natural-limited, length-type, etc.)
+;;; These are used throughout block structures.
 
 ;;; Extrinsic structure (E)
 ;;;

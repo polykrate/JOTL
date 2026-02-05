@@ -7,36 +7,70 @@
 (defpackage #:jotl-bloc
   (:use #:cl #:jotl-codec)
   (:import-from #:jotl-config
-                ;; Import only essential config symbols for internal use
-                ;; Use jotl-config:symbol-name for others to avoid conflicts
+                ;; Configuration symbols
                 #:chainspec-p
                 #:chainspec-num-validators
                 #:chainspec-avail-bitfield-bytes
                 #:*chainspec*
                 #:*validators-super-majority*
-                #:validators-super-majority)
+                #:validators-super-majority
+                ;; Common JAM types (imported to re-export for convenience)
+                #:hash
+                #:hash32
+                #:hash256
+                #:blob
+                #:natural
+                #:natural-limited
+                #:length-type
+                #:ed25519-public-key
+                #:ed25519-signature
+                #:bandersnatch-public-key
+                #:bandersnatch-signature
+                #:bls-public-key
+                #:bls-signature
+                #:service-id
+                #:core-id
+                #:timeslot
+                #:gas-amount
+                #:list-to-blob
+                #:blob-to-list
+                #:hash-zero
+                #:hash32-p)
   (:documentation "JAM block structures and serialization")
   (:export
    
    ;; ══════════════════════════════════════════════════════════════
-   ;; PRIMITIVE TYPES (Hashes, Blobs, Signatures)
+   ;; PRIMITIVE TYPES (from jotl-config, re-exported for convenience)
    ;; ══════════════════════════════════════════════════════════════
    
+   ;; Basic types (Graypaper Section 3)
    #:hash                       ; 32-byte hash type
+   #:hash32                     ; Alias for hash
+   #:hash256                    ; Alias for hash
    #:blob                       ; Variable-length octet sequence
-   #:blob-n                     ; Fixed-length octet sequence
    #:natural                    ; Natural number type
    #:natural-limited            ; Bounded natural number
    #:length-type                ; Length discriminator type
    
-   ;; Cryptographic primitives
+   ;; Cryptographic types
    #:ed25519-signature          ; Ed25519 signature (64 bytes)
    #:ed25519-public-key         ; Ed25519 public key (32 bytes)
-   #:bandersnatch-signature     ; Bandersnatch signature
-   #:bandersnatch-public-key    ; Bandersnatch public key
-   #:bandersnatch-vrf-signature ; Bandersnatch VRF signature
-   #:bls-signature              ; BLS signature
-   #:bls-public-key             ; BLS public key
+   #:bandersnatch-signature     ; Bandersnatch signature (96 bytes)
+   #:bandersnatch-public-key    ; Bandersnatch public key (32 bytes)
+   #:bls-signature              ; BLS signature (96 bytes)
+   #:bls-public-key             ; BLS public key (144 bytes)
+   
+   ;; JAM identifiers
+   #:service-id                 ; Service ID (u32)
+   #:core-id                    ; Core ID (u16)
+   #:timeslot                   ; Timeslot index (u32)
+   #:gas-amount                 ; Gas amount (u64)
+   
+   ;; Helper functions
+   #:list-to-blob               ; Convert list to vector
+   #:blob-to-list               ; Convert vector to list
+   #:hash-zero                  ; Zero hash (32 bytes)
+   #:hash32-p                   ; Hash predicate
    
    ;; Constructors & utilities
    #:make-hash

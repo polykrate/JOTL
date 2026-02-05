@@ -42,8 +42,41 @@
    #:*validators-super-majority*  ; Dynamic var: current super-majority threshold
    #:validators-super-majority    ; Function: ceil(num-validators * 2/3 + 1)
    
-   ;; Helper functions
-   #:num-validators
-   #:epoch-duration
-   #:slot-duration
-   #:max-tickets-per-extrinsic))
+  ;; Helper functions
+  #:num-validators
+  #:epoch-duration
+  #:slot-duration
+  #:max-tickets-per-extrinsic
+  
+  ;; ══════════════════════════════════════════════════════════════
+  ;; COMMON JAM TYPES (Graypaper Section 3)
+  ;; ══════════════════════════════════════════════════════════════
+  
+  ;; Basic types
+  #:hash
+  #:hash32
+  #:hash256
+  #:blob
+  #:natural
+  #:natural-limited
+  #:length-type
+  
+  ;; Crypto types
+  #:ed25519-public-key
+  #:ed25519-signature
+  #:bandersnatch-public-key
+  #:bandersnatch-signature
+  #:bls-public-key
+  #:bls-signature
+  
+  ;; JAM identifiers
+  #:service-id
+  #:core-id
+  #:timeslot
+  #:gas-amount
+  
+  ;; Helper functions
+  #:list-to-blob
+  #:blob-to-list
+  #:hash-zero
+  #:hash32-p))
