@@ -40,7 +40,7 @@
                     (availability-assurance-signature assurance)))
                  assurances)))
     ;; ↕[...] : length-prefixed sequence of pre-encoded elements
-    (encode-length-prefixed-sequence encoded-assurances :pre-encoded t)))
+    (encode-pre-encoded-sequence encoded-assurances)))
 
 (defun decode-availability (octets &optional (start 0))
   "Decode availability assurances from octets.

@@ -120,18 +120,15 @@
                                      (e2 idx)              ; index (E2)
                                      sig)))                ; signature (64 bytes)
                                 (verdict-entry-judgement verdict)))))
-              verdicts)
-      :pre-encoded t))
+                     verdicts)))
    
    ;; ↕c : culprits (length-prefixed sequence of culprit structures)
-   (encode-length-prefixed-sequence
-    (mapcar #'encode-culprit (disputes-culprits disputes))
-    :pre-encoded t)
+   (encode-pre-encoded-sequence
+    (mapcar #'encode-culprit (disputes-culprits disputes)))
    
    ;; ↕f : faults (length-prefixed sequence of fault structures)
-   (encode-length-prefixed-sequence
-    (mapcar #'encode-fault (disputes-faults disputes))
-    :pre-encoded t)))
+   (encode-pre-encoded-sequence
+    (mapcar #'encode-fault (disputes-faults disputes)))))
 
 (defun decode-disputes (octets &optional (start 0))
   "Decode disputes from octets.

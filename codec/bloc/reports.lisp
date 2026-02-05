@@ -44,11 +44,10 @@
                                  (concat-octets
                                   (e2 validator-index)  ; validator index
                                   signature)))  ; signature is already 64 bytes!
-                             (guarantee-signatures guarantee))
-                     :pre-encoded t)))
+                             (guarantee-signatures guarantee)))))
                  reports)))
     ;; ↕[...] : length-prefixed sequence of pre-encoded elements
-    (encode-length-prefixed-sequence encoded-guarantees :pre-encoded t)))
+    (encode-pre-encoded-sequence encoded-guarantees)))
 
 (defun decode-reports (octets &optional (start 0))
   "Decode reports/guarantees from octets.

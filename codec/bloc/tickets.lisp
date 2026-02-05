@@ -37,14 +37,13 @@
    
    Returns:
      Encoded octet sequence"
-  (encode-length-prefixed-sequence
+  (encode-pre-encoded-sequence
    (mapcar (lambda (ticket)
              (concat-octets 
               ;; ATTENTION: L'ordre est attempt PUIS signature (ASN.1)
               (encode-natural (ticket-attempt ticket))
               (ticket-identifier ticket)))
-           tickets)
-   :pre-encoded t))
+           tickets)))
 
 (defun decode-ticket (octets &optional (start 0))
   "Decode a single ticket.

@@ -75,7 +75,7 @@
    (header-vrf-signature header)
    
    ;; ↕HO : offenders (C.7, length-prefixed sequence of Ed25519 keys)
-   (encode-length-prefixed-sequence (header-offenders header) :pre-encoded t)))
+   (encode-pre-encoded-sequence (header-offenders header))))
 
 (defun decode-header (blob &optional (start 0))
   "Decode a block header from octets.

@@ -518,9 +518,8 @@
    ;; Note: segment roots are hashes (identity encoding), no pre-encoded needed
    (encode-length-prefixed-sequence (work-report-segment-root-lookup report))
    ;; Results (length-prefixed sequence of work-result) - C.29
-   (encode-length-prefixed-sequence
-    (mapcar #'encode-work-result (work-report-results report))
-    :pre-encoded t)))
+   (encode-pre-encoded-sequence
+    (mapcar #'encode-work-result (work-report-results report)))))
 
 (defun decode-work-report (octets &optional (start 0))
   "Decode complete work report.
@@ -594,14 +593,13 @@
    (e4 (guarantee-slot guarantee))
    ;; Signatures: ↕[(E2(v), s) | (v, s) <- signatures]
    ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
-   (encode-length-prefixed-sequence
+   (encode-pre-encoded-sequence
     (mapcar (lambda (sig-pair)
               (destructuring-bind (validator-index signature) sig-pair
                 (concat-octets
                  (e2 validator-index)
                  signature)))  ; signature is already 64 bytes, don't add length!
-            (guarantee-signatures guarantee))
-    :pre-encoded t)))
+            (guarantee-signatures guarantee)))))
 
 (defun decode-guarantee (octets &optional (start 0))
   "Decode a guarantee (work report + signatures).
