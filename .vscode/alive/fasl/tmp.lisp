@@ -42,7 +42,8 @@
              (concat-octets 
               (ticket-identifier ticket)
               (encode-natural (ticket-attempt ticket))))
-           tickets)))
+           tickets)
+   :pre-encoded t))
 
 (defun decode-ticket (octets &optional (start 0))
   "Decode a single ticket.

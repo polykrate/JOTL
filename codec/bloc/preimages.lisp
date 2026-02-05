@@ -33,8 +33,8 @@
                     ;; ↕d : length-prefixed data
                     (encode-with-length (preimage-data preimage))))
                  preimages)))
-    ;; ↕[...] : length-prefixed sequence
-    (encode-length-prefixed-sequence encoded-preimages)))
+    ;; ↕[...] : length-prefixed sequence of pre-encoded elements
+    (encode-length-prefixed-sequence encoded-preimages :pre-encoded t)))
 
 (defun decode-preimages (octets &optional (start 0))
   "Decode preimages from octets.

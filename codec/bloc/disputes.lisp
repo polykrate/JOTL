@@ -49,7 +49,8 @@
                                      (e2 i)                  ; index
                                      (encode-with-length s)))) ; signature
                                 (verdict-entry-judgement verdict)))))
-              verdicts)))
+              verdicts)
+      :pre-encoded t))
    
    ;; ↕c : culprits (length-prefixed)
    (encode-with-length (disputes-culprits disputes))

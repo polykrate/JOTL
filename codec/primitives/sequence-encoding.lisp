@@ -59,21 +59,31 @@
         (incf pos consumed)
         (when count (decf count))))))
 
-(defun encode-length-prefixed-sequence (sequence)
+(defun encode-length-prefixed-sequence (sequence &key (pre-encoded nil))
   "Encode a length-prefixed sequence.
    Implements C.7 + C.6: ↕x where x is a sequence
    E(↕x) = E(|x|) ⌢ E(x) = E(count) ⌢ E(elem0) ⌢ E(elem1) ⌢ ...
    
    Args:
-     sequence: List/vector of elements to encode
+     sequence: List/vector of elements
+     pre-encoded: If t, elements are already encoded (lists of octets),
+                  just concatenate them. If nil, encode each element first.
    
    Returns:
      Length-prefixed encoded sequence
    
    Examples:
-     E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2"
-  (concat-octets (encode-natural (length sequence))
-                 (encode-sequence sequence)))
+     E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2
+     
+   Note: Use pre-encoded=t when elements are already encoded to avoid
+         double-encoding (which would flatten nested lists incorrectly)."
+  (concat-octets 
+   (encode-natural (length sequence))
+   (if pre-encoded
+       ;; Elements are already encoded, just concatenate
+       (apply #'concat-octets sequence)
+       ;; Elements need encoding first
+       (encode-sequence sequence))))
 
 (defun decode-length-prefixed-sequence (octets element-decoder &optional (start 0))
   "Decode a length-prefixed sequence.

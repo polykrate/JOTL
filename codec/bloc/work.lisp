@@ -503,10 +503,12 @@
    ;; Auth output (length-prefixed)
    (encode-with-length (work-report-auth-output report))
    ;; Segment root lookup (length-prefixed sequence)
+   ;; Note: segment roots are hashes (identity encoding), no pre-encoded needed
    (encode-length-prefixed-sequence (work-report-segment-root-lookup report))
    ;; Results (length-prefixed sequence of work-result) - C.29
    (encode-length-prefixed-sequence
-    (mapcar #'encode-work-result (work-report-results report)))))
+    (mapcar #'encode-work-result (work-report-results report))
+    :pre-encoded t)))
 
 (defun decode-work-report (octets &optional (start 0))
   "Decode complete work report.
@@ -574,7 +576,8 @@
                 (concat-octets
                  (e2 validator-index)
                  (encode-with-length signature))))
-            (guarantee-signatures guarantee)))))
+            (guarantee-signatures guarantee))
+    :pre-encoded t)))
 
 (defun decode-guarantee (octets &optional (start 0))
   "Decode a guarantee (work report + signatures).

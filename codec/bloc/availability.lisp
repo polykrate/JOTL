@@ -39,8 +39,8 @@
                     ;; s : signature (blob, length-prefixed)
                     (encode-with-length (availability-assurance-signature assurance))))
                  assurances)))
-    ;; ↕[...] : length-prefixed sequence
-    (encode-length-prefixed-sequence encoded-assurances)))
+    ;; ↕[...] : length-prefixed sequence of pre-encoded elements
+    (encode-length-prefixed-sequence encoded-assurances :pre-encoded t)))
 
 (defun decode-availability (octets &optional (start 0))
   "Decode availability assurances from octets.

@@ -43,10 +43,11 @@
                                  (concat-octets
                                   (e2 validator-index)  ; validator index
                                   (encode-with-length signature))))  ; signature
-                             (guarantee-signatures guarantee)))))
+                             (guarantee-signatures guarantee))
+                     :pre-encoded t)))
                  reports)))
-    ;; ↕[...] : length-prefixed sequence
-    (encode-length-prefixed-sequence encoded-guarantees)))
+    ;; ↕[...] : length-prefixed sequence of pre-encoded elements
+    (encode-length-prefixed-sequence encoded-guarantees :pre-encoded t)))
 
 (defun decode-reports (octets &optional (start 0))
   "Decode reports/guarantees from octets.
