@@ -1,51 +1,82 @@
 ;;;; package.lisp
 ;;;; Package definition for JOTL block structures
+;;;;
+;;;; This follows Common Lisp convention: one package.lisp per package,
+;;;; with all exports centralized for easy maintenance and visibility.
 
 (defpackage #:jotl-bloc
   (:use #:cl #:jotl-codec)
   (:documentation "JAM block structures and serialization")
   (:export
-   ;; Types
-   #:hash
-   #:blob
-   #:blob-n
-   #:natural
-   #:natural-limited
-   #:length-type
-   #:ed25519-signature
-   #:ed25519-public-key
-   #:bandersnatch-signature
-   #:bandersnatch-public-key
-   #:bandersnatch-vrf-signature
-   #:bls-signature
-   #:bls-public-key
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; PRIMITIVE TYPES (Hashes, Blobs, Signatures)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:hash                       ; 32-byte hash type
+   #:blob                       ; Variable-length octet sequence
+   #:blob-n                     ; Fixed-length octet sequence
+   #:natural                    ; Natural number type
+   #:natural-limited            ; Bounded natural number
+   #:length-type                ; Length discriminator type
+   
+   ;; Cryptographic primitives
+   #:ed25519-signature          ; Ed25519 signature (64 bytes)
+   #:ed25519-public-key         ; Ed25519 public key (32 bytes)
+   #:bandersnatch-signature     ; Bandersnatch signature
+   #:bandersnatch-public-key    ; Bandersnatch public key
+   #:bandersnatch-vrf-signature ; Bandersnatch VRF signature
+   #:bls-signature              ; BLS signature
+   #:bls-public-key             ; BLS public key
+   
+   ;; Constructors & utilities
    #:make-hash
    #:make-blob
    #:hash-zero
    #:list-to-blob
    #:blob-to-list
    
-   ;; Configuration
+   ;; ══════════════════════════════════════════════════════════════
+   ;; CHAINSPEC CONFIGURATION (Network Parameters)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:chainspec
    #:make-chainspec
    #:chainspec-name
    #:chainspec-num-validators
    #:chainspec-num-cores
-   #:*tiny-chainspec*
-   #:*full-chainspec*
-   #:*chainspec*
-   #:set-chainspec
-   #:*validators-super-majority*      ; Dynamic var: current super-majority threshold
-   #:validators-super-majority        ; Function: ceil(num-validators * 2/3 + 1)
+   #:chainspec-avail-bitfield-bytes
+   
+   ;; Predefined chainspecs
+   #:*tiny-chainspec*           ; Tiny test network (6 validators)
+   #:*full-chainspec*           ; Full network (1023 validators)
+   #:*chainspec*                ; Currently active chainspec
+   #:set-chainspec              ; Switch active chainspec
+   
+   ;; Dynamic configuration (locally rebound in decode/encode)
+   #:*validators-super-majority*  ; Dynamic var: current super-majority threshold
+   #:validators-super-majority    ; Function: ceil(num-validators * 2/3 + 1)
    #:num-validators
    
-   ;; Block structure (4.2)
+   ;; ══════════════════════════════════════════════════════════════
+   ;; BLOCK STRUCTURE (4.2 - Top Level)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:chain-block
    #:make-chain-block
    #:chain-block-header
    #:chain-block-extrinsic
    
-   ;; Extrinsic data (4.3)
+   ;; Block codec (top-level)
+   #:encode-chain-block
+   #:decode-chain-block
+   #:encode-block               ; Alias
+   #:decode-block               ; Alias
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; EXTRINSIC DATA (4.3 - Block Body)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:extrinsic
    #:make-extrinsic
    #:extrinsic-tickets
@@ -54,7 +85,10 @@
    #:extrinsic-availability
    #:extrinsic-reports
    
-   ;; Header
+   ;; ══════════════════════════════════════════════════════════════
+   ;; HEADER (4.4 - Block Metadata)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:header
    #:make-header
    #:header-parent-hash
@@ -67,93 +101,86 @@
    #:header-author-index
    #:header-vrf-signature
    #:header-seal
+   
+   ;; Header codec
    #:encode-header
    #:encode-header-unsigned
    #:decode-header
    
-   ;; Epoch Marker
+   ;; ══════════════════════════════════════════════════════════════
+   ;; EPOCH MARKER (Validator Set Transitions)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:validator
    #:make-validator
    #:validator-bandersnatch
    #:validator-ed25519
+   
    #:epoch-marker
    #:make-epoch-marker
    #:epoch-marker-entropy
    #:epoch-marker-tickets-entropy
    #:epoch-marker-validators
+   
+   ;; Epoch codec
    #:encode-validator
    #:decode-validator
    #:encode-epoch-marker
    #:decode-epoch-marker
    
-   ;; Tickets
+   ;; ══════════════════════════════════════════════════════════════
+   ;; TICKETS (Consensus Participation)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:ticket
    #:make-ticket
    #:ticket-identifier
    #:ticket-entry-index
+   
+   ;; Tickets codec
    #:encode-tickets
    #:decode-tickets
    
-   ;; Preimages
+   ;; ══════════════════════════════════════════════════════════════
+   ;; PREIMAGES (Service Code/Data)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:preimage
    #:make-preimage
    #:preimage-service-id
    #:preimage-data
+   
+   ;; Preimages codec
    #:encode-preimages
    #:decode-preimages
    
-   ;; Reports
+   ;; ══════════════════════════════════════════════════════════════
+   ;; GUARANTEES/REPORTS (Work Package Attestations)
+   ;; ══════════════════════════════════════════════════════════════
+   
    #:report
    #:make-report
    #:report-report-data
    #:report-timeslot
    #:report-assurances
+   
+   #:guarantee
+   #:make-guarantee
+   #:guarantee-report
+   #:guarantee-slot
+   #:guarantee-signatures
+   
+   ;; Reports/Guarantees codec
    #:encode-reports
    #:decode-reports
+   #:encode-guarantee
+   #:decode-guarantee
    
-   ;; Availability
-   #:availability-assurance
-   #:make-availability-assurance
-   #:availability-assurance-assurance-a
-   #:availability-assurance-component-f
-   #:availability-assurance-validator-index
-   #:availability-assurance-signature
-   #:encode-availability
-   #:decode-availability
+   ;; ══════════════════════════════════════════════════════════════
+   ;; WORK STRUCTURES (C.24-C.35 - Work Package Components)
+   ;; ══════════════════════════════════════════════════════════════
    
-   ;; Disputes
-   #:disputes
-   #:make-disputes
-   #:disputes-verdicts
-   #:disputes-culprits
-   #:disputes-faults
-   
-   #:culprit
-   #:make-culprit
-   #:culprit-target
-   #:culprit-key
-   #:culprit-signature
-   #:encode-culprit
-   #:decode-culprit
-   
-   #:fault
-   #:make-fault
-   #:fault-target
-   #:fault-vote
-   #:fault-key
-   #:fault-signature
-   #:encode-fault
-   #:decode-fault
-   
-   #:verdict-entry
-   #:make-verdict-entry
-   #:verdict-entry-target
-   #:verdict-entry-age
-   #:verdict-entry-judgement
-   #:encode-disputes
-   #:decode-disputes
-   
-   ;; Work structures (C.24, C.25, C.29, C.34)
+   ;; Refine context (C.24)
    #:refine-context
    #:make-refine-context
    #:refine-context-anchor
@@ -165,6 +192,7 @@
    #:encode-refine-context
    #:decode-refine-context
    
+   ;; Package specification (C.25)
    #:package-spec
    #:make-package-spec
    #:package-spec-hash
@@ -175,6 +203,7 @@
    #:encode-package-spec
    #:decode-package-spec
    
+   ;; Refine load metrics
    #:refine-load
    #:make-refine-load
    #:refine-load-gas-used
@@ -183,6 +212,7 @@
    #:refine-load-extrinsic-size
    #:refine-load-exports
    
+   ;; Work result (C.29)
    #:work-result
    #:make-work-result
    #:work-result-service-id
@@ -193,9 +223,12 @@
    #:work-result-refine-load
    #:encode-work-result
    #:decode-work-result
+   
+   ;; Work output (C.34)
    #:encode-work-output
    #:decode-work-output
    
+   ;; Work report (complete work package)
    #:work-report
    #:make-work-report
    #:work-report-package-spec
@@ -209,18 +242,57 @@
    #:encode-work-report
    #:decode-work-report
    
-   #:guarantee
-   #:make-guarantee
-   #:guarantee-report
-   #:guarantee-slot
-   #:guarantee-signatures
-   #:encode-guarantee
-   #:decode-guarantee
+   ;; ══════════════════════════════════════════════════════════════
+   ;; AVAILABILITY (Data Availability Attestations)
+   ;; ══════════════════════════════════════════════════════════════
    
-   ;; Encoding/Decoding
-   #:encode-chain-block
-   #:decode-chain-block
+   #:availability-assurance
+   #:make-availability-assurance
+   #:availability-assurance-assurance-a
+   #:availability-assurance-component-f
+   #:availability-assurance-validator-index
+   #:availability-assurance-signature
    
-   ;; Block aliases
-   #:encode-block
-   #:decode-block))
+   ;; Availability codec
+   #:encode-availability
+   #:decode-availability
+   
+   ;; ══════════════════════════════════════════════════════════════
+   ;; DISPUTES (Misbehavior & Judgements)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:disputes
+   #:make-disputes
+   #:disputes-verdicts
+   #:disputes-culprits
+   #:disputes-faults
+   
+   ;; Culprits (misbehaving validators)
+   #:culprit
+   #:make-culprit
+   #:culprit-target
+   #:culprit-key
+   #:culprit-signature
+   #:encode-culprit
+   #:decode-culprit
+   
+   ;; Faults (invalid votes)
+   #:fault
+   #:make-fault
+   #:fault-target
+   #:fault-vote
+   #:fault-key
+   #:fault-signature
+   #:encode-fault
+   #:decode-fault
+   
+   ;; Verdicts (judgements)
+   #:verdict-entry
+   #:make-verdict-entry
+   #:verdict-entry-target
+   #:verdict-entry-age
+   #:verdict-entry-judgement
+   
+   ;; Disputes codec
+   #:encode-disputes
+   #:decode-disputes))
