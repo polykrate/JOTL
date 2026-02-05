@@ -40,6 +40,7 @@
    #:decode-sequence            ; Decode fixed-count sequence
    #:encode-length-prefixed-sequence  ; ↕[...] with count prefix
    #:decode-length-prefixed-sequence  ; Decode ↕[...] sequences
+   #:encode-pre-encoded-sequence      ; Helper: ↕[pre-encoded] (common pattern)
    
    ;; ══════════════════════════════════════════════════════════════
    ;; DISCRIMINATORS (C.7-C.8 - Length & Optional)
@@ -48,6 +49,7 @@
    #:encode-with-length         ; ↕x - Length-prefixed data
    #:decode-with-length         ; Decode ↕x with length
    #:encode-optional            ; ¿x - Optional discriminator
+   #:encode-optional-with       ; ¿x with custom encoder
    #:decode-optional            ; Decode ¿x optionals
    #:encode-discriminated       ; Generic discriminated union
    #:decode-discriminator       ; Read discriminator byte
@@ -95,6 +97,10 @@
    #:e2                         ; 2-byte (16-bit)
    #:e4                         ; 4-byte (32-bit)
    #:e8                         ; 8-byte (64-bit)
+   #:encode-e1                  ; Alias for e1 (symmetry)
+   #:encode-e2                  ; Alias for e2 (symmetry)
+   #:encode-e4                  ; Alias for e4 (symmetry)
+   #:encode-e8                  ; Alias for e8 (symmetry)
    #:encode-fixed-tuple         ; Tuple of fixed-length ints
    #:encode-fixed-sequence      ; Sequence of fixed-length ints
    
@@ -108,5 +114,6 @@
    #:decode-e4                  ; Decode 4-byte integer
    #:decode-e8                  ; Decode 8-byte integer
    #:decode-hash                ; Decode 32-byte hash
+   #:encode-hash                ; Encode hash (identity, for symmetry)
    #:decode>>                   ; Sequential decode pipeline macro
    ))

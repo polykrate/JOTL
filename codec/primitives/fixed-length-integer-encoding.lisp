@@ -60,6 +60,24 @@
   "Encode as 8 octets (64 bits, max 2^64-1)"
   (encode-fixed-integer value 8))
 
+;;; Symmetric aliases for consistency with decode-eN functions
+
+(defun encode-e1 (value)
+  "Encode as 1 octet. Alias for e1 for symmetry with decode-e1."
+  (e1 value))
+
+(defun encode-e2 (value)
+  "Encode as 2 octets. Alias for e2 for symmetry with decode-e2."
+  (e2 value))
+
+(defun encode-e4 (value)
+  "Encode as 4 octets. Alias for e4 for symmetry with decode-e4."
+  (e4 value))
+
+(defun encode-e8 (value)
+  "Encode as 8 octets. Alias for e8 for symmetry with decode-e8."
+  (e8 value))
+
 ;;; For tuples/sequences with fixed-length elements
 ;;; C.13-C.15: El for non-natural arguments
 

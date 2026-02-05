@@ -42,6 +42,19 @@
   (values (subseq octets pos (+ pos 32))
           32))
 
+(defun encode-hash (hash)
+  "Encode a hash (32 bytes).
+   Identity function per C.2: E(x ∈ B) ≡ x
+   
+   Provided for symmetry with decode-hash.
+   
+   Args:
+     hash: 32-byte octet sequence
+   
+   Returns:
+     hash (unchanged)"
+  hash)
+
 ;;; Macro de composition : threading des décodeurs
 
 (defmacro decode>> ((octets-var pos-var) &body bindings)

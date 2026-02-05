@@ -62,17 +62,11 @@
    (e4 (header-timeslot header))
    
    ;; ¿HE : optional epoch marker (C.8)
-   (let ((epoch-marker (header-epoch-marker header)))
-     (if (eq epoch-marker +empty+)
-         (list 0)
-         (concat-octets (list 1) (encode-epoch-marker epoch-marker))))
+   (encode-optional-with (header-epoch-marker header) #'encode-epoch-marker)
    
    ;; ¿HW : optional winning tickets (C.8)
    ;; HW ∈ ⟦T⟧_E : fixed-length sequence of E tickets
-   (let ((winning-tickets (header-winning-tickets header)))
-     (if (eq winning-tickets +empty+)
-         (list 0)
-         (concat-octets (list 1) (encode-winning-tickets winning-tickets))))
+   (encode-optional-with (header-winning-tickets header) #'encode-winning-tickets)
    
    ;; E2(HI) : author index (C.12)
    (e2 (header-author-index header))

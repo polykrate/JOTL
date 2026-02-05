@@ -81,11 +81,39 @@
    
    Examples:
      E(¿∅) = [0]
-     E(¿42) = E(1, 42) = [1, 42]"
+     E(¿42) = E(1, 42) = [1, 42]
+   
+   Note: This uses the generic encode function. For custom structures,
+         use encode-optional-with and provide an explicit encoder."
   (if (eq value +empty+)
       (encode-natural 0)
       (concat-octets (encode-natural 1)
                      (encode value))))
+
+(defun encode-optional-with (value encoder)
+  "Encode an optional value with a custom encoder function.
+   Implements C.8: ¿x with explicit encoder for custom types.
+   
+   This is needed when encoding optional structures that the generic
+   encode function doesn't know how to handle (e.g. custom defstructs).
+   
+   - If x = ∅ → encode as 0
+   - Otherwise → encode as (1, encoder(x))
+   
+   Args:
+     value: The value to encode (or +empty+ for ∅)
+     encoder: Function to encode the value (if not empty)
+   
+   Returns:
+     Discriminated encoding
+   
+   Examples:
+     (encode-optional-with epoch-marker #'encode-epoch-marker)
+     (encode-optional-with +empty+ #'encode-anything) => [0]"
+  (if (eq value +empty+)
+      (list 0)
+      (concat-octets (list 1)
+                     (funcall encoder value))))
 
 (defun decode-optional (octets element-decoder &optional (start 0))
   "Decode an optional value.

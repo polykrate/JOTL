@@ -76,7 +76,9 @@
      E(↕[hash1, hash2]) = E(2) ⌢ hash1 ⌢ hash2
      
    Note: Use pre-encoded=t when elements are already encoded to avoid
-         double-encoding (which would flatten nested lists incorrectly)."
+         double-encoding (which would flatten nested lists incorrectly).
+         
+         For the common case of pre-encoded sequences, see encode-pre-encoded-sequence."
   (concat-octets 
    (encode-natural (length sequence))
    (if pre-encoded
@@ -84,6 +86,25 @@
        (apply #'concat-octets sequence)
        ;; Elements need encoding first
        (encode-sequence sequence))))
+
+(defun encode-pre-encoded-sequence (pre-encoded-elements)
+  "Encode a length-prefixed sequence of already-encoded elements.
+   
+   Common pattern: when you have a list of already-encoded octet sequences
+   and want to wrap them in a length-prefixed sequence.
+   
+   This is equivalent to: (encode-length-prefixed-sequence elements :pre-encoded t)
+   
+   Args:
+     pre-encoded-elements: List of octet sequences (already encoded)
+   
+   Returns:
+     Length-prefixed sequence: E(count) ⌢ elem0 ⌢ elem1 ⌢ ...
+   
+   Examples:
+     (encode-pre-encoded-sequence (list hash1 hash2 hash3))
+     → [3, ...hash1..., ...hash2..., ...hash3...]"
+  (encode-length-prefixed-sequence pre-encoded-elements :pre-encoded t))
 
 (defun decode-length-prefixed-sequence (octets element-decoder &optional (start 0))
   "Decode a length-prefixed sequence.
