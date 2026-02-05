@@ -442,8 +442,9 @@
    (work-result-code-hash result)
    ;; payload-hash : OpaqueHash (32 bytes, identity)
    (work-result-payload-hash result)
-   ;; accumulate-gas : E8(Gas)
-   (e8 (work-result-accumulate-gas result))
+   ;; accumulate-gas : NATURAL (variable-length)
+   ;; Note: ASN.1 says Gas=U64 but test vector uses variable-length natural!
+   (encode-natural (work-result-accumulate-gas result))
    ;; result : WorkExecResult (discriminant + optional data)
    (encode-work-output (work-result-result result))
    ;; refine-load : RefineLoad structure
@@ -468,8 +469,9 @@
       (code-hash (decode-hash octets pos))
       ;; wp : payload hash (32 bytes)
       (payload-hash (decode-hash octets pos))
-      ;; E8(wg) : accumulate gas (8 bytes)
-      (accumulate-gas (decode-e8 octets pos))
+      ;; accumulate gas (NATURAL, variable-length)
+      ;; Note: ASN.1 says Gas=U64 but test vector uses variable-length natural!
+      (accumulate-gas (decode-natural octets pos))
       ;; O(result) : work output (C.34)
       (result-output (decode-work-output octets pos))
       ;; refine_load : refine load structure
@@ -507,8 +509,9 @@
    (e1 (work-report-core-index report))
    ;; Authorizer hash (32 bytes)
    (work-report-authorizer-hash report)
-   ;; Auth gas used (8 bytes, E8)
-   (e8 (work-report-auth-gas-used report))
+   ;; Auth gas used (NATURAL, variable-length)
+   ;; Note: ASN.1 says U64 but test vector uses variable-length natural!
+   (encode-natural (work-report-auth-gas-used report))
    ;; Auth output (length-prefixed)
    (encode-with-length (work-report-auth-output report))
    ;; Segment root lookup (length-prefixed sequence)
@@ -541,8 +544,9 @@
       (core-index (decode-e1 octets pos))
       ;; Authorizer hash (32 bytes)
       (authorizer-hash (decode-hash octets pos))
-      ;; Auth gas used (8 bytes, E8)
-      (auth-gas-used (decode-e8 octets pos))
+      ;; Auth gas used (NATURAL, variable-length)
+      ;; Note: ASN.1 says U64 but test vector uses variable-length natural!
+      (auth-gas-used (decode-natural octets pos))
       ;; Auth output (length-prefixed)
       (auth-output (decode-with-length octets pos))
       ;; Segment root lookup (length-prefixed sequence of SegmentRootLookupItem)
