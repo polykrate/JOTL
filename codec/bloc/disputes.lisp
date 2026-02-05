@@ -92,6 +92,8 @@
    
    Graypaper Appendix C.21: ED((v, c, f)) = E(↕[...], ↕c, ↕f)
    
+   Uses dynamic *validators-super-majority* for fixed-size judgement sequences.
+   
    Args:
      disputes: A disputes structure
    
@@ -131,15 +133,15 @@
     (mapcar #'encode-fault (disputes-faults disputes))
     :pre-encoded t)))
 
-(defun decode-disputes (octets &optional (start 0) (validators-super-majority 5))
+(defun decode-disputes (octets &optional (start 0))
   "Decode disputes from octets.
    
    Inverse of encode-disputes (Appendix C.21).
+   Uses dynamic *validators-super-majority* for fixed-size judgement sequences.
    
    Args:
      octets: Encoded disputes data
      start: Starting position
-     validators-super-majority: Number of judgements per verdict (default 5 for tiny)
    
    Returns:
      values: (disputes bytes-consumed)"
@@ -161,9 +163,9 @@
                 (incf p ac)
                 
                 ;; Decode FIXED SIZE sequence of judgements
-                ;; Number determined by validators-super-majority system parameter
+                ;; Number determined by *validators-super-majority* dynamic variable
                 (let ((judgements '()))
-                  (dotimes (i validators-super-majority)
+                  (dotimes (i *validators-super-majority*)
                     (multiple-value-bind (vote-byte vc) (decode-e1 o p)
                       (incf p vc)
                       (multiple-value-bind (idx ic) (decode-e2 o p)

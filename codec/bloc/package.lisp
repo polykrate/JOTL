@@ -35,6 +35,8 @@
    #:*full-chainspec*
    #:*chainspec*
    #:set-chainspec
+   #:*validators-super-majority*      ; Dynamic var: current super-majority threshold
+   #:validators-super-majority        ; Function: ceil(num-validators * 2/3 + 1)
    #:num-validators
    
    ;; Block structure (4.2)

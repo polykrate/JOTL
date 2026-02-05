@@ -32,8 +32,8 @@
                    (concat-octets
                     ;; a : assurance anchor (FIXED 32 bytes hash!)
                     (availability-assurance-assurance-a assurance)
-                    ;; f : flags (FIXED 1 byte!)
-                    (list (availability-assurance-flags assurance))
+                    ;; f : flags/bitfield (FIXED size from chainspec!)
+                    (availability-assurance-flags assurance)
                     ;; E2(v) : validator index (2 bytes)
                     (e2 (availability-assurance-validator-index assurance))
                     ;; s : signature (FIXED 64 bytes!)
@@ -57,15 +57,15 @@
    octets
    (lambda (o s)
      (let ((pos s))
-       (decode>> (o pos)
-         ;; a : assurance anchor (FIXED 32 bytes hash!)
-         (assurance-a (decode-hash o pos))
-         ;; f : flags (FIXED 1 byte!)
-         (flags (decode-e1 o pos))
-         ;; E2(v) : validator index (2 bytes)
-         (validator-index (decode-e2 o pos))
-         ;; s : signature (FIXED 64 bytes!)
-         (signature (decode-fixed-bytes o pos 64))
+      (decode>> (o pos)
+        ;; a : assurance anchor (FIXED 32 bytes hash!)
+        (assurance-a (decode-hash o pos))
+        ;; f : flags/bitfield (FIXED size from chainspec!)
+        (flags (decode-fixed-bytes o pos (chainspec-avail-bitfield-bytes *chainspec*)))
+        ;; E2(v) : validator index (2 bytes)
+        (validator-index (decode-e2 o pos))
+        ;; s : signature (FIXED 64 bytes!)
+        (signature (decode-fixed-bytes o pos 64))
          
          (values
           (make-availability-assurance

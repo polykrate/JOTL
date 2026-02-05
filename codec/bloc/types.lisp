@@ -176,8 +176,8 @@
   ;; Assurance anchor/hash - list of octets
   (assurance-a nil :type (or null list))
   
-  ;; Flags - FIXED 1 byte integer
-  (flags nil :type (or null integer))
+  ;; Flags/bitfield - length-prefixed blob (list of octets)
+  (flags nil :type (or null list))
   
   ;; Validator index
   (validator-index nil :type (or null integer))

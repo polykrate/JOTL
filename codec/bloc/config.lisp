@@ -20,7 +20,8 @@
   (rotation-period 4 :type integer)           ; Rotation period
   (num-ec-pieces-per-segment 1026 :type integer) ; EC pieces per segment
   (max-block-gas 20000000 :type integer)      ; Max block gas
-  (max-refine-gas 1000000000 :type integer))  ; Max refine gas
+  (max-refine-gas 1000000000 :type integer)   ; Max refine gas
+  (avail-bitfield-bytes 1 :type integer))     ; Availability bitfield size (bytes)
 
 ;;; Tiny chainspec (for testing)
 (defparameter *tiny-chainspec*
@@ -37,7 +38,8 @@
    :rotation-period 4
    :num-ec-pieces-per-segment 1026
    :max-block-gas 20000000
-   :max-refine-gas 1000000000)
+   :max-refine-gas 1000000000
+   :avail-bitfield-bytes 1)
   "Tiny chainspec for testing (6 validators)")
 
 ;;; Full chainspec (matches Gray Paper)
@@ -55,7 +57,8 @@
    :rotation-period 10
    :num-ec-pieces-per-segment 6
    :max-block-gas 3500000000
-   :max-refine-gas 5000000000)
+   :max-refine-gas 5000000000
+   :avail-bitfield-bytes 43)
   "Full chainspec matching Gray Paper (1023 validators)")
 
 ;;; Default chainspec (tiny for testing)
@@ -83,10 +86,19 @@
           ((eq spec :full) *full-chainspec*)
           ((chainspec-p spec) spec)
           (t (error "Invalid chainspec: ~A. Use :tiny, :full, or a chainspec structure." spec))))
-  (format t "Chainspec set to: ~A (~A validators)~%"
+  ;; Update dynamic *validators-super-majority* based on new chainspec
+  (setf *validators-super-majority* (validators-super-majority (chainspec-num-validators *chainspec*)))
+  (format t "Chainspec set to: ~A (~A validators, VSM ~A)~%"
           (chainspec-name *chainspec*)
-          (chainspec-num-validators *chainspec*))
+          (chainspec-num-validators *chainspec*)
+          *validators-super-majority*)
   *chainspec*)
+
+;;; Dynamic variable for validators super-majority (can be rebound locally)
+(defvar *validators-super-majority* 5
+  "Dynamic variable holding the current validators super-majority threshold.
+   Defaults to 5 (for tiny chainspec with 6 validators).
+   Can be dynamically rebound in decode/encode-chain-block based on header's epoch-marker.")
 
 ;;; Helper to get current num-validators
 (defun num-validators ()

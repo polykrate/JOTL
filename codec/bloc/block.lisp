@@ -32,6 +32,7 @@
   "Encode extrinsic data.
    
    Graypaper Appendix C.16 (partial): E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
+   Uses dynamic *validators-super-majority* for disputes encoding.
    
    Args:
      extrinsic: An extrinsic structure
@@ -54,15 +55,15 @@
    ;; ED(ED) : disputes (Appendix C.21)
    (encode-disputes (extrinsic-disputes extrinsic))))
 
-(defun decode-extrinsic (octets &optional (start 0) (validators-super-majority 5))
+(defun decode-extrinsic (octets &optional (start 0))
   "Decode extrinsic data from octets.
    
    Inverse of encode-extrinsic.
+   Uses dynamic *validators-super-majority* for disputes decoding.
    
    Args:
      octets: Encoded extrinsic data
      start: Starting position
-     validators-super-majority: Number of judgements per verdict (default 5 for tiny)
    
    Returns:
      values: (extrinsic bytes-consumed)"
@@ -81,7 +82,7 @@
       (availability (decode-availability octets pos))
       
       ;; ED(ED) : disputes (Appendix C.21)
-      (disputes (decode-disputes octets pos validators-super-majority))
+      (disputes (decode-disputes octets pos))
       
       (values
        (make-extrinsic
@@ -99,17 +100,28 @@
    
    Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
    
+   Dynamically binds *validators-super-majority* based on header's epoch-marker.
+   
    Args:
      block: A chain-block structure
      as-blob: If t, convert result to vector; if nil (default), return list
    
    Returns:
      Encoded block as list (default) or vector"
-  (let ((octets (concat-octets
-                 ;; H : header
-                 (encode-header (chain-block-header block))
-                 ;; E : extrinsic
-                 (encode-extrinsic (chain-block-extrinsic block)))))
+  (let* ((header (chain-block-header block))
+         ;; Calculate validators-super-majority from header if epoch_mark exists
+         (*validators-super-majority*
+          (if (and (header-epoch-marker header)
+                   (not (eq (header-epoch-marker header) +empty+)))
+              ;; Extract from epoch_mark validators
+              (validators-super-majority (length (epoch-marker-validators (header-epoch-marker header))))
+              ;; Default from current chainspec
+              (validators-super-majority (chainspec-num-validators *chainspec*))))
+         (octets (concat-octets
+                  ;; H : header
+                  (encode-header header)
+                  ;; E : extrinsic (uses dynamic *validators-super-majority*)
+                  (encode-extrinsic (chain-block-extrinsic block)))))
     (if as-blob
         (coerce octets 'vector)
         octets)))
@@ -118,6 +130,8 @@
   "Decode a complete JAM block from octets.
    
    Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
+   
+   Dynamically binds *validators-super-majority* based on header's epoch-marker.
    
    Args:
      blob: Encoded block data (vector or list)
@@ -132,17 +146,18 @@
         (decode-header octets pos)
       (incf pos header-consumed)
       
-      ;; Calculate validators-super-majority from header if epoch-marker exists
-      (let ((vsm (if (and (header-epoch-marker header)
-                          (not (eq (header-epoch-marker header) +empty+)))
-                     ;; Extract from epoch-marker validators and calculate
-                     (validators-super-majority (length (epoch-marker-validators (header-epoch-marker header))))
-                     ;; Default from current chainspec
-                     (validators-super-majority))))
+      ;; Calculate and bind *validators-super-majority* dynamically from header
+      (let ((*validators-super-majority*
+             (if (and (header-epoch-marker header)
+                      (not (eq (header-epoch-marker header) +empty+)))
+                 ;; Extract from epoch-marker validators and calculate
+                 (validators-super-majority (length (epoch-marker-validators (header-epoch-marker header))))
+                 ;; Default from current chainspec
+                 (validators-super-majority))))
         
-        ;; Decode extrinsic with calculated vsm
+        ;; Decode extrinsic (uses dynamic *validators-super-majority*)
         (multiple-value-bind (extrinsic extrinsic-consumed)
-            (decode-extrinsic octets pos vsm)
+            (decode-extrinsic octets pos)
           (incf pos extrinsic-consumed)
           
           (values
