@@ -37,7 +37,7 @@
   (concat-octets
    (encode-hash (validator-queue-entry-bandersnatch entry))  ; b: Bandersnatch (32 bytes)
    (encode-hash (validator-queue-entry-ed25519 entry))       ; e: Ed25519 (32 bytes)
-   (encode-optional (validator-queue-entry-bls entry) #'encode-hash)  ; g: BLS (optional)
+   (encode-optional-with (validator-queue-entry-bls entry) #'encode-bls-key)  ; g: BLS (optional 144)
    (encode-e8 (validator-queue-entry-deposit entry))))  ; Deposit (u64)
 
 (defun encode-validator-queue (queue-list)
@@ -72,13 +72,13 @@
     (decode>> (octets pos)
       (bandersnatch (decode-hash octets pos))
       (ed25519      (decode-hash octets pos))
-      (bls          (decode-optional octets pos #'decode-hash))
+      (bls-raw      (decode-optional octets #'decode-bls-key pos))
       (deposit      (decode-e8 octets pos))
       (values
        (make-validator-queue-entry
         :bandersnatch bandersnatch
         :ed25519 ed25519
-        :bls bls
+        :bls (if (eq bls-raw +empty+) nil bls-raw)
         :deposit deposit)
        pos))))
 

@@ -33,17 +33,18 @@
     :serial t
     :components
     (;; Primitives: JAM codec primitives (C.1-C.15)
-     (:module "primitives"
-      :serial t
-      :components ((:file "package")
-                   (:file "trivial-encodings")
-                   (:file "sequence-encoding")
-                   (:file "discriminator-encoding")
-                   (:file "bit-sequence-encoding")
-                   (:file "dictionary-encoding")
-                   (:file "set-encoding")
-                   (:file "fixed-length-integer-encoding")
-                   (:file "decoder-macros")))
+            (:module "primitives"
+             :serial t
+             :components ((:file "package")
+                          (:file "trivial-encodings")
+                          (:file "sequence-encoding")
+                          (:file "discriminator-encoding")
+                          (:file "bit-sequence-encoding")
+                          (:file "dictionary-encoding")
+                          (:file "set-encoding")
+                          (:file "fixed-length-integer-encoding")
+                          (:file "crypto-encoding")
+                          (:file "decoder-macros")))
      
      ;; State: State structures and serialization (Appendix D)
      (:module "state"

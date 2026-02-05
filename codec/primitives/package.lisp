@@ -105,6 +105,23 @@
    #:encode-fixed-sequence      ; Sequence of fixed-length ints
    
    ;; ══════════════════════════════════════════════════════════════
+   ;; CRYPTOGRAPHIC TYPES (Section 5.10, Appendix E - Fixed-Size)
+   ;; ══════════════════════════════════════════════════════════════
+   
+   #:encode-bls-key             ; BLS public key (144 bytes)
+   #:decode-bls-key
+   #:encode-ed25519-signature   ; Ed25519 signature (64 bytes)
+   #:decode-ed25519-signature
+   #:encode-bandersnatch-signature ; Bandersnatch signature (96 bytes)
+   #:decode-bandersnatch-signature
+   #:encode-ed25519-public-key  ; Ed25519 public key (32 bytes)
+   #:decode-ed25519-public-key
+   #:encode-bandersnatch-public-key ; Bandersnatch public key (32 bytes)
+   #:decode-bandersnatch-public-key
+   #:encode-bls-signature       ; BLS signature (96 bytes)
+   #:decode-bls-signature
+   
+   ;; ══════════════════════════════════════════════════════════════
    ;; DECODER COMPOSITION (Macros & Helpers)
    ;; ══════════════════════════════════════════════════════════════
    

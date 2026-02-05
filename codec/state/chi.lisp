@@ -33,7 +33,7 @@
    
    Returns:
      Encoded octet list"
-  (encode-optional service-id #'encode-e4))
+  (encode-optional-with service-id #'encode-e4))
 
 (defun decode-blessed-service (octets position)
   "Decode blessed service χM.
@@ -93,7 +93,7 @@
    
    Returns:
      Encoded octet list"
-  (encode-optional service-id #'encode-e4))
+  (encode-optional-with service-id #'encode-e4))
 
 (defun decode-designate-service (octets position)
   "Decode designate service χV.
@@ -122,7 +122,7 @@
    
    Returns:
      Encoded octet list"
-  (encode-optional service-id #'encode-e4))
+  (encode-optional-with service-id #'encode-e4))
 
 (defun decode-registrar-service (octets position)
   "Decode registrar service χR.

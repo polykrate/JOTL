@@ -35,24 +35,37 @@
   (concat-octets
    (encode-hash (validator-keys-bandersnatch keys))  ; b: Bandersnatch (32 bytes)
    (encode-hash (validator-keys-ed25519 keys))       ; e: Ed25519 (32 bytes)
-   (encode-optional (validator-keys-bls keys) #'encode-hash))) ; g: BLS (optional 144 bytes)
+   (encode-optional-with (validator-keys-bls keys) #'encode-bls-key))) ; g: BLS (optional 144 bytes)
 
-(defun encode-current-validators (validators-list)
-  "Encode the full current validators set κ.
+(defun encode-current-validators (validators)
+  "Encode the full current validators set κ (length-prefixed sequence).
    
    Graypaper equation 6.7: κ ∈ ⟦K⟧V
    
    Args:
-     validators-list: list of validator-keys structs
+     validators: List of VALIDATOR-KEYS
    
    Returns:
-     Encoded octet list (length-prefixed sequence)"
+     Encoded octet list"
   (encode-pre-encoded-sequence
-   (mapcar #'encode-validator-keys validators-list)))
+   (mapcar #'encode-validator-keys validators)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; DECODING (Appendix D)
 ;;; ═══════════════════════════════════════════════════════════════════
+
+(defun decode-current-validators (octets position)
+  "Decode the full current validators set κ (length-prefixed sequence).
+   
+   Graypaper equation 6.7: κ ∈ ⟦K⟧V
+   
+   Args:
+     octets: octet list
+     position: starting position
+   
+   Returns:
+     (values validators-list new-position)"
+  (decode-length-prefixed-sequence octets #'decode-validator-keys position))
 
 (defun decode-validator-keys (octets position)
   "Decode validator key pair κ[v].
@@ -69,24 +82,11 @@
     (decode>> (octets pos)
       (bandersnatch (decode-hash octets pos))
       (ed25519      (decode-hash octets pos))
-      (bls          (decode-optional octets pos #'decode-hash))
+      (bls-raw      (decode-optional octets #'decode-bls-key pos))
       (values
        (make-validator-keys
         :bandersnatch bandersnatch
         :ed25519 ed25519
-        :bls bls)
+        :bls (if (eq bls-raw +empty+) nil bls-raw))
        pos))))
 
-(defun decode-current-validators (octets position)
-  "Decode the full current validators set κ.
-   
-   Graypaper equation 6.7: κ ∈ ⟦K⟧V
-   
-   Args:
-     octets: octet list
-     position: starting position
-   
-   Returns:
-     (values validators-list new-position)"
-  (decode-length-prefixed-sequence
-   octets position #'decode-validator-keys))

@@ -97,11 +97,11 @@
    This is needed when encoding optional structures that the generic
    encode function doesn't know how to handle (e.g. custom defstructs).
    
-   - If x = ∅ → encode as 0
+   - If x = ∅ (or nil) → encode as 0
    - Otherwise → encode as (1, encoder(x))
    
    Args:
-     value: The value to encode (or +empty+ for ∅)
+     value: The value to encode (or +empty+/nil for ∅)
      encoder: Function to encode the value (if not empty)
    
    Returns:
@@ -109,8 +109,9 @@
    
    Examples:
      (encode-optional-with epoch-marker #'encode-epoch-marker)
-     (encode-optional-with +empty+ #'encode-anything) => [0]"
-  (if (eq value +empty+)
+     (encode-optional-with +empty+ #'encode-anything) => [0]
+     (encode-optional-with nil #'encode-anything) => [0]"
+  (if (or (eq value +empty+) (null value))
       (list 0)
       (concat-octets (list 1)
                      (funcall encoder value))))
