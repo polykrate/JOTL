@@ -178,6 +178,69 @@
   (accumulated-timeslot nil :type (or null timeslot)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; λ - ARCHIVED VALIDATORS (Historical Validator Keys)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper Section 6: Historical validator keys for disputes
+
+(defstruct archived-validator
+  "Archived validator keys (λ[e][v]).
+   
+   Historical validator keys indexed by epoch for dispute resolution."
+  
+  ;; Epoch index
+  (epoch nil :type (or null natural))
+  
+  ;; Validator index
+  (validator-index nil :type (or null natural))
+  
+  ;; Bandersnatch public key (32 bytes)
+  (bandersnatch nil :type (or null bandersnatch-public-key))
+  
+  ;; Ed25519 public key (32 bytes)
+  (ed25519 nil :type (or null ed25519-public-key)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; ι - VALIDATOR QUEUE (Enrollment Queue)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper Section 6: Queue of validators waiting to be enrolled
+
+(defstruct validator-queue-entry
+  "Validator queue entry (ι).
+   
+   Validator waiting to be enrolled in next epoch."
+  
+  ;; Bandersnatch public key (32 bytes)
+  (bandersnatch nil :type (or null bandersnatch-public-key))
+  
+  ;; Ed25519 public key (32 bytes)
+  (ed25519 nil :type (or null ed25519-public-key))
+  
+  ;; BLS public key (144 bytes, optional)
+  (bls nil :type (or null bls-public-key))
+  
+  ;; Deposit/stake amount
+  (deposit nil :type (or null gas-amount)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; ϕ - AUTHORIZATION QUEUE (Core Authorization Queue)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper Section 11: Queue filling core authorization requirements
+
+(defstruct authorization-queue-entry
+  "Authorization queue entry (ϕ).
+   
+   Authorization requests queued for core assignment."
+  
+  ;; Service requesting authorization
+  (service-id nil :type (or null service-id))
+  
+  ;; Code hash to authorize
+  (code-hash nil :type (or null hash32))
+  
+  ;; Authorization pool hash
+  (auth-pool nil :type (or null hash32)))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; χ - PRIVILEGED SERVICES (Special Services)
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Graypaper Section 3.2: Services with privileged status
@@ -238,6 +301,24 @@
   (rewards nil :type (or null gas-amount)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; τ - TIMESLOT (Current Timeslot Index)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper Section 4: Current timeslot (just a natural number, no struct needed)
+;;; NOTE: τ is stored directly as (timeslot) type in jam-state
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; η - ENTROPY POOL (On-chain Entropy)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper Section 6: On-chain entropy for randomness (just a hash32, no struct needed)
+;;; NOTE: η is stored directly as hash32 in jam-state
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; θ - THETA (Reserved/Unclear)
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Graypaper: Purpose unclear, reserved for future use
+;;; NOTE: θ is stored as generic type t in jam-state
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; GLOBAL STATE (σ)
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Graypaper Section 3: Complete JAM state
@@ -245,55 +326,57 @@
 (defstruct jam-state
   "Complete JAM state (σ).
    
-   σ ≡ (α, β, θ, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ)"
+   σ ≡ (α, β, θ, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ)
+   
+   All 17 components of the JAM protocol state."
   
-  ;; α: Core authorizations (hash -> core-authorization)
+  ;; α: Core authorizations (list of core-authorization)
   (core-authorizations nil :type list)
   
-  ;; β: Recent blocks
+  ;; β: Recent blocks (recent-blocks struct)
   (recent-blocks nil :type (or null recent-blocks))
   
-  ;; θ: Reserved/unclear
+  ;; θ: Reserved/unclear (generic type for future use)
   (theta nil :type t)
   
-  ;; γ: SAFROLE state
+  ;; γ: SAFROLE state (safrole-state struct)
   (safrole nil :type (or null safrole-state))
   
-  ;; δ: Service accounts (service-id -> service-account)
+  ;; δ: Service accounts (list of service-account)
   (service-accounts nil :type list)
   
-  ;; η: Entropy pool (32 bytes)
+  ;; η: Entropy pool (32-byte hash for on-chain randomness)
   (entropy-pool nil :type (or null hash32))
   
-  ;; ι: Validator queue
+  ;; ι: Validator queue (list of validator-queue-entry)
   (validator-queue nil :type list)
   
   ;; κ: Current validators (list of validator-keys)
   (current-validators nil :type list)
   
-  ;; λ: Archived validators
+  ;; λ: Archived validators (list of archived-validator)
   (archived-validators nil :type list)
   
-  ;; ρ: Pending reports (core-id -> pending-report)
+  ;; ρ: Pending reports (list of pending-report)
   (pending-reports nil :type list)
   
-  ;; τ: Current timeslot
+  ;; τ: Current timeslot (natural number index)
   (timeslot nil :type (or null timeslot))
   
-  ;; ϕ: Authorization queue
+  ;; ϕ: Authorization queue (list of authorization-queue-entry)
   (authorization-queue nil :type list)
   
-  ;; χ: Privileged services
+  ;; χ: Privileged services (list of privileged-service)
   (privileged-services nil :type list)
   
-  ;; ψ: Judgements
+  ;; ψ: Judgements (list of judgement-entry)
   (judgements nil :type list)
   
-  ;; π: Validator statistics (validator-index -> validator-stats)
+  ;; π: Validator statistics (list of validator-stats)
   (validator-statistics nil :type list)
   
-  ;; ω: Pending work-reports (ready to accumulate)
+  ;; ω: Pending work-reports (list of pending-accumulation)
   (pending-work-reports nil :type list)
   
-  ;; ξ: Accumulated work-packages (recent, prevent replay)
+  ;; ξ: Accumulated work-packages (list of accumulated-package)
   (accumulated-packages nil :type list))

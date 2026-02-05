@@ -53,6 +53,29 @@
    #:validator-keys-ed25519
    #:validator-keys-bls
    
+   ;; λ - Archived validators
+   #:archived-validator
+   #:make-archived-validator
+   #:archived-validator-epoch
+   #:archived-validator-validator-index
+   #:archived-validator-bandersnatch
+   #:archived-validator-ed25519
+   
+   ;; ι - Validator queue
+   #:validator-queue-entry
+   #:make-validator-queue-entry
+   #:validator-queue-entry-bandersnatch
+   #:validator-queue-entry-ed25519
+   #:validator-queue-entry-bls
+   #:validator-queue-entry-deposit
+   
+   ;; ϕ - Authorization queue
+   #:authorization-queue-entry
+   #:make-authorization-queue-entry
+   #:authorization-queue-entry-service-id
+   #:authorization-queue-entry-code-hash
+   #:authorization-queue-entry-auth-pool
+   
    ;; γ - SAFROLE state
    #:safrole-state
    #:make-safrole-state
