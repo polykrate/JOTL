@@ -69,6 +69,12 @@
 (defparameter *chainspec* *default-chainspec*
   "Currently active chainspec")
 
+;;; Dynamic variable for validators super-majority (can be rebound locally)
+(defvar *validators-super-majority* 5
+  "Dynamic variable holding the current validators super-majority threshold.
+   Defaults to 5 (for tiny chainspec with 6 validators).
+   Can be dynamically rebound in decode/encode-chain-block based on header's epoch-marker.")
+
 ;;; Convenience function to switch chainspec
 (defun set-chainspec (spec)
   "Set the active chainspec.
@@ -93,12 +99,6 @@
           (chainspec-num-validators *chainspec*)
           *validators-super-majority*)
   *chainspec*)
-
-;;; Dynamic variable for validators super-majority (can be rebound locally)
-(defvar *validators-super-majority* 5
-  "Dynamic variable holding the current validators super-majority threshold.
-   Defaults to 5 (for tiny chainspec with 6 validators).
-   Can be dynamically rebound in decode/encode-chain-block based on header's epoch-marker.")
 
 ;;; Helper to get current num-validators
 (defun num-validators ()
