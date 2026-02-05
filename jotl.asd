@@ -48,7 +48,8 @@
      ;; State: State structures and serialization (Appendix D)
      (:module "state"
       :serial t
-      :components ())
+      :components ((:file "package")
+                   (:file "types")))
      
      ;; Bloc: Block structures and encoding (C.16-C.35)
      (:module "bloc"
