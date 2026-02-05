@@ -125,11 +125,25 @@
    #:disputes-verdicts
    #:disputes-culprits
    #:disputes-faults
+   
+   #:culprit
+   #:make-culprit
+   #:culprit-target
+   #:culprit-key
+   #:culprit-signature
+   
+   #:fault
+   #:make-fault
+   #:fault-target
+   #:fault-vote
+   #:fault-key
+   #:fault-signature
+   
    #:verdict-entry
    #:make-verdict-entry
-   #:verdict-entry-report-data
-   #:verdict-entry-component-a
-   #:verdict-entry-judgments
+   #:verdict-entry-target
+   #:verdict-entry-age
+   #:verdict-entry-judgement
    #:encode-disputes
    #:decode-disputes
    

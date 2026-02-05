@@ -190,21 +190,36 @@
 ;;; Graypaper Section 6.6: Disputes (D)
 
 (defstruct verdict-entry
-  ;; Report data/hash - list of octets
-  (report-data nil :type (or null list))
+  ;; Target hash - FIXED 32 bytes
+  (target nil :type (or null list))
   
-  ;; Age
+  ;; Age (E4)
   (age nil :type (or null integer))
   
   ;; Judgement data (sequence of validator, index, signature)
   (judgement nil :type list))
 
+;; Culprit structure (for disputes)
+(defstruct culprit
+  "Culprit in disputes."
+  (target nil :type (or null list))       ; 32-byte hash
+  (key nil :type (or null list))          ; 32-byte hash  
+  (signature nil :type (or null list)))   ; 64-byte signature
+
+;; Fault structure (for disputes)
+(defstruct fault
+  "Fault in disputes."
+  (target nil :type (or null list))       ; 32-byte hash
+  (vote nil :type (or null boolean))      ; boolean vote
+  (key nil :type (or null list))          ; 32-byte hash
+  (signature nil :type (or null list)))   ; 64-byte signature
+
 (defstruct disputes
   ;; Verdicts - list of verdict-entry
   (verdicts nil :type list)
   
-  ;; Culprits - list of octets
-  (culprits nil :type (or null list))
+  ;; Culprits - list of culprit structures
+  (culprits nil :type list)
   
-  ;; Faults - list of octets
-  (faults nil :type (or null list)))
+  ;; Faults - list of fault structures
+  (faults nil :type list))
