@@ -1,7 +1,9 @@
 ;;;; config.lisp
 ;;;; JAM Chainspec Configuration Parameters
+;;;;
+;;;; Top-level configuration module, used by codec, state, and STF modules.
 
-(in-package :jotl-bloc)
+(in-package :jotl-config)
 
 ;;; Chainspec parameters for tiny and full chains
 ;;; Based on w3f/jamtestvectors README.md
