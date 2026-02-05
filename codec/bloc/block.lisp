@@ -1,124 +1,140 @@
 ;;;; block.lisp
-;;;; JAM Block structure
-;;;; Graypaper references: Section 4.1-4.2, Equations 4.2-4.3, Appendix C.16
+;;;; JAM Block structure (B)
+;;;; Graypaper references: Equations 4.2-4.3, 5.1, Appendix C.16
 
 (in-package :jotl-bloc)
 
-;;; The Block
+;;; Block B
 ;;;
-;;; Graypaper Section 4.1: The Block
-;;; Equation 4.2: B ≡ (H, E)
-;;; Equation 4.3: E ≡ (ET, ED, EP, EA, EG)
+;;; Graypaper Equations 4.2-4.3:
+;;; B ≡ (H, E)
 ;;;
-;;; The block B is partitioned into functional components:
-;;; - H: Header (metadata and cryptographic references)
-;;; - E: Extrinsic data (external input data)
-
-(defstruct chain-block
-  "JAM Block structure.
-   
-   Graypaper Equation 4.2: B ≡ (H, E)
-   - H: Header (immutable, known a priori)
-   - E: Extrinsic data (external to the system)"
-  (header nil :type (or null header))
-  (extrinsic nil :type (or null extrinsic)))
-
-(defstruct extrinsic
-  "Extrinsic data structure.
-   
-   Graypaper Equation 4.3: E ≡ (ET, ED, EP, EA, EG)
-   - ET: Tickets (validator selection mechanism)
-   - ED: Disputes (validity disputes between validators)
-   - EP: Preimages (static data for workloads)
-   - EA: Availability (assurances of received data)
-   - EG: Reports (guarantees of completed workloads)"
-  (tickets nil :type list)            ; ET
-  (disputes nil :type (or null disputes))  ; ED
-  (preimages nil :type list)          ; EP
-  (availability nil :type list)       ; EA
-  (reports nil :type list))           ; EG
-
-;;; Block encoding/decoding
-;;; Will be implemented after component structures are defined
-
-;;; Block encoding
+;;; Where:
+;;; - H: Header (Eq. 5.1)
+;;; - E: Extrinsic data (Eq. 4.3)
 ;;;
-;;; Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
+;;; Graypaper Equation 4.3:
+;;; E ≡ (ET, ED, EP, EA, EG)
+;;;
+;;; Where:
+;;; - ET: Tickets
+;;; - ED: Disputes
+;;; - EP: Preimages
+;;; - EA: Availability assurances
+;;; - EG: Guarantees (reports)
+;;;
+;;; Graypaper Appendix C.16:
+;;; E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
 
-(defun encode-chain-block (block)
-  "Encode a JAM block.
+;;; Extrinsic encoding/decoding
+
+(defun encode-extrinsic (extrinsic)
+  "Encode extrinsic data.
    
-   Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
+   Graypaper Appendix C.16 (partial): E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
    
    Args:
-     block: A jam-block structure
+     extrinsic: An extrinsic structure
    
    Returns:
      Encoded octet sequence"
-  (let* ((header (chain-block-header block))
-         (extrinsic (chain-block-extrinsic block))
-         (et (extrinsic-tickets extrinsic))
-         (ep (extrinsic-preimages extrinsic))
-         (eg (extrinsic-reports extrinsic))
-         (ea (extrinsic-availability extrinsic))
-         (ed (extrinsic-disputes extrinsic)))
-    (concat-octets (encode-header header)
-                   (encode-tickets et)
-                   (encode-preimages ep)
-                   (encode-reports eg)
-                   (encode-availability ea)
-                   (encode-disputes ed))))
-
-(defun decode-chain-block (octets &optional (start 0))
-  "Decode a JAM block from octets.
+  (concat-octets
+   ;; ET(ET) : tickets (Appendix C.17)
+   (encode-tickets (extrinsic-tickets extrinsic))
    
-   Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EC(EG), EA(EA), ED(ED))
+   ;; EP(EP) : preimages (Appendix C.18)
+   (encode-preimages (extrinsic-preimages extrinsic))
+   
+   ;; EG(EG) : reports (Appendix C.19)
+   (encode-reports (extrinsic-reports extrinsic))
+   
+   ;; EA(EA) : availability (Appendix C.20)
+   (encode-availability (extrinsic-availability extrinsic))
+   
+   ;; ED(ED) : disputes (Appendix C.21)
+   (encode-disputes (extrinsic-disputes extrinsic))))
+
+(defun decode-extrinsic (octets &optional (start 0))
+  "Decode extrinsic data from octets.
+   
+   Inverse of encode-extrinsic.
    
    Args:
-     octets: Encoded block data
+     octets: Encoded extrinsic data
      start: Starting position
    
    Returns:
-     values: (jam-block bytes-consumed)"
+     values: (extrinsic bytes-consumed)"
   (let ((pos start))
-    ;; H : Header
-    (multiple-value-bind (header header-consumed)
-        (decode-header octets pos)
-      (incf pos header-consumed)
+    (decode>> (octets pos)
+      ;; ET(ET) : tickets (Appendix C.17)
+      (tickets (decode-tickets octets pos))
       
-      ;; ET(ET) : Tickets
-      (multiple-value-bind (tickets tickets-consumed)
-          (decode-tickets octets pos)
-        (incf pos tickets-consumed)
-        
-        ;; EP(EP) : Preimages
-        (multiple-value-bind (preimages preimages-consumed)
-            (decode-preimages octets pos)
-          (incf pos preimages-consumed)
-          
-          ;; EC(EG) : Reports
-          (multiple-value-bind (reports reports-consumed)
-              (decode-reports octets pos)
-            (incf pos reports-consumed)
-            
-            ;; EA(EA) : Availability
-            (multiple-value-bind (availability availability-consumed)
-                (decode-availability octets pos)
-              (incf pos availability-consumed)
-              
-              ;; ED(ED) : Disputes
-              (multiple-value-bind (disputes disputes-consumed)
-                  (decode-disputes octets pos)
-                (incf pos disputes-consumed)
-                
-                ;; Construct the block
-                (values
-                 (make-chain-block
-                  :header header
-                  :extrinsic (make-extrinsic
-                              :tickets tickets
-                              :disputes disputes
-                              :preimages preimages
-                              :availability availability
-                              :reports reports))
-                 (- pos start))))))))))
+      ;; EP(EP) : preimages (Appendix C.18)
+      (preimages (decode-preimages octets pos))
+      
+      ;; EG(EG) : reports (Appendix C.19)
+      (reports (decode-reports octets pos))
+      
+      ;; EA(EA) : availability (Appendix C.20)
+      (availability (decode-availability octets pos))
+      
+      ;; ED(ED) : disputes (Appendix C.21)
+      (disputes (decode-disputes octets pos))
+      
+      (values
+       (make-extrinsic
+        :tickets tickets
+        :preimages preimages
+        :reports reports
+        :availability availability
+        :disputes disputes)
+       (- pos start)))))
+
+;;; Block encoding/decoding
+
+(defun encode-chain-block (block &key (as-blob nil))
+  "Encode a complete JAM block.
+   
+   Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
+   
+   Args:
+     block: A chain-block structure
+     as-blob: If t, convert result to vector; if nil (default), return list
+   
+   Returns:
+     Encoded block as list (default) or vector"
+  (let ((octets (concat-octets
+                 ;; H : header
+                 (encode-header (chain-block-header block))
+                 ;; E : extrinsic
+                 (encode-extrinsic (chain-block-extrinsic block)))))
+    (if as-blob
+        (coerce octets 'vector)
+        octets)))
+
+(defun decode-chain-block (blob &optional (start 0))
+  "Decode a complete JAM block from octets.
+   
+   Graypaper Appendix C.16: E(B) = E(H, ET(ET), EP(EP), EG(EG), EA(EA), ED(ED))
+   
+   Args:
+     blob: Encoded block data (vector or list)
+     start: Starting position
+   
+   Returns:
+     values: (chain-block bytes-consumed)"
+  (let ((octets (coerce blob 'list))
+        (pos start))
+    (decode>> (octets pos)
+      ;; H : header
+      (header (decode-header octets pos))
+      
+      ;; E : extrinsic
+      (extrinsic (decode-extrinsic octets pos))
+      
+      (values
+       (make-chain-block
+        :header header
+        :extrinsic extrinsic)
+       (- pos start)))))

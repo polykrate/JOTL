@@ -1,25 +1,21 @@
 ;;;; tickets.lisp
-;;;; JAM Tickets (ET) - Validator selection mechanism
-;;;; Graypaper references: Section 6, Equation 6.6, Appendix C.17
+;;;; JAM Tickets (T)
+;;;; Graypaper references: Section 6.6, Equation 6.6, Appendix C.17
 
 (in-package :jotl-bloc)
 
-;;; Tickets ET
+;;; Ticket T
 ;;;
-;;; Used for the mechanism which manages the selection of validators
-;;; for the permissioning of block authoring.
+;;; Graypaper Equation 6.6:
+;;; T ≡ (y ∈ H, e ∈ N)
 ;;;
-;;; Graypaper Section 6.2: Safrole Basic State
-;;; Equation 6.6: T ≡ {y ∈ H, e ∈ NN}
-
-;;; Ticket structure defined in types.lisp
-
-(deftype tickets ()
-  "Sequence of tickets (ET)"
-  'list)
-
-;;; Encoding (Appendix C.17)
-;;; Graypaper C.17: ET(ET) = E(↕ET)
+;;; Where:
+;;; - y: ticket identifier (H, 32-byte hash)
+;;; - e: attempt number (natural number)
+;;;
+;;; Graypaper Appendix C.17:
+;;; ET(ET) = E(↕ET)
+;;; E(T) = y ⌢ E(e)
 ;;;
 ;;; Tickets are encoded as a length-prefixed sequence.
 ;;; Each ticket T = (y, e) is encoded as E(T) = E(y, e) = E(y) ⌢ E(e)
@@ -32,9 +28,6 @@
    
    Graypaper Appendix C.17: ET(ET) = E(↕ET)
    
-   Each ticket T = (y ∈ H, e ∈ NN) from Equation 6.6 is encoded as:
-   E(T) = y ⌢ E(e)
-   
    Args:
      tickets: List of ticket structures
    
@@ -42,15 +35,10 @@
      Encoded octet sequence"
   (let ((encoded-tickets
          (mapcar (lambda (ticket)
-                   (let ((y (ticket-identifier ticket))
-                         (e (ticket-entry-index ticket)))
-                     ;; E(y, e) = y ⌢ E(e)
-                     ;; y is H (32 bytes) with identity encoding
-                     ;; e is natural, encoded with encode-natural
-                     (concat-octets (blob-to-list y)
-                                    (encode-natural e))))
+                   (concat-octets 
+                    (ticket-identifier ticket)
+                    (encode-natural (ticket-attempt ticket))))
                  tickets)))
-    ;; ↕ET : length-prefixed sequence
     (let ((concatenated (apply #'concat-octets encoded-tickets)))
       (concat-octets (encode-natural (length concatenated))
                      concatenated))))
@@ -59,7 +47,6 @@
   "Decode tickets from octets.
    
    Inverse of encode-tickets (Appendix C.17).
-   Decodes length-prefixed sequence of tickets where each ticket is (y, e).
    
    Args:
      octets: Encoded tickets data
@@ -67,23 +54,57 @@
    
    Returns:
      values: (list-of-ticket bytes-consumed)"
-  ;; First, decode the length prefix
   (multiple-value-bind (total-length length-bytes)
       (decode-natural octets start)
     (let ((tickets '())
           (pos (+ start length-bytes))
           (end-pos (+ start length-bytes total-length)))
-      ;; Decode each ticket (y, e)
       (loop while (< pos end-pos) do
-        ;; Decode y : H (32 bytes)
-        (let* ((y (list-to-blob (subseq octets pos (+ pos 32)))))
+        (let ((y (subseq octets pos (+ pos 32))))
           (incf pos 32)
-          ;; Decode e : natural number
           (multiple-value-bind (e e-consumed)
               (decode-natural octets pos)
             (incf pos e-consumed)
-            ;; Create ticket structure
-            (push (make-ticket :identifier y
-                                   :attempt e)
-                  tickets))))
+            (push (make-ticket :identifier y :attempt e) tickets))))
       (values (nreverse tickets) (+ length-bytes total-length)))))
+
+;;; Winning Tickets (HW)
+;;; Unlike ET (extrinsic tickets), HW has NO length prefix because
+;;; it's always E tickets (epoch-duration).
+
+(defun encode-winning-tickets (tickets)
+  "Encode winning tickets (HW) - fixed-length sequence.
+   
+   Args:
+     tickets: List of exactly E ticket structures
+   
+   Returns:
+     Encoded octet sequence (no length prefix)"
+  (let ((encoded-tickets
+         (mapcar (lambda (ticket)
+                   (concat-octets 
+                    (ticket-identifier ticket)
+                    (encode-natural (ticket-attempt ticket))))
+                 tickets)))
+    (apply #'concat-octets encoded-tickets)))
+
+(defun decode-winning-tickets (octets start count)
+  "Decode fixed-length sequence of winning tickets.
+   
+   Args:
+     octets: Encoded data
+     start: Starting position
+     count: Number of tickets to decode (E = epoch-duration)
+   
+   Returns:
+     values: (list-of-ticket bytes-consumed)"
+  (let ((tickets '())
+        (pos start))
+    (dotimes (i count)
+      (let ((y (subseq octets pos (+ pos 32))))
+        (incf pos 32)
+        (multiple-value-bind (e e-consumed)
+            (decode-natural octets pos)
+          (incf pos e-consumed)
+          (push (make-ticket :identifier y :attempt e) tickets))))
+    (values (nreverse tickets) (- pos start))))

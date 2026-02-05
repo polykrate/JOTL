@@ -1,24 +1,24 @@
 ;;;; disputes.lisp
-;;;; JAM Disputes (ED) - Validator dispute information
-;;;; Graypaper references: Section 4.2, Appendix C.21
+;;;; JAM Disputes (ED)
+;;;; Graypaper references: Appendix C.21
 
 (in-package :jotl-bloc)
 
-;;; Disputes ED
+;;; Disputes structure
 ;;;
-;;; Graypaper Section 4.2: The Block (extrinsic data component)
-;;; Information relating to disputes between validators
-;;; over the validity of reports.
-
-;;; Disputes and verdict-entry structures defined in types.lisp
-
-;;; Encoding
-;;; Graypaper Appendix C.21: ED((v, c, f)) = E(↕[(r, E4(a), [(v, E2(i), s) | (v,i,s) ∈ j]) | (r,a,j) ∈ v], ↕c, ↕f)
+;;; Graypaper Appendix C.21:
+;;; ED((v, c, f)) = E(↕[(r, E4(a), [(v, E2(i), s) | (v, i, s) ← j]) | (r, a, j) ← v], ↕c, ↕f)
 ;;;
-;;; Tuple of three components:
-;;; - ↕[verdict entries]: sequence of (r, E4(a), [...])
-;;; - ↕c: culprits (length-prefixed)
-;;; - ↕f: faults (length-prefixed)
+;;; Disputes consist of three parts:
+;;; 1. v: verdicts - sequence of verdict entries, where each entry is (r, a, j):
+;;;    - r: report data/hash (blob)
+;;;    - a: age (4 bytes, E4)
+;;;    - j: judgements, sequence of (v, i, s):
+;;;      - v: validator (blob)
+;;;      - i: index (2 bytes, E2)
+;;;      - s: signature (blob)
+;;; 2. c: culprits (↕c means length-discriminated blob)
+;;; 3. f: faults (↕f means length-discriminated blob)
 
 (defun encode-disputes (disputes)
   "Encode disputes (ED).
@@ -30,41 +30,37 @@
    
    Returns:
      Encoded octet sequence"
-  (let* ((v (disputes-verdicts disputes))
-         (c (disputes-culprits disputes))
-         (f (disputes-faults disputes))
-         ;; Encode verdicts: ↕[(r, E4(a), [(v, E2(i), s) | ...]) | ...]
-         (encoded-verdicts
-          (mapcar (lambda (verdict)
-                    (let* ((r (verdict-entry-report-data verdict))
-                           (a (verdict-entry-component-a verdict))
-                           (j (verdict-entry-judgments verdict))
-                           ;; [(v, E2(i), s) | (v,i,s) ∈ j]
-                           (encoded-judgments
-                            (mapcar (lambda (judgment)
-                                      (let ((v-val (first judgment))
-                                            (i-val (second judgment))
-                                            (s-val (third judgment)))
-                                        (concat-octets (encode v-val)
-                                                       (e2 i-val)
-                                                       (encode s-val))))
-                                    j))
-                           (judgments-concat (apply #'concat-octets encoded-judgments)))
-                      ;; (r, E4(a), [...])
-                      (concat-octets (encode r)
-                                     (e4 a)
-                                     judgments-concat)))
-                  v))
-         (verdicts-concat (apply #'concat-octets encoded-verdicts)))
-    ;; E(↕verdicts, ↕c, ↕f)
-    (concat-octets (encode-with-length verdicts-concat)
-                   (encode-with-length c)
-                   (encode-with-length f))))
+  (concat-octets
+   ;; ↕[(r, E4(a), [...]) | ...] : verdicts
+   (let ((verdicts (disputes-verdicts disputes)))
+     (encode-length-prefixed-sequence
+      (mapcar (lambda (verdict)
+                (concat-octets
+                 ;; r : report data (length-prefixed)
+                 (encode-with-length (verdict-entry-report-data verdict))
+                 ;; E4(a) : age (4 bytes)
+                 (e4 (verdict-entry-age verdict))
+                 ;; [(v, E2(i), s) | ...] : judgements (no length prefix for inner sequence)
+                 (apply #'concat-octets
+                        (mapcar (lambda (judgement)
+                                  (destructuring-bind (v i s) judgement
+                                    (concat-octets
+                                     (encode-with-length v)  ; validator
+                                     (e2 i)                  ; index
+                                     (encode-with-length s)))) ; signature
+                                (verdict-entry-judgement verdict)))))
+              verdicts)))
+   
+   ;; ↕c : culprits (length-prefixed)
+   (encode-with-length (disputes-culprits disputes))
+   
+   ;; ↕f : faults (length-prefixed)
+   (encode-with-length (disputes-faults disputes))))
 
 (defun decode-disputes (octets &optional (start 0))
   "Decode disputes from octets.
    
-   Graypaper Appendix C.21: ED((v, c, f)) = E(↕[...], ↕c, ↕f)
+   Inverse of encode-disputes (Appendix C.21).
    
    Args:
      octets: Encoded disputes data
@@ -73,75 +69,68 @@
    Returns:
      values: (disputes bytes-consumed)"
   (let ((pos start))
-    ;; ↕verdicts : length-prefixed sequence of verdict entries
-    (multiple-value-bind (verdicts-length verdicts-length-bytes)
-        (decode-natural octets pos)
-      (incf pos verdicts-length-bytes)
-      
-      (let ((verdicts '())
-            (verdicts-end (+ pos verdicts-length)))
-        ;; Parse each verdict: (r, E4(a), [(v, E2(i), s) | ...])
-        (loop while (< pos verdicts-end) do
-          ;; r : report data
-          (multiple-value-bind (r r-consumed)
-              (decode-with-length octets pos)
-            (incf pos r-consumed)
-            
-            ;; E4(a) : component a (4 bytes)
-            (let* ((a-octets (subseq octets pos (+ pos 4)))
-                   (a (decode-fixed-integer a-octets 4)))
-              (incf pos 4)
+    (decode>> (octets pos)
+      ;; ↕[(r, E4(a), [...]) | ...] : verdicts
+      (verdicts
+       (decode-length-prefixed-sequence
+        octets
+        (lambda (o s)
+          (let ((pos2 s))
+            (decode>> (o pos2)
+              ;; r : report data (length-prefixed)
+              (report-data (decode-with-length o pos2))
+              ;; E4(a) : age (4 bytes)
+              (age (decode-e4 o pos2))
+              ;; [(v, E2(i), s) | ...] : judgements
+              ;; Note: no length prefix, decode until end of this verdict entry
+              ;; For now, we'll use a helper to decode the remaining bytes as judgements
+              (judgement (decode-judgements o pos2 (- (length o) pos2)))
               
-              ;; [(v, E2(i), s) | ...] : judgments (NOT length-prefixed in C.21)
-              ;; TODO: Need to know how to determine end of judgments
-              ;; For now, decode as length-prefixed
-              (multiple-value-bind (judgments-length judgments-length-bytes)
-                  (decode-natural octets pos)
-                (incf pos judgments-length-bytes)
-                
-                (let ((judgments '())
-                      (judgments-end (+ pos judgments-length)))
-                  ;; Parse each judgment: (v, E2(i), s)
-                  (loop while (< pos judgments-end) do
-                    ;; v : value/data
-                    (multiple-value-bind (v v-consumed)
-                        (decode-with-length octets pos)
-                      (incf pos v-consumed)
-                      
-                      ;; E2(i) : index (2 bytes)
-                      (let* ((i-octets (subseq octets pos (+ pos 2)))
-                             (i (decode-fixed-integer i-octets 2)))
-                        (incf pos 2)
-                        
-                        ;; s : signature
-                        (multiple-value-bind (s s-consumed)
-                            (decode-with-length octets pos)
-                          (incf pos s-consumed)
-                          
-                          ;; Add judgment as list (v i s)
-                          (push (list v i s) judgments)))))
-                  
-                  ;; Create verdict entry
-                  (push (make-verdict-entry
-                         :report-data r
-                         :component-a a
-                         :judgments (nreverse judgments))
-                        verdicts))))))
-        
-        ;; ↕c : culprits
-        (multiple-value-bind (culprits culprits-consumed)
-            (decode-with-length octets pos)
-          (incf pos culprits-consumed)
-          
-          ;; ↕f : faults
-          (multiple-value-bind (faults faults-consumed)
+              (values
+               (make-verdict-entry
+                :report-data report-data
+                :age age
+                :judgement judgement)
+               (- pos2 s)))))
+        pos))
+      
+      ;; ↕c : culprits (length-prefixed)
+      (culprits (decode-with-length octets pos))
+      
+      ;; ↕f : faults (length-prefixed)
+      (faults (decode-with-length octets pos))
+      
+      (values
+       (make-disputes
+        :verdicts verdicts
+        :culprits culprits
+        :faults faults)
+       (- pos start)))))
+
+(defun decode-judgements (octets start max-bytes)
+  "Decode judgements from octets.
+   
+   Helper for decode-disputes. Decodes (v, E2(i), s) tuples.
+   
+   Args:
+     octets: Encoded data
+     start: Starting position
+     max-bytes: Maximum bytes to consume
+   
+   Returns:
+     List of judgements (v i s)"
+  (let ((judgements '())
+        (pos start)
+        (end-pos (+ start max-bytes)))
+    (loop while (< pos end-pos) do
+      (multiple-value-bind (v v-consumed)
+          (decode-with-length octets pos)
+        (incf pos v-consumed)
+        (multiple-value-bind (i i-consumed)
+            (decode-e2 octets pos)
+          (incf pos i-consumed)
+          (multiple-value-bind (s s-consumed)
               (decode-with-length octets pos)
-            (incf pos faults-consumed)
-            
-            ;; Create disputes structure
-            (values
-             (make-disputes
-              :verdicts (nreverse verdicts)
-              :culprits culprits
-              :faults faults)
-             (- pos start))))))))
+            (incf pos s-consumed)
+            (push (list v i s) judgements)))))
+    (nreverse judgements)))

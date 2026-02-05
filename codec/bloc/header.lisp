@@ -39,7 +39,7 @@
   (let ((octets (concat-octets (encode-header-unsigned header)
                                 (header-seal header))))
     (if as-blob
-        (list-to-blob octets)
+        (coerce octets 'vector)
         octets)))
 
 (defun encode-header-unsigned (header)
@@ -48,45 +48,42 @@
    Graypaper Appendix C.23: EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
    
    Args:
-     header: A jam-header structure
+     header: A header structure
    
    Returns:
      Encoded octet sequence (without seal)"
   (concat-octets
-   ;; HP, HR, HX : hashes (B32, identity encoding) - already lists!
+   ;; HP, HR, HX : hashes (B32, identity encoding C.2)
    (header-parent-hash header)
    (header-prior-state-root header)
    (header-extrinsic-hash header)
    
-   ;; E4(HT) : timeslot on 4 octets
+   ;; E4(HT) : timeslot (C.12)
    (e4 (header-timeslot header))
    
-   ;; ¿HE : optional epoch marker
+   ;; ¿HE : optional epoch marker (C.8)
    (let ((epoch-marker (header-epoch-marker header)))
-     (if epoch-marker
-         (concat-octets (list 1) (encode-epoch-marker epoch-marker))
-         (list 0)))
+     (if (eq epoch-marker +empty+)
+         (list 0)
+         (concat-octets (list 1) (encode-epoch-marker epoch-marker))))
    
-   ;; ¿HW : optional winning tickets (TODO: implement encoding)
+   ;; ¿HW : optional winning tickets (C.8)
+   ;; HW ∈ ⟦T⟧_E : fixed-length sequence of E tickets
    (let ((winning-tickets (header-winning-tickets header)))
-     (if winning-tickets
-         (progn
-           (format t "Warning: winning tickets encoding not yet implemented~%")
-           (list 0))  ; For now, encode as absent
-         (list 0)))
+     (if (eq winning-tickets +empty+)
+         (list 0)
+         (concat-octets (list 1) (encode-winning-tickets winning-tickets))))
    
-   ;; E2(HI) : author index on 2 octets
+   ;; E2(HI) : author index (C.12)
    (e2 (header-author-index header))
    
-   ;; HV : VRF signature - already list!
+   ;; HV : VRF signature (B96, identity C.2)
    (header-vrf-signature header)
    
-   ;; ↕HO : length-prefixed offenders sequence
-   ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each)
+   ;; ↕HO : offenders (C.7, length-prefixed sequence)
    (encode-length-prefixed-sequence (header-offenders header))))
 
-
-(defun decode-header (octets &optional (start 0))
+(defun decode-header (blob &optional (start 0))
   "Decode a block header from octets.
    
    Graypaper Appendix C.22-C.23:
@@ -94,83 +91,57 @@
      EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
    
    Args:
-     octets: Encoded header data
+     blob: Encoded header data (vector or list)
      start: Starting position
    
    Returns:
-     values: (jam-header bytes-consumed)"
-  (let ((pos start))
-    ;; HP : parent hash (32 bytes as list)
-    (let ((parent-hash (subseq octets pos (+ pos 32))))
-      (incf pos 32)
+     values: (header bytes-consumed)"
+  (let ((octets (coerce blob 'list))
+        (pos start))
+    (decode>> (octets pos)
+      ;; HP, HR, HX : parent hash, prior state root, extrinsic hash (3x 32 bytes)
+      (parent-hash (decode-hash octets pos))
+      (prior-state-root (decode-hash octets pos))
+      (extrinsic-hash (decode-hash octets pos))
       
-      ;; HR : prior state root (32 bytes as list)
-      (let ((prior-state-root (subseq octets pos (+ pos 32))))
-        (incf pos 32)
-        
-        ;; HX : extrinsic hash (32 bytes as list)
-        (let ((extrinsic-hash (subseq octets pos (+ pos 32))))
-          (incf pos 32)
-          
-          ;; E4(HT) : timeslot (4 bytes)
-          (let* ((timeslot-octets (subseq octets pos (+ pos 4)))
-                 (timeslot (decode-fixed-integer timeslot-octets 4)))
-            (incf pos 4)
-            
-            ;; ¿HE : optional epoch marker
-            (let ((epoch-discriminator (nth pos octets)))
-              (incf pos 1)
-              (let ((epoch-marker
-                     (if (zerop epoch-discriminator)
-                         +empty+
-                         (multiple-value-bind (marker consumed)
-                             (decode-epoch-marker octets pos (num-validators))
-                           (incf pos consumed)
-                           marker))))
-                
-                ;; ¿HW : optional winning tickets (TODO: define structure)
-                (let ((tickets-discriminator (nth pos octets)))
-                  (incf pos 1)
-                  (let ((winning-tickets
-                         (if (zerop tickets-discriminator)
-                             +empty+
-                             ;; TODO: decode winning tickets structure
-                             (progn
-                               (format t "Warning: winning tickets present but not yet decoded~%")
-                               +empty+))))
-                    
-                    ;; E2(HI) : author index (2 bytes)
-                    (let* ((author-octets (subseq octets pos (+ pos 2)))
-                           (author-index (decode-fixed-integer author-octets 2)))
-                      (incf pos 2)
-                      
-                      ;; HV : VRF signature (96 bytes)
-                      (let ((vrf-signature (subseq octets pos (+ pos 96))))
-                        (incf pos 96)
-                        
-                        ;; ↕HO : length-prefixed offenders sequence
-                        ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each as lists)
-                        (multiple-value-bind (offenders offenders-consumed)
-                            (decode-length-prefixed-sequence 
-                             octets
-                             (lambda (o s) (values (subseq o s (+ s 32)) 32))
-                             pos)
-                          (incf pos offenders-consumed)
-                          
-                          ;; HS : block seal (96 bytes as list)
-                          (let ((seal (subseq octets pos (+ pos 96))))
-                            (incf pos 96)
-                            
-                            (values
-                             (make-header
-                              :parent-hash parent-hash
-                              :prior-state-root prior-state-root
-                              :extrinsic-hash extrinsic-hash
-                              :timeslot timeslot
-                              :epoch-marker (unless (eq epoch-marker +empty+) epoch-marker)
-                              :winning-tickets (unless (eq winning-tickets +empty+) winning-tickets)
-                              :author-index author-index
-                              :vrf-signature vrf-signature
-                              :offenders offenders
-                              :seal seal)
-                             (- pos start))))))))))))))))
+      ;; E4(HT) : timeslot (4 bytes)
+      (timeslot (decode-e4 octets pos))
+      
+      ;; ¿HE : optional epoch marker
+      (epoch-marker-raw (decode-optional octets 
+                                         (lambda (o s) (decode-epoch-marker o s (num-validators)))
+                                         pos))
+      
+      ;; ¿HW : optional winning tickets
+      (winning-tickets-raw (decode-optional octets
+                                            (lambda (o s) (decode-winning-tickets o s (epoch-duration)))
+                                            pos))
+      
+      ;; E2(HI) : author index (2 bytes)
+      (author-index (decode-e2 octets pos))
+      
+      ;; HV : VRF signature (96 bytes)
+      (vrf-signature (decode-fixed-bytes octets pos 96))
+      
+      ;; ↕HO : offenders (length-prefixed sequence of hashes)
+      (offenders (decode-length-prefixed-sequence octets
+                                                  (lambda (o s) (decode-hash o s))
+                                                  pos))
+      
+      ;; HS : block seal (96 bytes)
+      (seal (decode-fixed-bytes octets pos 96))
+      
+      ;; Return (header bytes-consumed)
+      (values
+       (make-header
+        :parent-hash parent-hash
+        :prior-state-root prior-state-root
+        :extrinsic-hash extrinsic-hash
+        :timeslot timeslot
+        :epoch-marker epoch-marker-raw
+        :winning-tickets winning-tickets-raw
+        :author-index author-index
+        :vrf-signature vrf-signature
+        :offenders offenders
+        :seal seal)
+       (- pos start)))))

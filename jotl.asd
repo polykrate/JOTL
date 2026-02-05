@@ -14,12 +14,13 @@
                               :serial t
                               :components ((:file "package")
                                            (:file "trivial-encodings")
-                                           (:file "sequence-encoding")
-                                           (:file "discriminator-encoding")
-                                           (:file "bit-sequence-encoding")
-                                           (:file "dictionary-encoding")
-                                           (:file "set-encoding")
-                                           (:file "fixed-length-integer-encoding")))
+               (:file "sequence-encoding")
+               (:file "discriminator-encoding")
+               (:file "bit-sequence-encoding")
+               (:file "dictionary-encoding")
+               (:file "set-encoding")
+               (:file "fixed-length-integer-encoding")
+               (:file "decoder-macros")))
                              (:module "state"
                               :serial t
                               :components ())

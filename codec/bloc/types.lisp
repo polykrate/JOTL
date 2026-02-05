@@ -43,6 +43,31 @@
   "H0 = [0]32 - as list"
   (make-list 32 :initial-element 0))
 
+;;; Extrinsic structure (E)
+;;;
+;;; Graypaper Equation 4.3: E ≡ (ET, ED, EP, EA, EG)
+
+(defstruct extrinsic
+  "Extrinsic data (E).
+   
+   Contains all external data submitted to the block."
+  (tickets nil :type list)           ; List of ticket structures
+  (preimages nil :type list)         ; List of preimage structures
+  (reports nil :type list)           ; List of report structures
+  (availability nil :type list)      ; List of availability-assurance structures
+  (disputes nil :type (or null disputes)))  ; Disputes structure
+
+;;; Block structure (B)
+;;;
+;;; Graypaper Equation 4.2: B ≡ (H, E)
+
+(defstruct chain-block
+  "JAM Block (B).
+   
+   A complete block consists of header and extrinsic data."
+  (header nil :type (or null header))
+  (extrinsic nil :type (or null extrinsic)))
+
 ;;; Validator structures
 ;;;
 ;;; Graypaper Section 5.10, 6.1: Validator keys
@@ -88,11 +113,11 @@
   ;; HT ∈ NT : Time-slot index (Eq. 5.7)
   (timeslot nil :type (or null integer))
   
-  ;; HE : Epoch marker (Eq. 5.10)
-  (epoch-marker nil :type (or null epoch-marker))
+  ;; HE : Epoch marker (Eq. 5.10) - can be +empty+ (symbol) or epoch-marker
+  (epoch-marker nil :type (or null epoch-marker symbol))
   
-  ;; HW : Winning tickets (TODO: define structure)
-  (winning-tickets nil :type (or null list))
+  ;; HW : Winning tickets - can be +empty+ (symbol) or list of tickets
+  (winning-tickets nil :type (or null list symbol))
   
   ;; HO ∈ ⟦¯H⟧ : offenders marker (Equation 5.10)
   ;; Ed25519 public keys of newly misbehaving validators (list of 32-byte lists)

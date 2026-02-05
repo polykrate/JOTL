@@ -92,3 +92,7 @@
 (defun num-validators ()
   "Get the current number of validators from active chainspec."
   (chainspec-num-validators *chainspec*))
+
+(defun epoch-duration ()
+  "Get the current epoch duration from active chainspec."
+  (chainspec-epoch-duration *chainspec*))

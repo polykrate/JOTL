@@ -65,4 +65,13 @@
    #:e4
    #:e8
    #:encode-fixed-tuple
-   #:encode-fixed-sequence))
+   #:encode-fixed-sequence
+   
+   ;; Decoder macros (composition)
+   #:decode-fixed-bytes
+   #:decode-e1
+   #:decode-e2
+   #:decode-e4
+   #:decode-e8
+   #:decode-hash
+   #:decode>>))
