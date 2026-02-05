@@ -40,15 +40,17 @@
   (encode-length-prefixed-sequence
    (mapcar (lambda (ticket)
              (concat-octets 
-              (ticket-identifier ticket)
-              (encode-natural (ticket-attempt ticket))))
+              ;; ATTENTION: L'ordre est attempt PUIS signature (ASN.1)
+              (encode-natural (ticket-attempt ticket))
+              (ticket-identifier ticket)))
            tickets)
    :pre-encoded t))
 
 (defun decode-ticket (octets &optional (start 0))
   "Decode a single ticket.
    
-   E(T) = y ⌢ E(e) where y is 784-byte signature, e ∈ N is attempt
+   ASN.1 TicketEnvelope: attempt PUIS signature (dans cet ordre!)
+   E(T) = E(e) ⌢ y where e ∈ N is attempt, y is 784-byte signature
    
    Note: Graypaper uses 'y ∈ H' but the actual implementation uses
    784-byte ring signatures (Bandersnatch ring VRF).
@@ -56,8 +58,9 @@
    Returns: (values ticket bytes-consumed)"
   (let ((pos start))
     (decode>> (octets pos)
-      (signature (decode-fixed-bytes octets pos 784))
+      ;; ATTENTION: L'ordre est attempt PUIS signature (ASN.1)
       (attempt (decode-natural octets pos))
+      (signature (decode-fixed-bytes octets pos 784))
       (values (make-ticket :identifier signature :attempt attempt)
               (- pos start)))))
 
@@ -90,8 +93,9 @@
   (let ((encoded-tickets
          (mapcar (lambda (ticket)
                    (concat-octets 
-                    (ticket-identifier ticket)
-                    (encode-natural (ticket-attempt ticket))))
+                    ;; ATTENTION: L'ordre est attempt PUIS signature (ASN.1)
+                    (encode-natural (ticket-attempt ticket))
+                    (ticket-identifier ticket)))
                  tickets)))
     (apply #'concat-octets encoded-tickets)))
 
@@ -108,10 +112,11 @@
   (let ((tickets '())
         (pos start))
     (dotimes (i count)
-      (let ((y (subseq octets pos (+ pos 32))))
-        (incf pos 32)
-        (multiple-value-bind (e e-consumed)
-            (decode-natural octets pos)
-          (incf pos e-consumed)
+      ;; ATTENTION: L'ordre est attempt PUIS signature (ASN.1)
+      (multiple-value-bind (e e-consumed)
+          (decode-natural octets pos)
+        (incf pos e-consumed)
+        (let ((y (subseq octets pos (+ pos 32))))
+          (incf pos 32)
           (push (make-ticket :identifier y :attempt e) tickets))))
     (values (nreverse tickets) (- pos start))))
