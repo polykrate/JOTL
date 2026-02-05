@@ -46,7 +46,7 @@
   (format t "║  JAM Block Codec Test: ~A~%" name)
   (format t "╚══════════════════════════════════════════════════════════════╝~%")
   
-  (jotl-bloc:set-chainspec chainspec)
+  (jotl-config:set-chainspec chainspec)
   
   (let ((octets (read-bin bin-path))
         (test-passed t))

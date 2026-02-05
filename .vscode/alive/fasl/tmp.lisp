@@ -1,226 +1,94 @@
-;;;; package.lisp
-;;;; Package definition for JOTL block structures
+;;;; reports.lisp
+;;;; JAM Reports/Guarantees (EG)
+;;;; Graypaper references: Appendix C.19
 
-(defpackage #:jotl-bloc
-  (:use #:cl #:jotl-codec)
-  (:documentation "JAM block structures and serialization")
-  (:export
-   ;; Types
-   #:hash
-   #:blob
-   #:blob-n
-   #:natural
-   #:natural-limited
-   #:length-type
-   #:ed25519-signature
-   #:ed25519-public-key
-   #:bandersnatch-signature
-   #:bandersnatch-public-key
-   #:bandersnatch-vrf-signature
-   #:bls-signature
-   #:bls-public-key
-   #:make-hash
-   #:make-blob
-   #:hash-zero
-   #:list-to-blob
-   #:blob-to-list
+(in-package :jotl-bloc)
+
+;;; Guarantees (Reports) structure
+;;;
+;;; Graypaper Appendix C.19:
+;;; EG(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v,s) ← a]) | (r, t, a) ← EG])
+;;;
+;;; Where EG is a sequence of guarantees, each containing:
+;;; - r: work report (complete work-report structure from work.lisp)
+;;; - t: timeslot (4 bytes, E4)
+;;; - a: authorizer-guarantor data, sequence of pairs (v, s) where:
+;;;   - v: validator index (2 bytes, E2)
+;;;   - s: signature (length-prefixed blob)
+;;;
+;;; Note: The "r" (report) here is actually a complete work-report structure
+;;;       containing package-spec, context, results, etc.
+
+(defun encode-reports (reports)
+  "Encode reports/guarantees (EG).
    
-   ;; Configuration
-   #:chainspec
-   #:make-chainspec
-   #:chainspec-name
-   #:chainspec-num-validators
-   #:chainspec-num-cores
-   #:*tiny-chainspec*
-   #:*full-chainspec*
-   #:*chainspec*
-   #:set-chainspec
-   #:*validators-super-majority*      ; Dynamic var: current super-majority threshold
-   #:validators-super-majority        ; Function: ceil(num-validators * 2/3 + 1)
-   #:num-validators
+   Graypaper Appendix C.19: EG(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v,s) ← a]) | (r, t, a) ← EG])
    
-   ;; Block structure (4.2)
-   #:chain-block
-   #:make-chain-block
-   #:chain-block-header
-   #:chain-block-extrinsic
+   Args:
+     reports: List of guarantee structures (from work.lisp)
    
-   ;; Extrinsic data (4.3)
-   #:extrinsic
-   #:make-extrinsic
-   #:extrinsic-tickets
-   #:extrinsic-disputes
-   #:extrinsic-preimages
-   #:extrinsic-availability
-   #:extrinsic-reports
+   Returns:
+     Encoded octet sequence"
+  (let ((encoded-guarantees
+         (mapcar (lambda (guarantee)
+                   (concat-octets
+                    ;; r : work report (complete structure)
+                    (encode-work-report (guarantee-report guarantee))
+                    ;; E4(t) : timeslot (4 bytes)
+                    (e4 (guarantee-slot guarantee))
+                    ;; ↕[(E2(v), s) | ...] : signatures
+                    ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
+                    (encode-length-prefixed-sequence
+                     (mapcar (lambda (sig-pair)
+                               (destructuring-bind (validator-index signature) sig-pair
+                                 (concat-octets
+                                  (e2 validator-index)  ; validator index
+                                  signature)))  ; signature is already 64 bytes!
+                             (guarantee-signatures guarantee)))))
+                 reports)))
+    ;; ↕[...] : length-prefixed sequence of pre-encoded elements
+    (encode-pre-encoded-sequence encoded-guarantees)))
+
+(defun decode-reports (octets &optional (start 0))
+  "Decode reports/guarantees from octets.
    
-   ;; Header
-   #:header
-   #:make-header
-   #:header-parent-hash
-   #:header-prior-state-root
-   #:header-extrinsic-hash
-   #:header-timeslot
-   #:header-epoch-marker
-   #:header-winning-tickets
-   #:header-offenders
-   #:header-author-index
-   #:header-vrf-signature
-   #:header-seal
-   #:encode-header
-   #:encode-header-unsigned
-   #:decode-header
+   Inverse of encode-reports (Appendix C.19).
    
-   ;; Epoch Marker
-   #:validator
-   #:make-validator
-   #:validator-bandersnatch
-   #:validator-ed25519
-   #:epoch-marker
-   #:make-epoch-marker
-   #:epoch-marker-entropy
-   #:epoch-marker-tickets-entropy
-   #:epoch-marker-validators
-   #:encode-validator
-   #:decode-validator
-   #:encode-epoch-marker
-   #:decode-epoch-marker
+   Args:
+     octets: Encoded reports/guarantees data
+     start: Starting position
    
-   ;; Tickets
-   #:ticket
-   #:make-ticket
-   #:ticket-identifier
-   #:ticket-entry-index
-   #:encode-tickets
-   #:decode-tickets
-   
-   ;; Preimages
-   #:preimage
-   #:make-preimage
-   #:preimage-service-id
-   #:preimage-data
-   #:encode-preimages
-   #:decode-preimages
-   
-   ;; Reports
-   #:report
-   #:make-report
-   #:report-report-data
-   #:report-timeslot
-   #:report-assurances
-   #:encode-reports
-   #:decode-reports
-   
-   ;; Availability
-   #:availability-assurance
-   #:make-availability-assurance
-   #:availability-assurance-assurance-a
-   #:availability-assurance-component-f
-   #:availability-assurance-validator-index
-   #:availability-assurance-signature
-   #:encode-availability
-   #:decode-availability
-   
-   ;; Disputes
-   #:disputes
-   #:make-disputes
-   #:disputes-verdicts
-   #:disputes-culprits
-   #:disputes-faults
-   
-   #:culprit
-   #:make-culprit
-   #:culprit-target
-   #:culprit-key
-   #:culprit-signature
-   #:encode-culprit
-   #:decode-culprit
-   
-   #:fault
-   #:make-fault
-   #:fault-target
-   #:fault-vote
-   #:fault-key
-   #:fault-signature
-   #:encode-fault
-   #:decode-fault
-   
-   #:verdict-entry
-   #:make-verdict-entry
-   #:verdict-entry-target
-   #:verdict-entry-age
-   #:verdict-entry-judgement
-   #:encode-disputes
-   #:decode-disputes
-   
-   ;; Work structures (C.24, C.25, C.29, C.34)
-   #:refine-context
-   #:make-refine-context
-   #:refine-context-anchor
-   #:refine-context-state-root
-   #:refine-context-beefy-root
-   #:refine-context-lookup-anchor
-   #:refine-context-lookup-anchor-slot
-   #:refine-context-prerequisites
-   #:encode-refine-context
-   #:decode-refine-context
-   
-   #:package-spec
-   #:make-package-spec
-   #:package-spec-hash
-   #:package-spec-length
-   #:package-spec-erasure-root
-   #:package-spec-exports-root
-   #:package-spec-exports-count
-   #:encode-package-spec
-   #:decode-package-spec
-   
-   #:refine-load
-   #:make-refine-load
-   #:refine-load-gas-used
-   #:refine-load-imports
-   #:refine-load-extrinsic-count
-   #:refine-load-extrinsic-size
-   #:refine-load-exports
-   
-   #:work-result
-   #:make-work-result
-   #:work-result-service-id
-   #:work-result-code-hash
-   #:work-result-payload-hash
-   #:work-result-accumulate-gas
-   #:work-result-result
-   #:work-result-refine-load
-   #:encode-work-result
-   #:decode-work-result
-   #:encode-work-output
-   #:decode-work-output
-   
-   #:work-report
-   #:make-work-report
-   #:work-report-package-spec
-   #:work-report-context
-   #:work-report-core-index
-   #:work-report-authorizer-hash
-   #:work-report-auth-gas-used
-   #:work-report-auth-output
-   #:work-report-segment-root-lookup
-   #:work-report-results
-   #:encode-work-report
-   #:decode-work-report
-   
-   #:guarantee
-   #:make-guarantee
-   #:guarantee-report
-   #:guarantee-slot
-   #:guarantee-signatures
-   #:encode-guarantee
-   #:decode-guarantee
-   
-   ;; Encoding/Decoding
-   #:encode-chain-block
-   #:decode-chain-block
-   
-   ;; Block aliases
-   #:encode-block
-   #:decode-block))
+   Returns:
+     values: (list-of-guarantee bytes-consumed)"
+  (decode-length-prefixed-sequence
+   octets
+   (lambda (o s)
+     (let ((pos s))
+       (decode>> (o pos)
+         ;; r : work report (complete structure)
+         (work-report (decode-work-report o pos))
+         ;; E4(t) : timeslot (4 bytes)
+         (slot (decode-e4 o pos))
+        ;; ↕[(E2(v), s) | ...] : signatures
+        ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
+        (signatures
+         (decode-length-prefixed-sequence
+          o
+          (lambda (o2 s2)
+            (let ((pos2 s2))
+              (decode>> (o2 pos2)
+                ;; E2(v) : validator index (2 bytes)
+                (v (decode-e2 o2 pos2))
+                ;; s : signature (FIXED 64 bytes!)
+                (s (decode-fixed-bytes o2 pos2 64))
+                
+                (values (list v s) (- pos2 s2)))))
+          pos))
+         
+         (values
+          (make-guarantee
+           :report work-report
+           :slot slot
+           :signatures signatures)
+          (- pos s)))))
+   start))

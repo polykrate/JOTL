@@ -7,29 +7,13 @@
 (defpackage #:jotl-bloc
   (:use #:cl #:jotl-codec)
   (:import-from #:jotl-config
-                ;; Re-import config symbols for local use and re-export
+                ;; Import config symbols for internal use only
+                ;; Users should use jotl-config:set-chainspec directly
                 #:chainspec
-                #:make-chainspec
                 #:chainspec-p
-                #:chainspec-name
                 #:chainspec-num-validators
-                #:chainspec-num-cores
-                #:chainspec-preimage-expunge-period
-                #:chainspec-slot-duration
-                #:chainspec-epoch-duration
-                #:chainspec-contest-duration
-                #:chainspec-tickets-per-validator
-                #:chainspec-max-tickets-per-extrinsic
-                #:chainspec-rotation-period
-                #:chainspec-num-ec-pieces-per-segment
-                #:chainspec-max-block-gas
-                #:chainspec-max-refine-gas
                 #:chainspec-avail-bitfield-bytes
-                #:*tiny-chainspec*
-                #:*full-chainspec*
-                #:*default-chainspec*
                 #:*chainspec*
-                #:set-chainspec
                 #:*validators-super-majority*
                 #:validators-super-majority
                 #:num-validators
@@ -67,43 +51,9 @@
    #:blob-to-list
    
    ;; ══════════════════════════════════════════════════════════════
-   ;; CHAINSPEC CONFIGURATION (Re-exported from jotl-config)
+   ;; NOTE: Chainspec configuration is in jotl-config package
+   ;;       Use (jotl-config:set-chainspec :tiny) to configure
    ;; ══════════════════════════════════════════════════════════════
-   ;; Note: Configuration is now in top-level src/config.lisp
-   ;;       We re-export for backward compatibility
-   
-   #:chainspec
-   #:make-chainspec
-   #:chainspec-p
-   #:chainspec-name
-   #:chainspec-num-validators
-   #:chainspec-num-cores
-   #:chainspec-preimage-expunge-period
-   #:chainspec-slot-duration
-   #:chainspec-epoch-duration
-   #:chainspec-contest-duration
-   #:chainspec-tickets-per-validator
-   #:chainspec-max-tickets-per-extrinsic
-   #:chainspec-rotation-period
-   #:chainspec-num-ec-pieces-per-segment
-   #:chainspec-max-block-gas
-   #:chainspec-max-refine-gas
-   #:chainspec-avail-bitfield-bytes
-   
-   ;; Predefined chainspecs
-   #:*tiny-chainspec*           ; Tiny test network (6 validators)
-   #:*full-chainspec*           ; Full network (1023 validators)
-   #:*default-chainspec*        ; Default chainspec
-   #:*chainspec*                ; Currently active chainspec
-   #:set-chainspec              ; Switch active chainspec
-   
-   ;; Dynamic configuration (locally rebound in decode/encode)
-   #:*validators-super-majority*  ; Dynamic var: current super-majority threshold
-   #:validators-super-majority    ; Function: ceil(num-validators * 2/3 + 1)
-   #:num-validators
-   #:epoch-duration
-   #:slot-duration
-   #:max-tickets-per-extrinsic
    
    ;; ══════════════════════════════════════════════════════════════
    ;; BLOCK STRUCTURE (4.2 - Top Level)
