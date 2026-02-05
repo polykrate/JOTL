@@ -4,7 +4,7 @@
 (defpackage #:jotl-state
   (:use #:cl #:jotl-codec)
   (:import-from #:jotl-config
-                ;; Common types
+                ;; Common types from jotl-config (defined in src/types.lisp)
                 #:hash
                 #:hash32
                 #:hash256
@@ -76,15 +76,13 @@
    #:authorization-queue-entry-code-hash
    #:authorization-queue-entry-auth-pool
    
-   ;; γ - SAFROLE state
+   ;; γ - SAFROLE state (with sub-components γA, γP, γS, γZ)
    #:safrole-state
    #:make-safrole-state
-   #:safrole-state-current-epoch
-   #:safrole-state-tickets-current
-   #:safrole-state-tickets-previous
-   #:safrole-state-entropy
-   #:safrole-state-tickets-accumulator
-   #:safrole-state-seal-keys
+   #:safrole-state-ticket-accumulator    ; γA
+   #:safrole-state-next-validators        ; γP
+   #:safrole-state-seal-keys              ; γS
+   #:safrole-state-tickets-root           ; γZ
    
    ;; α - Core authorizations
    #:core-authorization
@@ -101,10 +99,21 @@
    #:pending-report-reported-timeslot
    #:pending-report-availability-votes
    
-   ;; β - Recent blocks
-   #:recent-blocks
+   ;; β - Recent blocks (with sub-components βH and βB)
+   #:recent-blocks-info              ; βH
+   #:make-recent-blocks-info
+   #:recent-blocks-info-block-headers
+   #:recent-blocks-info-timeslots
+   
+   #:merkle-mountain-belt            ; βB
+   #:make-merkle-mountain-belt
+   #:merkle-mountain-belt-peaks
+   #:merkle-mountain-belt-leaves-count
+   
+   #:recent-blocks                   ; β (composite)
    #:make-recent-blocks
-   #:recent-blocks-hashes
+   #:recent-blocks-info
+   #:recent-blocks-merkle-belt
    
    ;; ω - Pending work-reports
    #:pending-accumulation
@@ -119,18 +128,22 @@
    #:accumulated-package-package-hash
    #:accumulated-package-accumulated-timeslot
    
-   ;; χ - Privileged services
-   #:privileged-service
-   #:make-privileged-service
-   #:privileged-service-service-id
-   #:privileged-service-privilege-type
+   ;; χ - Privileged services (with sub-components χM, χA, χV, χR, χZ)
+   #:privileged-services
+   #:make-privileged-services
+   #:privileged-services-blessed           ; χM
+   #:privileged-services-authorizer-assigners  ; χA
+   #:privileged-services-designate         ; χV
+   #:privileged-services-registrar         ; χR
+   #:privileged-services-always-accumulate ; χZ
    
-   ;; ψ - Judgements
-   #:judgement-entry
-   #:make-judgement-entry
-   #:judgement-entry-target
-   #:judgement-entry-verdict
-   #:judgement-entry-judged-timeslot
+   ;; ψ - Judgements (with sub-components ψB, ψG, ψW, ψO)
+   #:judgements
+   #:make-judgements
+   #:judgements-incorrect-reports       ; ψB
+   #:judgements-correct-reports         ; ψG
+   #:judgements-unknowable-reports      ; ψW
+   #:judgements-offending-validators    ; ψO
    
    ;; π - Validator statistics
    #:validator-stats

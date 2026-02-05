@@ -1,128 +1,177 @@
-# State Codec - JAM State Serialization (Appendix D)
+# State Codec - JAM State Structures (Appendix D)
 
 ## 📋 Overview
 
-The JAM state `σ` is composed of **17 components** that track all on-chain data:
+The JAM state `σ` is composed of **17 primary components** that track all on-chain data:
 
 ```
-σ ≡ (α, β, θ, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ)
+σ ≡ (α, β, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ, θ)
 ```
 
-Each component is serialized into a mapping from 31-byte state-keys to octet sequences, then committed to a Merkle root (32 bytes).
+Several components have **sub-components** (denoted with subscripts like γA, βH, etc.) that represent their internal structure.
 
 ---
 
-## 🗂️ State Components
+## 🗂️ State Components (Graypaper Section 4.2)
 
-### Service & Execution
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **δ** | `service-accounts` | Service accounts (like smart contracts in Ethereum) | `service-accounts.lisp` |
-| **χ** | `privileged-services` | Services with privileged status | `privileged-services.lisp` |
+### Core & Authorization
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **α** | `core-authorization` | 8.1 | Core authorization requirements |
+| **ϕ** | `authorization-queue-entry` | 8.1 | Queue filling core authorizations |
 
-### Validators & Keys
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **κ** | `current-validators` | Current validator set (epoch keys) | `current-validators.lisp` |
-| **λ** | `archived-validators` | Historical validator keys | `archived-validators.lisp` |
-| **ι** | `validator-queue` | Queue of validators to be enrolled | `validator-queue.lisp` |
-| **γ** | `safrole-state` | SAFROLE state (validator rotation) | `safrole-state.lisp` |
-| **π** | `validator-statistics` | Validator performance statistics | `validator-statistics.lisp` |
+### Block History & Accumulation
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **β** | `recent-blocks` | 7.1 | Log of recent activity (composite) |
+| **βH** | `recent-blocks-info` | 7.2 | Information on most recent blocks |
+| **βB** | `merkle-mountain-belt` | 7.3, 7.7 | Merkle belt for Accumulation outputs |
+| **θ** | `accumulation-output` | 7.4, 12.25 | Most recent Accumulation outputs |
 
-### Core Management
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **α** | `core-authorizations` | Authorization requirements for each core | `core-authorizations.lisp` |
-| **ϕ** | `authorization-queue` | Queue filling core authorizations | `authorization-queue.lisp` |
-| **ρ** | `pending-reports` | Work-reports pending availability assurance | `pending-reports.lisp` |
+### SAFROLE (Validator Rotation)
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **γ** | `safrole-state` | 6.3 | SAFROLE state (composite) |
+| **γA** | `ticket-accumulator` | 6.5 | Sealing lottery ticket accumulator |
+| **γP** | `next-validators` | 6.7 | Keys for validators of next epoch |
+| **γS** | `seal-keys` | 6.5 | Sealing-key sequence (current epoch) |
+| **γZ** | `tickets-root` | 6.4 | Bandersnatch root for tickets |
+
+### Validators
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **κ** | `validator-keys` | 6.7 | Current epoch validator keys |
+| **λ** | `archived-validator` | 6.7 | Historical validator keys |
+| **ι** | `validator-queue-entry` | 6.7 | Validators to be enrolled next |
+| **π** | `validator-stats` | 13.1 | Validator performance statistics |
+
+### Services
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **δ** | `service-account` | 9.1 | Service accounts (like smart contracts) |
+| **χ** | `privileged-services` | 9.9 | Privileged service indices (composite) |
+| **χM** | `blessed` | 12.27 | Index of blessed service |
+| **χA** | `authorizer-assigners` | 12.27 | Services assigning core authorizers |
+| **χV** | `designate` | 12.27 | Index of designate service |
+| **χR** | `registrar` | 12.27 | Index of registrar service |
+| **χZ** | `always-accumulate` | 12.27 | Always-accumulate services + gas |
 
 ### Work Processing
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **ω** | `pending-work-reports` | Work-reports ready to accumulate | `pending-work-reports.lisp` |
-| **ξ** | `accumulated-work-packages` | Recently accumulated work-packages | `accumulated-work-packages.lisp` |
-
-### Chain State
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **β** | `recent-blocks` | Recent block hashes (βH) | `recent-blocks.lisp` |
-| **τ** | `timeslot` | Current timeslot index | `timeslot.lisp` |
-| **η** | `entropy-pool` | On-chain entropy for randomness | `entropy-pool.lisp` |
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **ρ** | `pending-report` | 11.1 | Reports pending availability assurance |
+| **ω** | `pending-accumulation` | 12.3 | Work-reports ready to accumulate |
+| **ξ** | `accumulated-package` | 12.1 | Recently accumulated work-packages |
 
 ### Disputes
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **ψ** | `judgements` | Dispute judgements | `judgements.lisp` |
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **ψ** | `judgements` | 10.1 | Past judgments (composite) |
+| **ψB** | `incorrect-reports` | 10.17 | Work-reports judged incorrect |
+| **ψG** | `correct-reports` | 10.16 | Work-reports judged correct |
+| **ψW** | `unknowable-reports` | 10.18 | Work-reports with unknowable validity |
+| **ψO** | `offending-validators` | 10.19 | Validators with incorrect judgments |
 
-### Accumulation
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **θ** | `accumulation-outputs` | Most recent Accumulation outputs (eq. 7.4, 12.25) | `accumulation-outputs.lisp` |
-
-### Unknown/Reserved
-| Symbol | Name | Description | File |
-|--------|------|-------------|------|
-| **θ** | `theta` | (Reserved/unclear in Graypaper) | `theta.lisp` |
-
----
-
-## 📐 State Serialization (Appendix D.1)
-
-### State-Key Constructor Functions
-
-Each component is mapped to a unique 31-byte key using constructor functions `C`:
-
-```
-C_δ(s, h)    : Service account key (service s, hash h)
-C_α(c)       : Core authorization key (core c)
-C_ρ(c)       : Pending report key (core c)
-C_ω(h)       : Pending work-report key (hash h)
-...
-```
-
-### Merkle Root Commitment
-
-All state keys and values are serialized into a Merkle trie, producing a 32-byte commitment (state root).
+### Chain State
+| Symbol | Name | Equation | Description |
+|--------|------|----------|-------------|
+| **τ** | `timeslot` | 6.1 | Current timeslot (natural, no struct) |
+| **η** | `entropy-pool` | 6.21 | On-chain entropy (hash32, no struct) |
 
 ---
 
-## 🏗️ Implementation Plan
+## 🏗️ Structure Hierarchy
 
-### Phase 2.1: Core State Structures
-1. ✅ Define types in `codec/state/types.lisp`
-2. Implement serialization for each component (17 files)
-3. Implement state-key constructors (C functions)
+### Composite Structures (with sub-components)
 
-### Phase 2.2: State Codec
-1. Encoder/decoder for each component
-2. State merklization (Merkle trie construction)
-3. State root calculation
+```lisp
+;; β - Recent blocks (composite)
+(defstruct recent-blocks
+  (info nil :type (or null recent-blocks-info))     ; βH
+  (merkle-belt nil :type (or null merkle-mountain-belt))) ; βB
 
-### Phase 2.3: Validation
-1. Test vectors for state serialization
-2. Round-trip tests
-3. Merkle root verification
+;; γ - SAFROLE state (composite)
+(defstruct safrole-state
+  (ticket-accumulator nil :type list)  ; γA
+  (next-validators nil :type list)      ; γP
+  (seal-keys nil :type list)            ; γS
+  (tickets-root nil :type (or null hash32)))  ; γZ
+
+;; χ - Privileged services (composite)
+(defstruct privileged-services
+  (blessed nil :type (or null service-id))  ; χM
+  (authorizer-assigners nil :type list)     ; χA
+  (designate nil :type (or null service-id)) ; χV
+  (registrar nil :type (or null service-id)) ; χR
+  (always-accumulate nil :type list))        ; χZ
+
+;; ψ - Judgements (composite)
+(defstruct judgements
+  (incorrect-reports nil :type list)      ; ψB
+  (correct-reports nil :type list)        ; ψG
+  (unknowable-reports nil :type list)     ; ψW
+  (offending-validators nil :type list))  ; ψO
+```
+
+---
+
+## 📦 Complete State Structure (σ)
+
+```lisp
+(defstruct jam-state
+  "Complete JAM state (σ) - Graypaper Section 4.2"
+  
+  (core-authorizations nil :type list)         ; α
+  (recent-blocks nil :type (or null recent-blocks))  ; β (composite)
+  (safrole nil :type (or null safrole-state))  ; γ (composite)
+  (service-accounts nil :type list)            ; δ
+  (entropy-pool nil :type (or null hash32))    ; η (simple hash32)
+  (validator-queue nil :type list)             ; ι
+  (current-validators nil :type list)          ; κ
+  (archived-validators nil :type list)         ; λ
+  (pending-reports nil :type list)             ; ρ
+  (timeslot nil :type (or null timeslot))      ; τ (simple natural)
+  (authorization-queue nil :type list)         ; ϕ
+  (privileged-services nil :type (or null privileged-services))  ; χ (composite)
+  (judgements nil :type (or null judgements))  ; ψ (composite)
+  (validator-statistics nil :type list)        ; π
+  (pending-work-reports nil :type list)        ; ω
+  (accumulated-packages nil :type list)        ; ξ
+  (accumulation-outputs nil :type list))       ; θ
+```
+
+---
+
+## 🚀 Implementation Status
+
+### ✅ Phase 2.1: State Structures (COMPLETE)
+- All 17 primary components defined
+- Composite structures (β, γ, χ, ψ) implemented with sub-components
+- Types aligned with Graypaper equations
+
+### 🔜 Phase 2.2: State Codecs (NEXT)
+Create individual files for each component's encoder/decoder:
+- `codec/state/service-accounts.lisp` (δ)
+- `codec/state/validators.lisp` (κ, λ, ι)
+- `codec/state/safrole.lisp` (γ with sub-components)
+- `codec/state/recent-blocks.lisp` (β with sub-components)
+- `codec/state/privileged-services.lisp` (χ with sub-components)
+- `codec/state/judgements.lisp` (ψ with sub-components)
+- ... etc for all 17 components
+
+### 📝 Phase 2.3: State Serialization
+- Implement state-key constructor functions (Appendix D.1)
+- Implement Merkle trie logic for state commitment
+- Create comprehensive round-trip tests
 
 ---
 
 ## 📚 References
 
-- **Graypaper Section 3**: State definitions
-- **Graypaper Section 5**: State transitions
-- **Graypaper Appendix D**: State merklization and serialization
-- **Test vectors**: `test/jamtestvectors/stf/*/`
-
----
-
-## 🎯 Current Status
-
-- [x] Types defined in `src/types.lisp` (global JAM types)
-- [ ] State component structures (`codec/state/types.lisp`)
-- [ ] State serialization (17 component files)
-- [ ] State-key constructors
-- [ ] Merkle trie implementation
-- [ ] State codec tests
-
----
-
-**Code is law. State is merklized. Serialize everything.**
+- **Graypaper Section 4.2**: State component definitions
+- **Graypaper Appendix D**: State Merklization and Serialization
+- **Equations 6.x**: SAFROLE state (γ)
+- **Equations 7.x**: Block history and accumulation (β, θ)
+- **Equations 8.x, 9.x**: Core authorizations and services (α, ϕ, δ, χ)
+- **Equations 10.x**: Disputes and judgements (ψ)
+- **Equations 11.x-13.x**: Work processing (ρ, ω, ξ, π)

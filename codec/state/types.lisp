@@ -65,28 +65,25 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; γ - SAFROLE STATE (Validator Rotation)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 6: SAFROLE consensus mechanism state
+;;; Graypaper Section 6: SAFROLE consensus mechanism state (equation 6.3)
+;;; Sub-components: γA, γP, γS, γZ
 
 (defstruct safrole-state
-  "SAFROLE state (γ) for validator rotation.
+  "SAFROLE state (γ) for validator rotation (equation 6.3).
    
-   Tracks tickets, epochs, and validator selection."
+   Composed of 4 sub-components tracking epoch transitions."
   
-  ;; E: Current epoch index
-  (current-epoch nil :type (or null natural))
+  ;; γA: The sealing lottery ticket accumulator (equation 6.5)
+  (ticket-accumulator nil :type list)
   
-  ;; Tickets submitted in current and previous epochs
-  (tickets-current nil :type list)
-  (tickets-previous nil :type list)
+  ;; γP: Keys for validators of next epoch (equation 6.7)
+  (next-validators nil :type list)
   
-  ;; Entropy for randomness
-  (entropy nil :type (or null hash32))
+  ;; γS: Sealing-key sequence of current epoch (equation 6.5)
+  (seal-keys nil :type list)
   
-  ;; Tickets marked for accumulation
-  (tickets-accumulator nil :type list)
-  
-  ;; Seal keys (upcoming validator keys)
-  (seal-keys nil :type list))
+  ;; γZ: Bandersnatch root for current epoch's ticket submissions (equation 6.4)
+  (tickets-root nil :type (or null hash32)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; α - CORE AUTHORIZATIONS (Core State)
@@ -132,15 +129,41 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; β - RECENT BLOCKS (Block History)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 5: Recent block hashes (βH)
+;;; Graypaper Section 7: Log of recent activity (equation 7.1)
+;;; Sub-components: βH (block info), βB (Merkle mountain belt)
+
+(defstruct recent-blocks-info
+  "Recent blocks information (βH) - equation 7.2.
+   
+   Information on the most recent blocks."
+  
+  ;; List of recent block headers/hashes
+  (block-headers nil :type list)
+  
+  ;; Timeslots of recent blocks
+  (timeslots nil :type list))
+
+(defstruct merkle-mountain-belt
+  "Merkle mountain belt (βB) - equations 7.3 and 7.7.
+   
+   Belt for accumulating Accumulation outputs."
+  
+  ;; Merkle mountain ranges (peaks)
+  (peaks nil :type list)
+  
+  ;; Total number of leaves
+  (leaves-count nil :type (or null natural)))
 
 (defstruct recent-blocks
-  "Recent block hashes (β).
+  "Complete recent activity log (β) - equation 7.1.
    
-   Circular buffer of recent block hashes for ancestry checks."
+   Composed of block info (βH) and Merkle belt (βB)."
   
-  ;; List of recent block hashes (32 bytes each)
-  (hashes nil :type list))
+  ;; βH: Information on most recent blocks (equation 7.2)
+  (info nil :type (or null recent-blocks-info))
+  
+  ;; βB: Merkle mountain belt (equations 7.3, 7.7)
+  (merkle-belt nil :type (or null merkle-mountain-belt)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; ω - PENDING WORK-REPORTS (Accumulation Queue)
@@ -243,37 +266,51 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; χ - PRIVILEGED SERVICES (Special Services)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 3.2: Services with privileged status
+;;; Graypaper Section 9.9: Privileged service indices (equation 9.9)
+;;; Sub-components: χM, χA, χV, χR, χZ
 
-(defstruct privileged-service
-  "Privileged service identifier (χ).
+(defstruct privileged-services
+  "Privileged service indices (χ) - equation 9.9.
    
-   Services with special on-chain privileges (e.g., registrar, gateway)."
+   Tracks all services with special on-chain privileges."
   
-  ;; Service ID
-  (service-id nil :type (or null service-id))
+  ;; χM: The index of the blessed service (equation 12.27)
+  (blessed nil :type (or null service-id))
   
-  ;; Privilege type
-  (privilege-type nil :type (or null symbol)))
+  ;; χA: Indices of services able to assign each core's authorizer queue (equation 12.27)
+  (authorizer-assigners nil :type list)
+  
+  ;; χV: The index of the designate service (equation 12.27)
+  (designate nil :type (or null service-id))
+  
+  ;; χR: The index of the registrar service (equation 12.27)
+  (registrar nil :type (or null service-id))
+  
+  ;; χZ: Always-accumulate service indices and their basic gas allowance (equation 12.27)
+  (always-accumulate nil :type list))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; ψ - JUDGEMENTS (Dispute Judgements)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 16: Dispute resolution judgements
+;;; Graypaper Section 10: Past judgments (equation 10.1)
+;;; Sub-components: ψB (incorrect), ψG (correct), ψW (unknowable), ψO (offenders)
 
-(defstruct judgement-entry
-  "Dispute judgement (ψ).
+(defstruct judgements
+  "Past judgments on work-reports and validators (ψ) - equation 10.1.
    
-   Recorded judgements on disputes."
+   Split into 4 categories based on judgment outcome."
   
-  ;; Target hash (work-report or validator)
-  (target nil :type (or null hash32))
+  ;; ψB: Work-reports judged to be incorrect (equation 10.17)
+  (incorrect-reports nil :type list)
   
-  ;; Judgement result (guilty/not-guilty)
-  (verdict nil :type (or null boolean))
+  ;; ψG: Work-reports judged to be correct (equation 10.16)
+  (correct-reports nil :type list)
   
-  ;; Timeslot of judgement
-  (judged-timeslot nil :type (or null timeslot)))
+  ;; ψW: Work-reports whose validity is judged to be unknowable (equation 10.18)
+  (unknowable-reports nil :type list)
+  
+  ;; ψO: Validators who made a judgment found to be incorrect (equation 10.19)
+  (offending-validators nil :type list))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; π - VALIDATOR STATISTICS (Performance Tracking)
@@ -376,11 +413,11 @@
   ;; ϕ: Authorization queue (list of authorization-queue-entry)
   (authorization-queue nil :type list)
   
-  ;; χ: Privileged services (list of privileged-service)
-  (privileged-services nil :type list)
+  ;; χ: Privileged services (single privileged-services struct)
+  (privileged-services nil :type (or null privileged-services))
   
-  ;; ψ: Judgements (list of judgement-entry)
-  (judgements nil :type list)
+  ;; ψ: Judgements (single judgements struct with 4 sub-lists)
+  (judgements nil :type (or null judgements))
   
   ;; π: Validator statistics (list of validator-stats)
   (validator-statistics nil :type list)
