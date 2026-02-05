@@ -10,27 +10,7 @@
 ;;; Information relating to disputes between validators
 ;;; over the validity of reports.
 
-(defstruct disputes
-  "Disputes structure (v, c, f).
-   
-   Contains information about disputes between validators
-   concerning the validity of reports.
-   - v: sequence of verdict entries (r, a, j)
-   - c: culprits (length-prefixed)
-   - f: faults (length-prefixed)"
-  
-  (verdicts nil :type list)   ; v: list of (r, a, j) triples
-  (culprits nil :type list)   ; c
-  (faults nil :type list))    ; f
-
-(defstruct verdict-entry
-  "A verdict entry (r, a, j).
-   - r: report data
-   - a: encoded on 4 octets
-   - j: sequence of (v, i, s) triples"
-  (report-data nil :type t)        ; r
-  (component-a nil :type (or null natural))  ; a
-  (judgments nil :type list))      ; j: list of (v, i, s)
+;;; Disputes and verdict-entry structures defined in types.lisp
 
 ;;; Encoding
 ;;; Graypaper Appendix C.21: ED((v, c, f)) = E(↕[(r, E4(a), [(v, E2(i), s) | (v,i,s) ∈ j]) | (r,a,j) ∈ v], ↕c, ↕f)

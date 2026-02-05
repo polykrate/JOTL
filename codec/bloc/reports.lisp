@@ -10,18 +10,7 @@
 ;;; Reports of newly completed workloads whose accuracy is guaranteed
 ;;; by specific validators.
 
-(defstruct report
-  "A workload completion report (r, t, a).
-   
-   Reports newly completed workloads, with accuracy guaranteed
-   by specific validators.
-   - r: report data/hash
-   - t: timeslot (encoded on 4 octets)
-   - a: sequence of (validator_index, signature) pairs"
-  
-  (report-data nil :type t)           ; r
-  (timeslot nil :type (or null natural))  ; t
-  (assurances nil :type list))         ; a: list of (v, s) pairs
+;;; Report structure defined in types.lisp
 
 (deftype reports ()
   "Sequence of reports/guarantees (EG)"

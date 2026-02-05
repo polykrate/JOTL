@@ -10,20 +10,7 @@
 ;;; Assurances by each validator concerning which of the input data
 ;;; of workloads they have correctly received and are storing locally.
 
-(defstruct availability-assurance
-  "An availability assurance (a, f, v, s).
-   
-   Indicates that a validator has correctly received and is storing
-   workload input data locally.
-   - a: assurance data (first component)
-   - f: second component
-   - v: validator index (encoded on 2 octets)
-   - s: signature"
-  
-  (assurance-a nil :type t)           ; a
-  (component-f nil :type t)           ; f
-  (validator-index nil :type (or null natural))  ; v
-  (signature nil :type t))            ; s
+;;; Availability-assurance structure defined in types.lisp
 
 (deftype jam-availability ()
   "Sequence of availability assurances (EA)"

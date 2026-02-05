@@ -11,15 +11,7 @@
 ;;;
 ;;; Graypaper Section 4.2: The Block (extrinsic data component)
 
-(defstruct preimage
-  "A preimage entry (s, d).
-   
-   Static data that is made available for workloads to fetch on demand.
-   - s ∈ N: service ID (natural number)
-   - d ∈ B: data blob (octet sequence)"
-  
-  (service-id nil :type (or null natural))  ; s ∈ N
-  (data nil :type (or null blob)))          ; d ∈ B
+;;; Preimage structure defined in types.lisp
 
 (deftype preimages ()
   "Sequence of preimages (EP)"

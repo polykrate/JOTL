@@ -1,22 +1,19 @@
 ;;;; types.lisp
 ;;;; Common type definitions for JAM blocks
+;;;; REFACTORED: All byte sequences as LISTS (idiomatique Lisp, rapide)
 
 (in-package :jotl-bloc)
 
 ;;; Common JAM types from graypaper section 3
 
-;;; 3.8.1. Hashing
+;;; 3.8.1. Hashing - all as LISTS
 (deftype hash ()
-  "H = B32 : 256-bit hash (32 octets)"
-  '(vector (unsigned-byte 8) 32))
+  "H = B32 : 256-bit hash (32 octets) - as list"
+  'list)
 
 (deftype blob ()
-  "B : octet sequence of arbitrary length"
-  '(vector (unsigned-byte 8)))
-
-(deftype blob-n (n)
-  "Bn : octet sequence of length n"
-  `(vector (unsigned-byte 8) ,n))
+  "B : octet sequence of arbitrary length - as list"
+  'list)
 
 ;;; 3.4. Numbers
 (deftype natural ()
@@ -31,59 +28,20 @@
   "NL = N_{2^32} : lengths of octet sequences"
   '(integer 0 #.(1- (expt 2 32))))
 
-;;; 3.8.2. Signing Schemes
-(deftype ed25519-signature ()
-  "Ed25519 signature (B64)"
-  '(vector (unsigned-byte 8) 64))
-
-(deftype ed25519-public-key ()
-  "Ed25519 public key (H = B32)"
-  'hash)
-
-(deftype bandersnatch-signature ()
-  "Bandersnatch signature (B96)"
-  '(vector (unsigned-byte 8) 96))
-
-(deftype bandersnatch-public-key ()
-  "Bandersnatch public key (∽H)"
-  'hash)
-
-(deftype bandersnatch-vrf-signature ()
-  "Bandersnatch VRF signature"
-  '(vector (unsigned-byte 8) 96))
-
-(deftype bls-signature ()
-  "BLS signature (B144)"
-  '(vector (unsigned-byte 8) 144))
-
-(deftype bls-public-key ()
-  "BLS public key (B144)"
-  '(vector (unsigned-byte 8) 144))
-
-;;; Helper functions
-
-(defun make-hash (&optional (initial-value 0))
-  "Create a hash (32 bytes)"
-  (make-array 32 :element-type '(unsigned-byte 8)
-              :initial-element initial-value))
-
-(defun make-blob (length &optional (initial-value 0))
-  "Create a blob of specified length"
-  (make-array length :element-type '(unsigned-byte 8)
-              :initial-element initial-value))
-
-(defun hash-zero ()
-  "H0 = [0]32"
-  (make-hash 0))
+;;; Helper functions for I/O boundaries (convert to/from vectors when needed)
 
 (defun list-to-blob (list)
-  "Convert list of octets to blob (vector)"
+  "Convert list of octets to vector blob (for I/O only)"
   (make-array (length list) :element-type '(unsigned-byte 8)
               :initial-contents list))
 
 (defun blob-to-list (blob)
-  "Convert blob (vector) to list of octets"
+  "Convert vector blob to list of octets (for I/O only)"
   (coerce blob 'list))
+
+(defun hash-zero ()
+  "H0 = [0]32 - as list"
+  (make-list 32 :initial-element 0))
 
 ;;; Validator structures
 ;;;
@@ -93,10 +51,10 @@
   "Validator key pair.
    
    Each validator has two keys:
-   - bandersnatch: For block production and VRF (32 bytes)
-   - ed25519: For finalizing and disputes (32 bytes)"
-  (bandersnatch nil :type (or null blob))  ; 32 bytes
-  (ed25519 nil :type (or null blob)))      ; 32 bytes
+   - bandersnatch: For block production and VRF (32 bytes as list)
+   - ed25519: For finalizing and disputes (32 bytes as list)"
+  (bandersnatch nil :type (or null list))  ; 32 bytes as list
+  (ed25519 nil :type (or null list)))      ; 32 bytes as list
 
 ;;; Epoch Marker structure
 ;;;
@@ -106,9 +64,122 @@
   "Epoch marker (HE).
    
    Marks the beginning of a new epoch with new validator set.
-   - entropy: Randomness for the new epoch (32 bytes)
-   - tickets-entropy: Ticket-specific randomness (32 bytes)
+   - entropy: Randomness for the new epoch (32 bytes as list)
+   - tickets-entropy: Ticket-specific randomness (32 bytes as list)
    - validators: List of validators for the epoch"
-  (entropy nil :type (or null blob))           ; 32 bytes (H)
-  (tickets-entropy nil :type (or null blob))   ; 32 bytes (H)
+  (entropy nil :type (or null list))           ; 32 bytes as list
+  (tickets-entropy nil :type (or null list))   ; 32 bytes as list
   (validators nil :type list))                 ; list of validator
+
+;;; Block Header structure
+;;;
+;;; Graypaper Section 4.2, 5: Block header (H)
+
+(defstruct header
+  ;; HP ∈ H : parent block hash (Equation 4.2) - 32 bytes as list
+  (parent-hash nil :type (or null list))
+  
+  ;; HR ∈ H : state root after block application (Equation 5.2) - 32 bytes as list
+  (prior-state-root nil :type (or null list))
+  
+  ;; HX ∈ H : Extrinsic hash (Eq. 5.4) - 32 bytes as list
+  (extrinsic-hash nil :type (or null list))
+  
+  ;; HT ∈ NT : Time-slot index (Eq. 5.7)
+  (timeslot nil :type (or null integer))
+  
+  ;; HE : Epoch marker (Eq. 5.10)
+  (epoch-marker nil :type (or null epoch-marker))
+  
+  ;; HW : Winning tickets (TODO: define structure)
+  (winning-tickets nil :type (or null list))
+  
+  ;; HO ∈ ⟦¯H⟧ : offenders marker (Equation 5.10)
+  ;; Ed25519 public keys of newly misbehaving validators (list of 32-byte lists)
+  (offenders nil :type list)
+  
+  ;; HI ∈ NV : block author index (Equation 5.9)
+  (author-index nil :type (or null integer))
+  
+  ;; HV ∈ SB : Bandersnatch VRF signature (entropy-yielding) - 96 bytes as list
+  (vrf-signature nil :type (or null list))
+  
+  ;; HS ∈ SB : Bandersnatch block seal - 96 bytes as list
+  (seal nil :type (or null list)))
+
+;;; Ticket structure
+;;;
+;;; Graypaper Section 6.6: Tickets (T)
+
+(defstruct ticket
+  ;; Ticket identifier/ID - list of octets
+  (identifier nil :type (or null list))
+  
+  ;; Attempt index or additional data
+  (attempt nil :type t))
+
+;;; Preimage structure
+;;;
+;;; Graypaper Section 6.6: Preimages (P)
+
+(defstruct preimage
+  ;; Service ID (4 bytes, little-endian natural)
+  (service-id nil :type (or null integer))
+  
+  ;; Data blob (variable length) - list of octets
+  (data nil :type (or null list)))
+
+;;; Report structure
+;;;
+;;; Graypaper Section 6.6: Reports (R)
+
+(defstruct report
+  ;; Report data/package hash - list of octets
+  (report-data nil :type (or null list))
+  
+  ;; Time slot
+  (timeslot nil :type (or null integer))
+  
+  ;; Authorizer-guarantor data (sequence of pairs)
+  (authorizer-guarantor nil :type list))
+
+;;; Availability Assurance structure
+;;;
+;;; Graypaper Section 6.6: Availability (A)
+
+(defstruct availability-assurance
+  ;; Assurance anchor/hash - list of octets
+  (assurance-a nil :type (or null list))
+  
+  ;; Flags - list of octets
+  (flags nil :type (or null list))
+  
+  ;; Validator index
+  (validator-index nil :type (or null integer))
+  
+  ;; Signature - list of octets
+  (signature nil :type (or null list)))
+
+;;; Disputes structures
+;;;
+;;; Graypaper Section 6.6: Disputes (D)
+
+(defstruct verdict-entry
+  ;; Report data/hash - list of octets
+  (report-data nil :type (or null list))
+  
+  ;; Age
+  (age nil :type (or null integer))
+  
+  ;; Judgement data (sequence of validator, index, signature)
+  (judgement nil :type list))
+
+(defstruct disputes
+  ;; Verdicts - list of verdict-entry
+  (verdicts nil :type list)
+  
+  ;; Culprits - list of octets
+  (culprits nil :type (or null list))
+  
+  ;; Faults - list of octets
+  (faults nil :type (or null list)))

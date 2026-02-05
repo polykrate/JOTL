@@ -12,25 +12,7 @@
 ;;; Graypaper Section 6.2: Safrole Basic State
 ;;; Equation 6.6: T ≡ {y ∈ H, e ∈ NN}
 
-;;; Ticket structure (Equation 6.6)
-;;; T ≡ {y ∈ H, e ∈ NN}
-;;; A ticket is a combination of:
-;;; - y ∈ H: verifiably random ticket identifier (hash, 32 bytes)
-;;; - e ∈ NN: ticket's entry-index (natural number)
-
-(defstruct ticket
-  "A ticket for validator selection.
-   
-   Graypaper Equation 6.6: T ≡ {y ∈ H, e ∈ NN}
-   
-   Tickets are used in the mechanism that manages validator selection
-   for block authoring permissions."
-  
-  ;; y ∈ H : ticket identifier (verifiably random hash, 32 bytes)
-  (identifier nil :type (or null hash))
-  
-  ;; e ∈ NN : entry-index (natural number)
-  (entry-index nil :type (or null natural)))
+;;; Ticket structure defined in types.lisp
 
 (deftype tickets ()
   "Sequence of tickets (ET)"
@@ -102,6 +84,6 @@
             (incf pos e-consumed)
             ;; Create ticket structure
             (push (make-ticket :identifier y
-                                   :entry-index e)
+                                   :attempt e)
                   tickets))))
       (values (nreverse tickets) (+ length-bytes total-length)))))

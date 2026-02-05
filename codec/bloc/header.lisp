@@ -18,61 +18,29 @@
 ;;; - HV: Bandersnatch VRF signature (entropy-yielding)
 ;;; - HS: Block seal (Bandersnatch signature)
 
-(defstruct header
-  "JAM Block Header structure.
-   
-   Graypaper Equation 5.1: H ≡ (HP, HR, HX, HT, HE, HW, HO, HI, HV, HS)"
-  
-  ;; HP ∈ H : parent hash (Equation 5.2)
-  (parent-hash nil :type (or null hash))
-  
-  ;; HR ∈ H : prior state root (Equation 5.8)
-  (prior-state-root nil :type (or null hash))
-  
-  ;; HX ∈ H : extrinsic hash (Equation 5.4)
-  (extrinsic-hash nil :type (or null hash))
-  
-  ;; HT ∈ NT : time-slot index (Equation 5.7)
-  (timeslot nil :type (or null natural))
-  
-  ;; HE ∈ {...}? : epoch marker (Equation 5.10) - optional
-  ;; TODO: Define precise type from Section 6.6
-  (epoch-marker nil :type t)  ; ∅ or complex structure
-  
-  ;; HW ∈ ⟦T⟧E? : winning-tickets marker (Equation 5.10) - optional
-  ;; Sequence of E=600 slot sealing tickets for next epoch
-  (winning-tickets nil :type (or null list))
-  
-  ;; HO ∈ ⟦¯H⟧ : offenders marker (Equation 5.10)
-  ;; Ed25519 public keys of newly misbehaving validators
-  (offenders nil :type list)  ; list of ed25519-public-key
-  
-  ;; HI ∈ NV : block author index (Equation 5.9)
-  (author-index nil :type (or null natural))
-  
-  ;; HV : Bandersnatch VRF signature (entropy-yielding)
-  (vrf-signature nil :type (or null bandersnatch-vrf-signature))
-  
-  ;; HS : block seal (Bandersnatch signature)
-  (seal nil :type (or null bandersnatch-signature)))
+;;; Header structure is defined in types.lisp
 
 ;;; Header encoding
 ;;;
 ;;; Graypaper Appendix C.22: E(H) = E(EU(H), HS)
 ;;; Graypaper Appendix C.23: EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
 
-(defun encode-header (header)
+(defun encode-header (header &key (as-blob nil))
   "Encode a complete block header including seal.
    
    Graypaper Appendix C.22: E(H) = E(EU(H), HS)
    
    Args:
-     header: A jam-header structure
+     header: A header structure
+     as-blob: If t, convert result to vector; if nil (default), return list
    
    Returns:
-     Encoded octet sequence"
-  (concat-octets (encode-header-unsigned header)
-                 (blob-to-list (header-seal header))))
+     Encoded header as list (default) or vector"
+  (let ((octets (concat-octets (encode-header-unsigned header)
+                                (header-seal header))))
+    (if as-blob
+        (list-to-blob octets)
+        octets)))
 
 (defun encode-header-unsigned (header)
   "Encode header without seal (unsigned).
@@ -85,10 +53,10 @@
    Returns:
      Encoded octet sequence (without seal)"
   (concat-octets
-   ;; HP, HR, HX : hashes (B32, identity encoding)
-   (blob-to-list (header-parent-hash header))
-   (blob-to-list (header-prior-state-root header))
-   (blob-to-list (header-extrinsic-hash header))
+   ;; HP, HR, HX : hashes (B32, identity encoding) - already lists!
+   (header-parent-hash header)
+   (header-prior-state-root header)
+   (header-extrinsic-hash header)
    
    ;; E4(HT) : timeslot on 4 octets
    (e4 (header-timeslot header))
@@ -110,15 +78,15 @@
    ;; E2(HI) : author index on 2 octets
    (e2 (header-author-index header))
    
-   ;; HV : VRF signature
-   (blob-to-list (header-vrf-signature header))
+   ;; HV : VRF signature - already list!
+   (header-vrf-signature header)
    
    ;; ↕HO : length-prefixed offenders sequence
    ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each)
    (encode-length-prefixed-sequence (header-offenders header))))
 
 
-(defun decode-header (octets &optional (start 0) (num-validators 6))
+(defun decode-header (octets &optional (start 0))
   "Decode a block header from octets.
    
    Graypaper Appendix C.22-C.23:
@@ -132,16 +100,16 @@
    Returns:
      values: (jam-header bytes-consumed)"
   (let ((pos start))
-    ;; HP : parent hash (32 bytes)
-    (let ((parent-hash (list-to-blob (subseq octets pos (+ pos 32)))))
+    ;; HP : parent hash (32 bytes as list)
+    (let ((parent-hash (subseq octets pos (+ pos 32))))
       (incf pos 32)
       
-      ;; HR : prior state root (32 bytes)
-      (let ((prior-state-root (list-to-blob (subseq octets pos (+ pos 32)))))
+      ;; HR : prior state root (32 bytes as list)
+      (let ((prior-state-root (subseq octets pos (+ pos 32))))
         (incf pos 32)
         
-        ;; HX : extrinsic hash (32 bytes)
-        (let ((extrinsic-hash (list-to-blob (subseq octets pos (+ pos 32)))))
+        ;; HX : extrinsic hash (32 bytes as list)
+        (let ((extrinsic-hash (subseq octets pos (+ pos 32))))
           (incf pos 32)
           
           ;; E4(HT) : timeslot (4 bytes)
@@ -177,20 +145,20 @@
                       (incf pos 2)
                       
                       ;; HV : VRF signature (96 bytes)
-                      (let ((vrf-signature (list-to-blob (subseq octets pos (+ pos 96)))))
+                      (let ((vrf-signature (subseq octets pos (+ pos 96))))
                         (incf pos 96)
                         
                         ;; ↕HO : length-prefixed offenders sequence
-                        ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each)
+                        ;; HO ∈ ⟦¯H⟧ : sequence of ed25519 public key hashes (32 bytes each as lists)
                         (multiple-value-bind (offenders offenders-consumed)
                             (decode-length-prefixed-sequence 
                              octets
-                             (lambda (o s) (values (list-to-blob (subseq o s (+ s 32))) 32))
+                             (lambda (o s) (values (subseq o s (+ s 32)) 32))
                              pos)
                           (incf pos offenders-consumed)
                           
-                          ;; HS : block seal (96 bytes)
-                          (let ((seal (list-to-blob (subseq octets pos (+ pos 96)))))
+                          ;; HS : block seal (96 bytes as list)
+                          (let ((seal (subseq octets pos (+ pos 96))))
                             (incf pos 96)
                             
                             (values
