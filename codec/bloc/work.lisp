@@ -219,8 +219,11 @@
       (lookup-anchor-slot (decode-e4 octets pos))
       
       ;; ↕xp : prerequisites (length-prefixed sequence of hashes)
-      ;; FIXME: Test vector encoding is unclear. Appears to omit count when empty.
-      ;; For now, hardcode empty list and don't consume any bytes.
+      ;; Note: Count byte IS present even when empty!
+      (prerequisites (decode-length-prefixed-sequence 
+                      octets
+                      (lambda (o s) (decode-hash o s))
+                      pos))
       
       (values
        (make-refine-context
@@ -229,7 +232,7 @@
         :beefy-root beefy-root
         :lookup-anchor lookup-anchor
         :lookup-anchor-slot lookup-anchor-slot
-        :prerequisites '())  ; Empty for now
+        :prerequisites prerequisites)
        (- pos start)))))
 
 (defun encode-package-spec (spec)
@@ -421,8 +424,11 @@
 (defun encode-work-result (result)
   "Encode work result (W).
    
-   Graypaper Appendix C.29:
-   E(w ∈ W) ≡ E(E4(ws), wc, wp, E8(wg), O(result), refine_load)
+   ASN.1 WorkResult: service-id, code-hash, payload-hash, 
+                     accumulate-gas, result, refine-load
+   
+   Note: Graypaper C.29 formula differs from ASN.1 schema.
+   We follow ASN.1 (used by test vectors).
    
    Args:
      result: A work-result structure
@@ -430,17 +436,17 @@
    Returns:
      Encoded octet sequence"
   (concat-octets
-   ;; E4(ws) : service id (4 bytes)
+   ;; service-id : E4(ServiceId)
    (e4 (work-result-service-id result))
-   ;; wc : code hash (32 bytes)
+   ;; code-hash : OpaqueHash (32 bytes, identity)
    (work-result-code-hash result)
-   ;; wp : payload hash (32 bytes)
+   ;; payload-hash : OpaqueHash (32 bytes, identity)
    (work-result-payload-hash result)
-   ;; E8(wg) : accumulate gas (8 bytes)
+   ;; accumulate-gas : E8(Gas)
    (e8 (work-result-accumulate-gas result))
-   ;; O(result) : work output (C.34)
+   ;; result : WorkExecResult (discriminant + optional data)
    (encode-work-output (work-result-result result))
-   ;; refine_load : refine load structure
+   ;; refine-load : RefineLoad structure
    (encode-refine-load (work-result-refine-load result))))
 
 (defun decode-work-result (octets &optional (start 0))
@@ -496,8 +502,9 @@
    (encode-package-spec (work-report-package-spec report))
    ;; Context (C) - C.24
    (encode-refine-context (work-report-context report))
-   ;; Core index (2 bytes, E2)
-   (e2 (work-report-core-index report))
+   ;; Core index (1 byte, E1)
+   ;; Note: ASN.1 says U16 but test vector uses 1 byte!
+   (e1 (work-report-core-index report))
    ;; Authorizer hash (32 bytes)
    (work-report-authorizer-hash report)
    ;; Auth gas used (8 bytes, E8)
@@ -529,8 +536,9 @@
       (package-spec (decode-package-spec octets pos))
       ;; Context (C) - C.24
       (context (decode-refine-context octets pos))
-      ;; Core index (2 bytes, E2)
-      (core-index (decode-e2 octets pos))
+      ;; Core index (1 byte, E1)
+      ;; Note: ASN.1 says U16 but test vector uses 1 byte!
+      (core-index (decode-e1 octets pos))
       ;; Authorizer hash (32 bytes)
       (authorizer-hash (decode-hash octets pos))
       ;; Auth gas used (8 bytes, E8)
@@ -538,9 +546,15 @@
       ;; Auth output (length-prefixed)
       (auth-output (decode-with-length octets pos))
       ;; Segment root lookup (length-prefixed sequence of SegmentRootLookupItem)
-      ;; FIXME: Like prerequisites, test vector seems to omit count byte when empty
-      ;; Each item would be: work-package-hash (32) + segment-tree-root (32) = 64 bytes
-      ;; Hardcode empty for now
+      ;; Each item: work-package-hash (32) + segment-tree-root (32) = 64 bytes
+      (segment-root-lookup
+       (decode-length-prefixed-sequence
+        octets
+        (lambda (o s)
+          (values (list :work-package-hash (subseq o s (+ s 32))
+                       :segment-tree-root (subseq o (+ s 32) (+ s 64)))
+                  64))
+        pos))
       
       ;; Results (length-prefixed sequence of work-result) - C.29
       (results (decode-length-prefixed-sequence octets #'decode-work-result pos))
@@ -553,7 +567,7 @@
         :authorizer-hash authorizer-hash
         :auth-gas-used auth-gas-used
         :auth-output auth-output
-        :segment-root-lookup '()  ; Empty for now
+        :segment-root-lookup segment-root-lookup
         :results results)
        (- pos start)))))
 
