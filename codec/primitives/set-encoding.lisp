@@ -125,8 +125,7 @@
       (decode-natural octets start)
     (let ((value-start (+ start length-bytes))
           (value-end (+ start length-bytes length)))
-      (let ((set-octets (subseq octets value-start value-end))
-            (elements (decode-set (subseq octets value-start value-end)
+      (let ((elements (decode-set (subseq octets value-start value-end)
                                   element-decoder)))
         (values elements (+ length-bytes length))))))
 

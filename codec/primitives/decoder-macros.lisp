@@ -66,15 +66,22 @@
                                       (lambda (o s) (decode-epoch-marker o s)) 
                                       pos))
        (make-header :parent-hash parent-hash :timeslot timeslot ...))"
+  (declare (ignorable octets-var pos-var))
   (let* ((forms (butlast bindings))
-         (return-form (car (last bindings))))
-    `(let (,@(mapcar #'first forms))
-       ,@(mapcar (lambda (binding)
-                   (destructuring-bind (var decoder-expr) binding
-                     (let ((val-sym (gensym "VAL"))
-                           (consumed-sym (gensym "CONSUMED")))
-                       `(multiple-value-bind (,val-sym ,consumed-sym) ,decoder-expr
-                          (setf ,var ,val-sym)
-                          (incf ,pos-var ,consumed-sym)))))
-                 forms)
-       ,return-form)))
+         (return-form (car (last bindings)))
+         (vars (mapcar #'first forms)))
+    `(locally
+       ;; Supprime les warnings du linter qui ne peut pas analyser la macro
+       ;; Note: Les warnings LSP/Cursor sont normaux (analyse statique pré-macro)
+       (declare #+sbcl (sb-ext:muffle-conditions warning))
+       (let ,vars
+         (declare (ignorable ,@vars))
+         ,@(mapcar (lambda (binding)
+                     (destructuring-bind (var decoder-expr) binding
+                       (let ((val-sym (gensym "VAL"))
+                             (consumed-sym (gensym "CONSUMED")))
+                         `(multiple-value-bind (,val-sym ,consumed-sym) ,decoder-expr
+                            (setf ,var ,val-sym)
+                            (incf ,pos-var ,consumed-sym)))))
+                   forms)
+         ,return-form))))
