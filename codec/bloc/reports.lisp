@@ -37,12 +37,13 @@
                     ;; E4(t) : timeslot (4 bytes)
                     (e4 (guarantee-slot guarantee))
                     ;; ↕[(E2(v), s) | ...] : signatures
+                    ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
                     (encode-length-prefixed-sequence
                      (mapcar (lambda (sig-pair)
                                (destructuring-bind (validator-index signature) sig-pair
                                  (concat-octets
                                   (e2 validator-index)  ; validator index
-                                  (encode-with-length signature))))  ; signature
+                                  signature)))  ; signature is already 64 bytes!
                              (guarantee-signatures guarantee))
                      :pre-encoded t)))
                  reports)))
@@ -69,20 +70,21 @@
          (work-report (decode-work-report o pos))
          ;; E4(t) : timeslot (4 bytes)
          (slot (decode-e4 o pos))
-         ;; ↕[(E2(v), s) | ...] : signatures
-         (signatures
-          (decode-length-prefixed-sequence
-           o
-           (lambda (o2 s2)
-             (let ((pos2 s2))
-               (decode>> (o2 pos2)
-                 ;; E2(v) : validator index (2 bytes)
-                 (v (decode-e2 o2 pos2))
-                 ;; s : signature (length-prefixed)
-                 (s (decode-with-length o2 pos2))
-                 
-                 (values (list v s) (- pos2 s2)))))
-           pos))
+        ;; ↕[(E2(v), s) | ...] : signatures
+        ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
+        (signatures
+         (decode-length-prefixed-sequence
+          o
+          (lambda (o2 s2)
+            (let ((pos2 s2))
+              (decode>> (o2 pos2)
+                ;; E2(v) : validator index (2 bytes)
+                (v (decode-e2 o2 pos2))
+                ;; s : signature (FIXED 64 bytes!)
+                (s (decode-fixed-bytes o2 pos2 64))
+                
+                (values (list v s) (- pos2 s2)))))
+          pos))
          
          (values
           (make-guarantee

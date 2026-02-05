@@ -593,12 +593,13 @@
    ;; E4(slot) : slot/timeslot (4 bytes)
    (e4 (guarantee-slot guarantee))
    ;; Signatures: ↕[(E2(v), s) | (v, s) <- signatures]
+   ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
    (encode-length-prefixed-sequence
     (mapcar (lambda (sig-pair)
               (destructuring-bind (validator-index signature) sig-pair
                 (concat-octets
                  (e2 validator-index)
-                 (encode-with-length signature))))
+                 signature)))  ; signature is already 64 bytes, don't add length!
             (guarantee-signatures guarantee))
     :pre-encoded t)))
 
@@ -620,6 +621,7 @@
       ;; E4(slot) : slot/timeslot (4 bytes)
       (slot (decode-e4 octets pos))
       ;; Signatures: ↕[(E2(v), s) | (v, s) <- signatures]
+      ;; Note: signature s is FIXED 64 bytes, NOT length-prefixed!
       (signatures
        (decode-length-prefixed-sequence
         octets
@@ -627,7 +629,7 @@
           (let ((p s))
             (decode>> (o p)
               (validator-index (decode-e2 o p))
-              (signature (decode-with-length o p))
+              (signature (decode-fixed-bytes o p 64))  ; Fixed 64 bytes!
               (values (list validator-index signature) (- p s)))))
         pos))
       
