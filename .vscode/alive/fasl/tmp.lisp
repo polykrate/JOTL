@@ -314,36 +314,40 @@
    Returns:
      Encoded octet sequence"
   (cond
-    ;; (0, ↕o) if o ∈ B - ok with data
+    ;; (0, ↕o) if o ∈ B - ok with data (NATURAL discriminant + length-prefixed)
     ((and (consp output) (eq (car output) :ok))
-     (cons 0 (encode-with-length (cdr output))))
+     (concat-octets
+      (encode-natural 0)  ; discriminant as NATURAL (1 byte)
+      (encode-with-length (cdr output))))
     
-    ;; 1 if o = ∞ - out of gas
-    ((eq output :out-of-gas) (list 1))
+    ;; 1 if o = ∞ - out of gas (NATURAL only)
+    ((eq output :out-of-gas) (encode-natural 1))
     
-    ;; 2 if o = ☇ - panic with revert
+    ;; 2 if o = ☇ - panic with revert (NATURAL only)
     ((or (eq output :panic-revert)
          (and (consp output) (eq (car output) :panic)))
-     (list 2))
+     (encode-natural 2))
     
-    ;; 3 if o = ⊚ - panic with no revert
-    ((eq output :panic-no-revert) (list 3))
+    ;; 3 if o = ⊚ - panic with no revert (NATURAL only)
+    ((eq output :panic-no-revert) (encode-natural 3))
     
-    ;; 4 if o = ⊖ - bad work package
-    ((eq output :bad-work-package) (list 4))
+    ;; 4 if o = ⊖ - bad work package (NATURAL only)
+    ((eq output :bad-work-package) (encode-natural 4))
     
-    ;; 5 if o = BAD - service not available
-    ((eq output :service-unavailable) (list 5))
+    ;; 5 if o = BAD - service not available (NATURAL only)
+    ((eq output :service-unavailable) (encode-natural 5))
     
-    ;; 6 if o = BIG - code too large
-    ((eq output :code-too-large) (list 6))
+    ;; 6 if o = BIG - code too large (NATURAL only)
+    ((eq output :code-too-large) (encode-natural 6))
     
     (t (error "Unknown work output type: ~A" output))))
 
 (defun decode-work-output (octets &optional (start 0))
   "Decode work output (O).
    
-   Inverse of encode-work-output (C.34).
+   ACTUAL STRUCTURE (from test vectors):
+   - Discriminant: E2 (2 bytes)
+   - Data: length-prefixed if discriminant=0, nothing otherwise
    
    Args:
      octets: Encoded work output data
@@ -351,37 +355,32 @@
    
    Returns:
      values: (output bytes-consumed)"
-  (let ((discriminant (nth start octets)))
-    (case discriminant
-      ;; 0 = ok(data) with length-prefixed blob
-      (0 (multiple-value-bind (data consumed)
-             (decode-with-length octets (1+ start))
-           (values (cons :ok data) (1+ consumed))))
+  (let ((pos start))
+    ;; Read discriminant as NATURAL (1 byte)
+    (multiple-value-bind (discriminant disc-consumed)
+        (decode-natural octets pos)
+      (incf pos disc-consumed)
       
-      ;; 1 = out of gas
-      (1 (values :out-of-gas 1))
-      
-      ;; 2 = panic with revert
-      (2 (values :panic-revert 1))
-      
-      ;; 3 = panic with no revert
-      (3 (values :panic-no-revert 1))
-      
-      ;; 4 = bad work package
-      (4 (values :bad-work-package 1))
-      
-      ;; 5 = service not available
-      (5 (values :service-unavailable 1))
-      
-      ;; 6 = code too large
-      (6 (values :code-too-large 1))
-      
-      (t (error "Unknown work output discriminant: ~A" discriminant)))))
+      (case discriminant
+        ;; 0 = ok(data) with length-prefixed blob
+        (0 (multiple-value-bind (data data-consumed)
+               (decode-with-length octets pos)
+             (values (cons :ok data) (+ disc-consumed data-consumed))))
+        
+        ;; 1-6 = simple discriminants without data
+        (1 (values :out-of-gas disc-consumed))
+        (2 (values :panic-revert disc-consumed))
+        (3 (values :panic-no-revert disc-consumed))
+        (4 (values :bad-work-package disc-consumed))
+        (5 (values :service-unavailable disc-consumed))
+        (6 (values :code-too-large disc-consumed))
+        
+        (t (error "Unknown work output discriminant: ~A" discriminant))))))
 
 ;;; Work result encoding (C.29)
 
 (defun encode-refine-load (load)
-  "Encode refine load structure.
+  "Encode refine load structure (5 × NATURAL).
    
    Args:
      load: A refine-load structure
@@ -389,14 +388,14 @@
    Returns:
      Encoded octet sequence"
   (concat-octets
-   (e8 (refine-load-gas-used load))
-   (e8 (refine-load-imports load))
-   (e8 (refine-load-extrinsic-count load))
-   (e8 (refine-load-extrinsic-size load))
-   (e8 (refine-load-exports load))))
+   (encode-natural (refine-load-gas-used load))
+   (encode-natural (refine-load-imports load))
+   (encode-natural (refine-load-extrinsic-count load))
+   (encode-natural (refine-load-extrinsic-size load))
+   (encode-natural (refine-load-exports load))))
 
 (defun decode-refine-load (octets &optional (start 0))
-  "Decode refine load structure.
+  "Decode refine load structure (5 × NATURAL).
    
    Args:
      octets: Encoded refine load data
@@ -406,11 +405,11 @@
      values: (refine-load bytes-consumed)"
   (let ((pos start))
     (decode>> (octets pos)
-      (gas-used (decode-e8 octets pos))
-      (imports (decode-e8 octets pos))
-      (extrinsic-count (decode-e8 octets pos))
-      (extrinsic-size (decode-e8 octets pos))
-      (exports (decode-e8 octets pos))
+      (gas-used (decode-natural octets pos))
+      (imports (decode-natural octets pos))
+      (extrinsic-count (decode-natural octets pos))
+      (extrinsic-size (decode-natural octets pos))
+      (exports (decode-natural octets pos))
       
       (values
        (make-refine-load
@@ -424,11 +423,16 @@
 (defun encode-work-result (result)
   "Encode work result (W).
    
-   ASN.1 WorkResult: service-id, code-hash, payload-hash, 
-                     accumulate-gas, result, refine-load
-   
-   Note: Graypaper C.29 formula differs from ASN.1 schema.
-   We follow ASN.1 (used by test vectors).
+   ACTUAL STRUCTURE (from test vectors):
+   1. service-id (E4): 4 bytes
+   2. code-hash: 32 bytes
+   3. payload-hash: 32 bytes
+   4. accumulate-gas (NATURAL): variable
+   5. byte 0x00: 1 byte (role unknown)
+   6. refine-load #1 (5×NATURAL): variable
+   7. result discriminant (E2): 2 bytes
+   8. result data (length-prefixed): 0-N bytes (if disc=0)
+   9. refine-load #2 (5×NATURAL): variable
    
    Args:
      result: A work-result structure
@@ -436,18 +440,16 @@
    Returns:
      Encoded octet sequence"
   (concat-octets
-   ;; service-id : E4(ServiceId)
+   ;; 1. service-id (E4)
    (e4 (work-result-service-id result))
-   ;; code-hash : OpaqueHash (32 bytes, identity)
+   ;; 2-3. hashes (32 bytes each)
    (work-result-code-hash result)
-   ;; payload-hash : OpaqueHash (32 bytes, identity)
    (work-result-payload-hash result)
-   ;; accumulate-gas : NATURAL (variable-length)
-   ;; Note: ASN.1 says Gas=U64 but test vector uses variable-length natural!
-   (encode-natural (work-result-accumulate-gas result))
-   ;; result : WorkExecResult (discriminant + optional data)
+   ;; 4. accumulate-gas (E8 - NOT NATURAL!)
+   (e8 (work-result-accumulate-gas result))
+   ;; 5. result (discriminant NATURAL + optional data)
    (encode-work-output (work-result-result result))
-   ;; refine-load : RefineLoad structure
+   ;; 6. refine-load (5×NATURAL - only ONE refine-load!)
    (encode-refine-load (work-result-refine-load result))))
 
 (defun decode-work-result (octets &optional (start 0))
@@ -463,18 +465,16 @@
      values: (work-result bytes-consumed)"
   (let ((pos start))
     (decode>> (octets pos)
-      ;; E4(ws) : service id (4 bytes)
+      ;; 1. service-id (E4)
       (service-id (decode-e4 octets pos))
-      ;; wc : code hash (32 bytes)
+      ;; 2-3. hashes (32 bytes each)
       (code-hash (decode-hash octets pos))
-      ;; wp : payload hash (32 bytes)
       (payload-hash (decode-hash octets pos))
-      ;; accumulate gas (NATURAL, variable-length)
-      ;; Note: ASN.1 says Gas=U64 but test vector uses variable-length natural!
-      (accumulate-gas (decode-natural octets pos))
-      ;; O(result) : work output (C.34)
+      ;; 4. accumulate-gas (E8 - NOT NATURAL!)
+      (accumulate-gas (decode-e8 octets pos))
+      ;; 5. result (discriminant NATURAL + optional data)
       (result-output (decode-work-output octets pos))
-      ;; refine_load : refine load structure
+      ;; 6. refine-load (5×NATURAL - only ONE!)
       (refine-load (decode-refine-load octets pos))
       
       (values
