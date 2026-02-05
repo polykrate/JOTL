@@ -54,6 +54,11 @@ Each component is serialized into a mapping from 31-byte state-keys to octet seq
 |--------|------|-------------|------|
 | **ψ** | `judgements` | Dispute judgements | `judgements.lisp` |
 
+### Accumulation
+| Symbol | Name | Description | File |
+|--------|------|-------------|------|
+| **θ** | `accumulation-outputs` | Most recent Accumulation outputs (eq. 7.4, 12.25) | `accumulation-outputs.lisp` |
+
 ### Unknown/Reserved
 | Symbol | Name | Description | File |
 |--------|------|-------------|------|

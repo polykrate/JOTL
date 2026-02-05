@@ -141,12 +141,18 @@
    #:validator-stats-slashes
    #:validator-stats-rewards
    
-   ;; σ - Complete state
+   ;; θ - Accumulation outputs
+   #:accumulation-output
+   #:make-accumulation-output
+   #:accumulation-output-service-id
+   #:accumulation-output-output-data
+   #:accumulation-output-gas-consumed
+   
+   ;; σ - Complete state (17 components)
    #:jam-state
    #:make-jam-state
    #:jam-state-core-authorizations
    #:jam-state-recent-blocks
-   #:jam-state-theta
    #:jam-state-safrole
    #:jam-state-service-accounts
    #:jam-state-entropy-pool
@@ -160,4 +166,5 @@
    #:jam-state-judgements
    #:jam-state-validator-statistics
    #:jam-state-pending-work-reports
-   #:jam-state-accumulated-packages))
+   #:jam-state-accumulated-packages
+   #:jam-state-accumulation-outputs))

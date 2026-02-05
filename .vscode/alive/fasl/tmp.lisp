@@ -1,163 +1,141 @@
-;;;; package.lisp
-;;;; Package definition for JOTL state structures and serialization
+;;;; header.lisp
+;;;; JAM Block Header structure (H)
+;;;; Graypaper references: Section 5, Equations 5.1-5.10, Appendix C.22-C.23
 
-(defpackage #:jotl-state
-  (:use #:cl #:jotl-codec)
-  (:import-from #:jotl-config
-                ;; Common types
-                #:hash
-                #:hash32
-                #:hash256
-                #:blob
-                #:natural
-                #:natural-limited
-                #:length-type
-                #:ed25519-public-key
-                #:ed25519-signature
-                #:bandersnatch-public-key
-                #:bandersnatch-signature
-                #:bls-public-key
-                #:bls-signature
-                #:service-id
-                #:core-id
-                #:timeslot
-                #:gas-amount
-                #:list-to-blob
-                #:blob-to-list
-                #:hash-zero
-                #:hash32-p)
-  (:documentation "JAM state structures and serialization (Appendix D)")
-  (:export
+(in-package :jotl-bloc)
+
+;;; Block Header H
+;;;
+;;; Graypaper Section 5: The Header
+;;; Equation 5.1: H ≡ (HP, HR, HX, HT, HE, HW, HO, HI, HV, HS)
+;;;
+;;; The header comprises:
+;;; - HP, HR: Parent hash and prior state root (Eq. 5.2, 5.8)
+;;; - HX: Extrinsic hash (Eq. 5.4)
+;;; - HT: Time-slot index (Eq. 5.7)
+;;; - HE, HW, HO: Epoch, winning-tickets and offenders markers (Eq. 5.10)
+;;; - HI: Block author index (Eq. 5.9)
+;;; - HV: Bandersnatch VRF signature (entropy-yielding)
+;;; - HS: Block seal (Bandersnatch signature)
+
+;;; Header structure is defined in types.lisp
+
+;;; Header encoding
+;;;
+;;; Graypaper Appendix C.22: E(H) = E(EU(H), HS)
+;;; Graypaper Appendix C.23: EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
+
+(defun encode-header (header &key (as-blob nil))
+  "Encode a complete block header including seal.
    
-   ;; ══════════════════════════════════════════════════════════════
-   ;; STATE STRUCTURES (σ components)
-   ;; ══════════════════════════════════════════════════════════════
+   Graypaper Appendix C.22: E(H) = E(EU(H), HS)
    
-   ;; δ - Service accounts
-   #:service-account
-   #:make-service-account
-   #:service-account-id
-   #:service-account-code-hash
-   #:service-account-balance
-   #:service-account-gas-limit-accumulate
-   #:service-account-gas-limit-refine
-   #:service-account-memory-pages
-   #:service-account-storage-lookup
-   #:service-account-preimage-lookup
-   #:service-account-threshold-balance
+   Args:
+     header: A header structure
+     as-blob: If t, convert result to vector; if nil (default), return list
    
-   ;; κ - Current validators
-   #:validator-keys
-   #:make-validator-keys
-   #:validator-keys-bandersnatch
-   #:validator-keys-ed25519
-   #:validator-keys-bls
+   Returns:
+     Encoded header as list (default) or vector"
+  (let ((octets (concat-octets (encode-header-unsigned header)
+                                (header-seal header))))
+    (if as-blob
+        (coerce octets 'vector)
+        octets)))
+
+(defun encode-header-unsigned (header)
+  "Encode header without seal (unsigned).
    
-   ;; λ - Archived validators
-   #:archived-validator
-   #:make-archived-validator
-   #:archived-validator-epoch
-   #:archived-validator-validator-index
-   #:archived-validator-bandersnatch
-   #:archived-validator-ed25519
+   Graypaper Appendix C.23: EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
    
-   ;; ι - Validator queue
-   #:validator-queue-entry
-   #:make-validator-queue-entry
-   #:validator-queue-entry-bandersnatch
-   #:validator-queue-entry-ed25519
-   #:validator-queue-entry-bls
-   #:validator-queue-entry-deposit
+   Args:
+     header: A header structure
    
-   ;; ϕ - Authorization queue
-   #:authorization-queue-entry
-   #:make-authorization-queue-entry
-   #:authorization-queue-entry-service-id
-   #:authorization-queue-entry-code-hash
-   #:authorization-queue-entry-auth-pool
+   Returns:
+     Encoded octet sequence (without seal)"
+  (concat-octets
+   ;; HP, HR, HX : hashes (B32, identity encoding C.2)
+   (header-parent-hash header)
+   (header-prior-state-root header)
+   (header-extrinsic-hash header)
    
-   ;; γ - SAFROLE state
-   #:safrole-state
-   #:make-safrole-state
-   #:safrole-state-current-epoch
-   #:safrole-state-tickets-current
-   #:safrole-state-tickets-previous
-   #:safrole-state-entropy
-   #:safrole-state-tickets-accumulator
-   #:safrole-state-seal-keys
+   ;; E4(HT) : timeslot (C.12)
+   (e4 (header-timeslot header))
    
-   ;; α - Core authorizations
-   #:core-authorization
-   #:make-core-authorization
-   #:core-authorization-core-index
-   #:core-authorization-auth-pool
-   #:core-authorization-authorized-code
+   ;; ¿HE : optional epoch marker (C.8)
+   (encode-optional-with (header-epoch-marker header) #'encode-epoch-marker)
    
-   ;; ρ - Pending reports
-   #:pending-report
-   #:make-pending-report
-   #:pending-report-core-index
-   #:pending-report-report-hash
-   #:pending-report-reported-timeslot
-   #:pending-report-availability-votes
+   ;; ¿HW : optional winning tickets (C.8)
+   ;; HW ∈ ⟦T⟧_E : fixed-length sequence of E tickets
+   (encode-optional-with (header-winning-tickets header) #'encode-winning-tickets)
    
-   ;; β - Recent blocks
-   #:recent-blocks
-   #:make-recent-blocks
-   #:recent-blocks-hashes
+   ;; E2(HI) : author index (C.12)
+   (e2 (header-author-index header))
    
-   ;; ω - Pending work-reports
-   #:pending-accumulation
-   #:make-pending-accumulation
-   #:pending-accumulation-report-hash
-   #:pending-accumulation-service-id
-   #:pending-accumulation-results
+   ;; HV : VRF signature (B96, identity C.2)
+   (header-vrf-signature header)
    
-   ;; ξ - Accumulated packages
-   #:accumulated-package
-   #:make-accumulated-package
-   #:accumulated-package-package-hash
-   #:accumulated-package-accumulated-timeslot
+   ;; ↕HO : offenders (C.7, length-prefixed sequence of Ed25519 keys)
+   (encode-pre-encoded-sequence (header-offenders header))))
+
+(defun decode-header (blob &optional (start 0))
+  "Decode a block header from octets.
    
-   ;; χ - Privileged services
-   #:privileged-service
-   #:make-privileged-service
-   #:privileged-service-service-id
-   #:privileged-service-privilege-type
+   Graypaper Appendix C.22-C.23:
+     E(H) = E(EU(H), HS)
+     EU(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
    
-   ;; ψ - Judgements
-   #:judgement-entry
-   #:make-judgement-entry
-   #:judgement-entry-target
-   #:judgement-entry-verdict
-   #:judgement-entry-judged-timeslot
+   Args:
+     blob: Encoded header data (vector or list)
+     start: Starting position
    
-   ;; π - Validator statistics
-   #:validator-stats
-   #:make-validator-stats
-   #:validator-stats-validator-index
-   #:validator-stats-blocks-produced
-   #:validator-stats-votes-cast
-   #:validator-stats-slashes
-   #:validator-stats-rewards
-   
-   ;; σ - Complete state
-   #:jam-state
-   #:make-jam-state
-   #:jam-state-core-authorizations
-   #:jam-state-recent-blocks
-   #:jam-state-theta
-   #:jam-state-safrole
-   #:jam-state-service-accounts
-   #:jam-state-entropy-pool
-   #:jam-state-validator-queue
-   #:jam-state-current-validators
-   #:jam-state-archived-validators
-   #:jam-state-pending-reports
-   #:jam-state-timeslot
-   #:jam-state-authorization-queue
-   #:jam-state-privileged-services
-   #:jam-state-judgements
-   #:jam-state-validator-statistics
-   #:jam-state-pending-work-reports
-   #:jam-state-accumulated-packages))
+   Returns:
+     values: (header bytes-consumed)"
+  (let ((octets (coerce blob 'list))
+        (pos start))
+    (decode>> (octets pos)
+      ;; HP, HR, HX : parent hash, prior state root, extrinsic hash (3x 32 bytes)
+      (parent-hash (decode-hash octets pos))
+      (prior-state-root (decode-hash octets pos))
+      (extrinsic-hash (decode-hash octets pos))
+      
+      ;; E4(HT) : timeslot (4 bytes)
+      (timeslot (decode-e4 octets pos))
+      
+      ;; ¿HE : optional epoch marker
+      (epoch-marker-raw (decode-optional octets 
+                                         (lambda (o s) (decode-epoch-marker o s (jotl-config:num-validators)))
+                                         pos))
+      
+      ;; ¿HW : optional winning tickets
+      (winning-tickets-raw (decode-optional octets
+                                            (lambda (o s) (decode-winning-tickets o s (jotl-config:epoch-duration)))
+                                            pos))
+      
+      ;; E2(HI) : author index (2 bytes)
+      (author-index (decode-e2 octets pos))
+      
+      ;; HV : VRF signature (96 bytes)
+      (vrf-signature (decode-fixed-bytes octets pos 96))
+      
+      ;; ↕HO : offenders (length-prefixed sequence of hashes)
+      (offenders (decode-length-prefixed-sequence octets
+                                                  (lambda (o s) (decode-hash o s))
+                                                  pos))
+      
+      ;; HS : block seal (96 bytes)
+      (seal (decode-fixed-bytes octets pos 96))
+      
+      ;; Return (header bytes-consumed)
+      (values
+       (make-header
+        :parent-hash parent-hash
+        :prior-state-root prior-state-root
+        :extrinsic-hash extrinsic-hash
+        :timeslot timeslot
+        :epoch-marker epoch-marker-raw
+        :winning-tickets winning-tickets-raw
+        :author-index author-index
+        :vrf-signature vrf-signature
+        :offenders offenders
+        :seal seal)
+       (- pos start)))))

@@ -303,20 +303,33 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; τ - TIMESLOT (Current Timeslot Index)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 4: Current timeslot (just a natural number, no struct needed)
+;;; Graypaper Section 4.2: Current timeslot (just a natural number, no struct needed)
 ;;; NOTE: τ is stored directly as (timeslot) type in jam-state
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; η - ENTROPY POOL (On-chain Entropy)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper Section 6: On-chain entropy for randomness (just a hash32, no struct needed)
+;;; Graypaper Section 4.2: On-chain entropy for randomness (just a hash32, no struct needed)
 ;;; NOTE: η is stored directly as hash32 in jam-state
 
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; θ - THETA (Reserved/Unclear)
+;;; θ - ACCUMULATION OUTPUTS (Most Recent)
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Graypaper: Purpose unclear, reserved for future use
-;;; NOTE: θ is stored as generic type t in jam-state
+;;; Graypaper Section 4.2: θ: The most recent Accumulation outputs. See equations 7.4 and 12.25.
+
+(defstruct accumulation-output
+  "Accumulation output (θ).
+   
+   The most recent Accumulation outputs from work-package processing."
+  
+  ;; Service affected
+  (service-id nil :type (or null service-id))
+  
+  ;; Output data/blob from accumulation
+  (output-data nil :type (or null blob))
+  
+  ;; Gas consumed
+  (gas-consumed nil :type (or null gas-amount)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; GLOBAL STATE (σ)
@@ -326,18 +339,15 @@
 (defstruct jam-state
   "Complete JAM state (σ).
    
-   σ ≡ (α, β, θ, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ)
+   σ ≡ (α, β, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ, θ)
    
-   All 17 components of the JAM protocol state."
+   17 components of the JAM protocol state (Graypaper Section 4.2)."
   
   ;; α: Core authorizations (list of core-authorization)
   (core-authorizations nil :type list)
   
   ;; β: Recent blocks (recent-blocks struct)
   (recent-blocks nil :type (or null recent-blocks))
-  
-  ;; θ: Reserved/unclear (generic type for future use)
-  (theta nil :type t)
   
   ;; γ: SAFROLE state (safrole-state struct)
   (safrole nil :type (or null safrole-state))
@@ -379,4 +389,7 @@
   (pending-work-reports nil :type list)
   
   ;; ξ: Accumulated work-packages (list of accumulated-package)
-  (accumulated-packages nil :type list))
+  (accumulated-packages nil :type list)
+  
+  ;; θ: Most recent accumulation outputs (list of accumulation-output)
+  (accumulation-outputs nil :type list))
