@@ -131,6 +131,8 @@
    #:culprit-target
    #:culprit-key
    #:culprit-signature
+   #:encode-culprit
+   #:decode-culprit
    
    #:fault
    #:make-fault
@@ -138,6 +140,8 @@
    #:fault-vote
    #:fault-key
    #:fault-signature
+   #:encode-fault
+   #:decode-fault
    
    #:verdict-entry
    #:make-verdict-entry

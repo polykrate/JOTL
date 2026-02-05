@@ -96,17 +96,17 @@
                  (verdict-entry-target verdict)
                  ;; E4(a) : age (4 bytes)
                  (e4 (verdict-entry-age verdict))
-                 ;; ↕[(v, E2(i), s) | ...] : judgements (length-prefixed sequence!)
+                 ;; FIXED SIZE SEQUENCE of judgements (NO count!)
+                 ;; ASN.1: votes SEQUENCE (SIZE(validators-super-majority)) OF Judgement
                  ;; Note: v is a BOOLEAN vote (1 byte), NOT a blob!
-                 (encode-length-prefixed-sequence
-                  (mapcar (lambda (judgement)
-                            (destructuring-bind (vote idx sig) judgement
-                              (concat-octets
-                               (list (if vote 1 0))  ; vote: boolean (1 byte)
-                               (e2 idx)              ; index (E2)
-                               sig)))                ; signature (64 bytes)
-                          (verdict-entry-judgement verdict))
-                  :pre-encoded t)))
+                 (apply #'concat-octets
+                        (mapcar (lambda (judgement)
+                                  (destructuring-bind (vote idx sig) judgement
+                                    (concat-octets
+                                     (list (if vote 1 0))  ; vote: boolean (1 byte)
+                                     (e2 idx)              ; index (E2)
+                                     sig)))                ; signature (64 bytes)
+                                (verdict-entry-judgement verdict)))))
               verdicts)
       :pre-encoded t))
    
@@ -138,32 +138,30 @@
        (decode-length-prefixed-sequence
         octets
         (lambda (o s)
-          (let ((pos2 s))
-            (decode>> (o pos2)
-              ;; target : hash (FIXED 32 bytes!)
-              (target (decode-hash o pos2))
-              ;; E4(a) : age (4 bytes)
-              (age (decode-e4 o pos2))
-              ;; ↕[(v, E2(i), s) | ...] : judgements (length-prefixed sequence!)
-              ;; Note: v is a BOOLEAN vote (1 byte), NOT a blob!
-              (judgement
-               (decode-length-prefixed-sequence
-                o
-                (lambda (o3 s3)
-                  (let ((p3 s3))
-                    (decode>> (o3 p3)
-                      (vote-byte (decode-e1 o3 p3))      ; vote: boolean (1 byte)
-                      (idx (decode-e2 o3 p3))            ; index (E2)
-                      (sig (decode-fixed-bytes o3 p3 64)) ; signature (FIXED 64 bytes!)
-                      (values (list (not (zerop vote-byte)) idx sig) (- p3 s3)))))
-                pos2))
-              
-              (values
-               (make-verdict-entry
-                :target target
-                :age age
-                :judgement judgement)
-               (- pos2 s)))))
+          ;; Decode verdict manually without nested decode>>
+          (let ((p s))
+            ;; target : hash (FIXED 32 bytes!)
+            (multiple-value-bind (target tc) (decode-hash o p)
+              (incf p tc)
+              ;; age : E4 (4 bytes)
+              (multiple-value-bind (age ac) (decode-e4 o p)
+                (incf p ac)
+                ;; judgements : FIXED SIZE = 5 (no count!)
+                (let ((judgements '()))
+                  (dotimes (i 5)
+                    (multiple-value-bind (vote-byte vc) (decode-e1 o p)
+                      (incf p vc)
+                      (multiple-value-bind (idx ic) (decode-e2 o p)
+                        (incf p ic)
+                        (multiple-value-bind (sig sc) (decode-fixed-bytes o p 64)
+                          (incf p sc)
+                          (push (list (not (zerop vote-byte)) idx sig) judgements)))))
+                  (values
+                   (make-verdict-entry
+                    :target target
+                    :age age
+                    :judgement (nreverse judgements))
+                   (- p s)))))))
         pos))
       
       ;; ↕c : culprits (length-prefixed sequence of culprit structures)
