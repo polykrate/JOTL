@@ -133,6 +133,70 @@
    #:encode-disputes
    #:decode-disputes
    
+   ;; Work structures (C.24, C.25, C.29, C.34)
+   #:refine-context
+   #:make-refine-context
+   #:refine-context-anchor
+   #:refine-context-state-root
+   #:refine-context-beefy-root
+   #:refine-context-lookup-anchor
+   #:refine-context-lookup-anchor-slot
+   #:refine-context-prerequisites
+   #:encode-refine-context
+   #:decode-refine-context
+   
+   #:package-spec
+   #:make-package-spec
+   #:package-spec-hash
+   #:package-spec-length
+   #:package-spec-erasure-root
+   #:package-spec-exports-root
+   #:package-spec-exports-count
+   #:encode-package-spec
+   #:decode-package-spec
+   
+   #:refine-load
+   #:make-refine-load
+   #:refine-load-gas-used
+   #:refine-load-imports
+   #:refine-load-extrinsic-count
+   #:refine-load-extrinsic-size
+   #:refine-load-exports
+   
+   #:work-result
+   #:make-work-result
+   #:work-result-service-id
+   #:work-result-code-hash
+   #:work-result-payload-hash
+   #:work-result-accumulate-gas
+   #:work-result-result
+   #:work-result-refine-load
+   #:encode-work-result
+   #:decode-work-result
+   #:encode-work-output
+   #:decode-work-output
+   
+   #:work-report
+   #:make-work-report
+   #:work-report-package-spec
+   #:work-report-context
+   #:work-report-core-index
+   #:work-report-authorizer-hash
+   #:work-report-auth-gas-used
+   #:work-report-auth-output
+   #:work-report-segment-root-lookup
+   #:work-report-results
+   #:encode-work-report
+   #:decode-work-report
+   
+   #:guarantee
+   #:make-guarantee
+   #:guarantee-report
+   #:guarantee-slot
+   #:guarantee-signatures
+   #:encode-guarantee
+   #:decode-guarantee
+   
    ;; Encoding/Decoding
    #:encode-chain-block
    #:decode-chain-block))

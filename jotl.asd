@@ -29,6 +29,7 @@
                               :components (               (:file "package")
                (:file "types")
                (:file "config")
+               (:file "work")
                (:file "header")
                (:file "epoch")
                (:file "tickets")
