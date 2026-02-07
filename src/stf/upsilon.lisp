@@ -47,88 +47,85 @@
    Block is a closure from decode-block or make-block."
   (let* ((h (funcall block :header))
          (e (funcall block :extrinsic))
-         (tau (funcall sigma :tau))
-         ;; (4.5) τ' ← H  — τ STF owns §5.7 assert
-         (tau-prime (nth-value 0 (apply-timeslot-transition tau h))))
-    
-    (let* (;; Extrinsic sub-components (from closures)
-           (e-t (funcall e :tickets))
-           (e-d (funcall e :disputes))
-           (e-p (funcall e :preimages))
-           (e-a (funcall e :assurances))
-           (e-g (funcall e :guarantees))
-           ;; Prior state segments
-           (eta          (funcall sigma :eta))
-           (kappa        (funcall sigma :kappa))
-           (lambda-prev  (funcall sigma :lambda))
-           (gamma-prev   (funcall sigma :gamma))
-           (rho          (funcall sigma :rho))
-           (psi          (funcall sigma :psi))
-           (beta         (funcall sigma :beta))
-           (alpha-prev   (funcall sigma :alpha))
-           (delta        (funcall sigma :delta))
-           (iota         (funcall sigma :iota))
-           (phi          (funcall sigma :phi))
-           (chi          (funcall sigma :chi))
-           (pi-prev      (funcall sigma :pi))
-           (omega        (funcall sigma :omega))
-           (xi           (funcall sigma :xi))
-           ;; ═══════════════════════════════════════════
-           ;; WAVE 1: Independent (σ, H, E only)
-           ;; ═══════════════════════════════════════════
-           (eta-prime     (transition-eta h tau eta))
-           (psi-prime     (transition-psi e-d psi))
-           (rho-dagger    (transition-rho-dagger e-d rho))
-           (beta-dagger   (transition-beta-dagger h beta))
-           ;; ═══════════════════════════════════════════
-           ;; WAVE 2
-           ;; ═══════════════════════════════════════════
-           (kappa-prime   (transition-kappa h tau kappa gamma-prev))
-           (lambda-prime  (transition-lambda h tau lambda-prev kappa))
-           (rho-ddagger   (transition-rho-ddagger e-a rho-dagger))
-           (r-star        (compute-ready-reports e-a rho-dagger))
-           ;; ═══════════════════════════════════════════
-           ;; WAVE 3
-           ;; ═══════════════════════════════════════════
-           (rho-prime     (transition-rho e-g rho-ddagger kappa tau-prime))
-           (gamma-prime   (transition-gamma h tau e-t gamma-prev
-                                            iota eta-prime kappa-prime psi-prime)))
-      
+         ;; Extrinsic sub-components (from closures)
+         (e-t (funcall e :tickets))
+         (e-d (funcall e :disputes))
+         (e-p (funcall e :preimages))
+         (e-a (funcall e :assurances))
+         (e-g (funcall e :guarantees))
+         ;; Prior state segments
+         (tau          (funcall sigma :tau))
+         (eta          (funcall sigma :eta))
+         (kappa        (funcall sigma :kappa))
+         (lambda-prev  (funcall sigma :lambda))
+         (gamma-prev   (funcall sigma :gamma))
+         (rho          (funcall sigma :rho))
+         (psi          (funcall sigma :psi))
+         (beta         (funcall sigma :beta))
+         (alpha-prev   (funcall sigma :alpha))
+         (delta        (funcall sigma :delta))
+         (iota         (funcall sigma :iota))
+         (phi          (funcall sigma :phi))
+         (chi          (funcall sigma :chi))
+         (pi-prev      (funcall sigma :pi))
+         (omega        (funcall sigma :omega))
+         (xi           (funcall sigma :xi))
+         ;; ═══════════════════════════════════════════
+         ;; WAVE 1: Independent (σ, H, E only)
+         ;; ═══════════════════════════════════════════
+         (tau-prime     (nth-value 0 (apply-timeslot-transition tau h)))
+         (eta-prime     (transition-eta h tau eta))
+         (psi-prime     (transition-psi e-d psi))
+         (rho-dagger    (transition-rho-dagger e-d rho))
+         (beta-dagger   (transition-beta-dagger h beta))
+         ;; ═══════════════════════════════════════════
+         ;; WAVE 2
+         ;; ═══════════════════════════════════════════
+         (kappa-prime   (transition-kappa h tau kappa gamma-prev))
+         (lambda-prime  (transition-lambda h tau lambda-prev kappa))
+         (rho-ddagger   (transition-rho-ddagger e-a rho-dagger))
+         (r-star        (compute-ready-reports e-a rho-dagger))
+         ;; ═══════════════════════════════════════════
+         ;; WAVE 3
+         ;; ═══════════════════════════════════════════
+         (rho-prime     (transition-rho e-g rho-ddagger kappa tau-prime))
+         (gamma-prime   (transition-gamma h tau e-t gamma-prev
+                                          iota eta-prime kappa-prime psi-prime)))
+    ;; ═══════════════════════════════════════════
+    ;; WAVE 4: Accumulation
+    ;; ═══════════════════════════════════════════
+    (multiple-value-bind (omega-prime xi-prime delta-ddagger
+                          chi-prime iota-prime phi-prime
+                          theta-prime s-reports)
+        (transition-accumulate r-star omega xi delta chi
+                               iota phi tau tau-prime)
       ;; ═══════════════════════════════════════════
-      ;; WAVE 4: Accumulation
+      ;; WAVE 5: Merge / Join
       ;; ═══════════════════════════════════════════
-      (multiple-value-bind (omega-prime xi-prime delta-ddagger
-                            chi-prime iota-prime phi-prime
-                            theta-prime s-reports)
-          (transition-accumulate r-star omega xi delta chi
-                                 iota phi tau tau-prime)
-        ;; ═══════════════════════════════════════════
-        ;; WAVE 5: Merge / Join
-        ;; ═══════════════════════════════════════════
-        (let* ((beta-prime   (transition-beta h e-g beta-dagger theta-prime))
-               (delta-prime  (transition-delta e-p delta-ddagger tau-prime))
-               (alpha-prime  (transition-alpha h e-g phi-prime alpha-prev))
-               (pi-prime     (transition-pi e-g e-p e-a e-t tau
-                                            kappa-prime pi-prev h s-reports)))
-          ;; BUILD σ'
-          (make-state
-           :alpha   alpha-prime
-           :beta    beta-prime
-           :theta   theta-prime
-           :gamma   gamma-prime
-           :delta   delta-prime
-           :eta     eta-prime
-           :iota    iota-prime
-           :kappa   kappa-prime
-           :lambda* lambda-prime
-           :rho     rho-prime
-           :tau     tau-prime
-           :phi     phi-prime
-           :chi     chi-prime
-           :psi     psi-prime
-           :pi*     pi-prime
-           :omega   omega-prime
-           :xi      xi-prime))))))
+      (let* ((beta-prime   (transition-beta h e-g beta-dagger theta-prime))
+             (delta-prime  (transition-delta e-p delta-ddagger tau-prime))
+             (alpha-prime  (transition-alpha h e-g phi-prime alpha-prev))
+             (pi-prime     (transition-pi e-g e-p e-a e-t tau
+                                          kappa-prime pi-prev h s-reports)))
+        ;; BUILD σ'
+        (make-state
+         :alpha   alpha-prime
+         :beta    beta-prime
+         :theta   theta-prime
+         :gamma   gamma-prime
+         :delta   delta-prime
+         :eta     eta-prime
+         :iota    iota-prime
+         :kappa   kappa-prime
+         :lambda* lambda-prime
+         :rho     rho-prime
+         :tau     tau-prime
+         :phi     phi-prime
+         :chi     chi-prime
+         :psi     psi-prime
+         :pi*     pi-prime
+         :omega   omega-prime
+         :xi      xi-prime)))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; SUB-STF STUBS — GP §4.2.1 equations
