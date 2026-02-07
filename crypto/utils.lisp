@@ -28,9 +28,19 @@
                      (parse-integer hex :start j :end (+ j 2) :radix 16)))
       bytes)))
 
-(defun bytes-to-hex-string (bytes &key (prefix t))
-  "Convert a byte array to a hex string."
-  (with-output-to-string (s)
-    (when prefix (write-string "0x" s))
-    (loop for byte across bytes
-          do (format s "~2,'0x" byte))))
+(defun bytes-to-hex-string (bytes &key (prefix t) (case :lower))
+  "Convert a byte array to a hex string.
+   
+   Args:
+     bytes: byte array
+     prefix: if t, prepend '0x' (default: t)
+     case: :lower or :upper (default: :lower for JSON compatibility)
+   
+   Returns: hex string like '0xabcdef' (lowercase by default)"
+  (let ((hex-str (with-output-to-string (s)
+                   (when prefix (write-string "0x" s))
+                   (loop for byte across bytes
+                         do (format s "~2,'0X" byte)))))
+    (ecase case
+      (:lower (string-downcase hex-str))
+      (:upper hex-str))))

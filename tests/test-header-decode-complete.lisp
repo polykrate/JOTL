@@ -288,14 +288,11 @@
          (keyword-key (intern converted :keyword)))
     (cdr (assoc keyword-key json))))
 
-(defun normalize-hex (hex-str)
-  "Normalize hex string (lowercase, with 0x)"
-  (string-downcase (if (alexandria:starts-with-subseq "0x" hex-str)
-                       hex-str
-                       (concatenate 'string "0x" hex-str))))
-
 (defun compare-field (name decoded-value json-value)
-  "Compare decoded value with JSON value"
+  "Compare decoded value with JSON value
+   
+   Note: bytes-to-hex-string now returns lowercase by default,
+   matching JSON format perfectly!"
   (let ((match
          (cond
            ;; Both nil
@@ -304,10 +301,9 @@
            ;; Both numbers
            ((and (numberp decoded-value) (numberp json-value))
             (= decoded-value json-value))
-           ;; Both strings (hex)
+           ;; Both strings (hex) - now case-insensitive to be safe
            ((and (stringp decoded-value) (stringp json-value))
-            (string-equal (normalize-hex decoded-value)
-                         (normalize-hex json-value)))
+            (string-equal decoded-value json-value))
            ;; Lists - compare lengths first
            ((and (listp decoded-value) (listp json-value))
             (and (= (length decoded-value) (length json-value))
