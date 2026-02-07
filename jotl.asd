@@ -27,7 +27,19 @@
     ((:file "primitives")     ; u8, u16, u32, compact, option, sequence, result
      (:file "types")          ; hash-32, sig-96, ed25519, bandersnatch, validator
      (:file "header")         ; encode/decode header (GP §5)
-     (:file "extrinsic")      ; encode/decode extrinsic (GP §4.3) - stubs
+     
+     ;; Extrinsic modules (GP §4.3) - E ≡ (ET, ED, EP, EA, EG)
+     (:module "extrinsic"
+      :pathname "extrinsic"   ; Relative to src/codec/
+      :serial t
+      :components
+      ((:file "tickets")      ; ET - Tickets extrinsic
+       (:file "preimages")    ; EP - Preimages extrinsic
+       (:file "assurances")   ; EA - Assurances extrinsic
+       (:file "disputes")     ; ED - Disputes extrinsic
+       (:file "guarantees")   ; EG - Guarantees extrinsic (stub)
+       (:file "extrinsic")))  ; Orchestrator E ≡ (ET, ED, EP, EA, EG)
+     
      (:file "block")))        ; encode/decode block B ≡ (H, E) - orchestrator
    
    ;; 4. Block - Block structure (GP §4-5)
@@ -39,14 +51,21 @@
      (:file "extrinsic")      ; E ≡ (ET, ED, EP, ...)
      (:file "block")))        ; B ≡ (H, E)
    
-   ;; 5. State - State components (GP §6-7)
+   ;; 5. Utils - Utilities (Merkle Trie, etc.)
+   (:module "utils"
+    :pathname "src/utils"
+    :serial t
+    :components
+    ((:file "merkle-trie")))  ; Merkle Trie (GP Appendix D)
+   
+   ;; 6. State - State components (GP §6-7)
    (:module "state"
     :pathname "src/state"
     :serial t
     :components
     ((:file "timeslot")))     ; τ (timeslot), e (epoch), m (phase)
    
-   ;; 6. STF - State Transition Functions (GP §8-13) - Future
+   ;; 7. STF - State Transition Functions (GP §8-13) - Future
    ;; (:module "stf"
    ;;  :pathname "src/stf"
    ;;  :serial t
