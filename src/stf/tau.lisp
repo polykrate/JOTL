@@ -44,14 +44,14 @@
   (funcall header :slot))
 
 (defun apply-timeslot-transition (tau header)
-  "τ STF: τ → (values τ' e' m' new-epoch-p)
+  "τ STF: τ → τ'
    
    GP §5.7: τ' > τ
    GP §6.1: τ' ≡ HT
-   GP §6.2: e' ℛ m' = τ'/E"
+   
+   e', m', new-epoch-p are derivable on demand via
+   (timeslot-to-epoch-and-phase τ') and (new-epoch-p τ τ')."
   (let ((tau-prime (timeslot-from-header header)))
     (assert (> tau-prime tau) ()
             "GP §5.7: τ'=~D must be > τ=~D" tau-prime tau)
-    (multiple-value-bind (e-prime m-prime)
-        (timeslot-to-epoch-and-phase tau-prime)
-      (values tau-prime e-prime m-prime (new-epoch-p tau tau-prime)))))
+    tau-prime))

@@ -73,7 +73,7 @@
          ;; ═══════════════════════════════════════════
          ;; WAVE 1: Independent (σ, H, E only)
          ;; ═══════════════════════════════════════════
-         (tau-prime     (nth-value 0 (apply-timeslot-transition tau h)))
+         (tau-prime     (apply-timeslot-transition tau h))
          (eta-prime     (transition-eta h tau eta))
          (psi-prime     (transition-psi e-d psi))
          (rho-dagger    (transition-rho-dagger e-d rho))
