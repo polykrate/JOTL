@@ -40,7 +40,8 @@
     :pathname "src/utils"
     :serial t
     :components
-    ((:file "merkle-trie")))
+    ((:file "merkle-trie")
+     (:file "mmr")))
    
    ;; 5. Block — Data structures B=(H,E) + encode/decode + hash + validation
    ;;    Pure data — not mutable, not an STF.
@@ -70,6 +71,7 @@
     :components
     ((:file "sigma")
      (:file "tau")
+     (:file "beta")
      (:file "upsilon")))))
 
 ;;;; Test System

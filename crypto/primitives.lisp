@@ -53,11 +53,8 @@
 ;;; HK - Keccak-256 (FFI REQUIRED)
 ;;; ============================================================
 
-(defun keccak-256 (message)
-  "Keccak 256-bit hash. GP notation: HK(m)
-   REQUIRES FFI - no fallback."
-  (require-ffi)
-  (funcall (find-symbol "KECCAK-256" :jam.ffi) message))
+;;; keccak-256 is defined in bindings.lisp (actual FFI call).
+;;; Do NOT redefine here — find-symbol loop would cause infinite recursion.
 
 (defun HK (message)
   "Keccak-256 hash. GP notation: HK"

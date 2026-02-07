@@ -55,13 +55,14 @@
 
 (defun encode-tickets-mark (tickets-mark)
   "Encode Option<TicketsMark> (HW).
-   TODO: Implement full TicketsMark structure."
+   TODO: pass-through — encode structured tickets, not raw blob."
   (if tickets-mark
       (concatenate '(vector (unsigned-byte 8)) #(1) tickets-mark)
       #(0)))
 
 (defun decode-tickets-mark (bytes offset)
   "Decode Option<TicketsMark> (HW).
+   TODO: pass-through — decode each ticket as {y ∈ H, e ∈ NN} instead of raw blob.
    Returns: (values tickets-mark-or-nil bytes-consumed)"
   (let ((tag (aref bytes offset)))
     (cond
@@ -167,6 +168,7 @@
       (setf result (append result (list :author-index author-index)))
       (incf pos bytes-consumed))
     ;; HV - Entropy source (96 bytes)
+    ;; TODO: pass-through — decode as Bandersnatch VRF output, not raw blob
     (let ((entropy-source (subseq bytes pos (+ pos 96))))
       (setf result (append result (list :entropy-source entropy-source)))
       (incf pos 96))
@@ -176,6 +178,7 @@
       (setf result (append result (list :offenders-mark offenders)))
       (incf pos offenders-size))
     ;; HS - Seal (96 bytes) - if present
+    ;; TODO: pass-through — decode as Bandersnatch signature, not raw blob
     (when (>= (- (length bytes) pos) 96)
       (let ((seal (subseq bytes pos (+ pos 96))))
         (setf result (append result (list :seal seal)))

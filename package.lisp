@@ -119,6 +119,14 @@
    #:apply-block
    #:import-block
    
+   ;; Recent History β (GP §7)
+   #:make-beta
+   #:make-history-record
+   #:beta-history
+   #:beta-mmr-peaks
+   #:transition-beta-dagger
+   #:transition-beta
+   
    ;; ═══════════════════════════════════════════
    ;; Utils
    ;; ═══════════════════════════════════════════

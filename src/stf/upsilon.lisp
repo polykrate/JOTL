@@ -147,9 +147,7 @@
   "GP §4.12 — Core assignments after disputes. TODO: §10"
   (declare (ignore disputes)) rho)
 
-(defun transition-beta-dagger (header beta)
-  "GP §4.6 — Recent headers intermediate. TODO: §14"
-  (declare (ignore header)) beta)
+;; transition-beta-dagger → stf/beta.lisp
 
 (defun transition-kappa (header tau kappa gamma)
   "GP §4.9 — Validator keys at epoch boundary. TODO: §6"
@@ -181,9 +179,7 @@
   (declare (ignore r-star tau tau-prime))
   (values omega xi delta chi iota phi nil nil))
 
-(defun transition-beta (header guarantees beta-dagger theta-prime)
-  "GP §4.17 — Recent headers final. TODO: §14"
-  (declare (ignore header guarantees theta-prime)) beta-dagger)
+;; transition-beta → stf/beta.lisp
 
 (defun transition-delta (preimages delta-ddagger tau-prime)
   "GP §4.18 — Services: fold preimages. TODO: §7"
