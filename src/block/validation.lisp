@@ -4,7 +4,7 @@
 ;;;; Called by apply-block (Υ) BEFORE transition-state(σ, B).
 ;;;; All inputs are closures — no plist dispatch.
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; EXTRINSIC HASH (GP §5.4-5.6)
@@ -17,8 +17,7 @@
    Args: header (closure), extrinsic (closure)
    Returns: (values valid-p computed-hx)"
   (let ((header-hx (funcall header :extrinsic-hash))
-        (computed-hx (compute-extrinsic-hash
-                      (funcall extrinsic :as-plist))))
+        (computed-hx (funcall extrinsic :extrinsic-hash)))
     (values (equalp header-hx computed-hx) computed-hx)))
 
 ;;; ═════════════════════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 ;;;; Common types used across header, extrinsic, and state
 ;;;; Gray Paper Appendix C - Type definitions
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ==========================================================================
 ;;; Hash Types (H)

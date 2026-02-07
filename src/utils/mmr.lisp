@@ -72,32 +72,52 @@
 ;;;
 ;;; Like binary addition with carry propagation.
 
-(defun mmr-carry (peaks c h)
-  "GP E.12: Recursive carry-merge.
-   peaks is a vector of (hash-or-nil). Returns new peaks vector."
-  (cond
-    ;; c = nil → done
-    ((null c) peaks)
-    ;; Extend if needed
-    ((>= h (length peaks))
-     (mmr-carry (concatenate 'vector peaks (vector nil)) c h))
-    ;; peaks[h] = nil → set it
-    ((null (aref peaks h))
-     (let ((new-peaks (copy-seq peaks)))
-       (setf (aref new-peaks h) c)
-       new-peaks))
-    ;; Otherwise → merge and carry up
-    (t
-     (let ((existing (aref peaks h))
-           (new-peaks (copy-seq peaks)))
-       (setf (aref new-peaks h) nil)
-       (mmr-carry new-peaks (mmr-merge existing c) (1+ h))))))
-
 (defun mmr-append (peaks leaf)
   "GP E.12: append(peaks, leaf) ≡ carry(peaks, leaf, 0).
    peaks: vector of (hash-or-nil). leaf: 32-byte hash.
-   Returns: new peaks vector."
-  (mmr-carry (copy-seq peaks) leaf 0))
+   Returns: new peaks vector (single copy, then mutate)."
+  (let ((result (copy-seq peaks))
+        (c leaf)
+        (h 0))
+    (loop
+      (when (null c) (return result))
+      ;; Extend if needed
+      (when (>= h (length result))
+        (setf result (concatenate 'vector result (vector nil))))
+      (let ((existing (aref result h)))
+        (cond
+          ;; peaks[h] = nil → set it, done
+          ((null existing)
+           (setf (aref result h) c)
+           (return result))
+          ;; Otherwise → merge and carry up
+          (t
+           (setf (aref result h) nil)
+           (setf c (mmr-merge existing c))
+           (incf h)))))))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; BINARY MERKLIZATION — MB (GP §D.2)
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun binary-merkle-root-keccak (items)
+  "MB(items, HK) — Binary Merklization using Keccak-256.
+   
+   GP §D.2: Binary Merkle tree. Used by accumulate root (§7.6).
+   items: list of byte vectors (leaves).
+   Returns: 32-byte Keccak-256 root hash."
+  (cond
+    ((null items) +zero-hash+)
+    ((= (length items) 1)
+     (jam.ffi:keccak-256 (first items)))
+    (t
+     (let* ((mid (ceiling (length items) 2))
+            (left  (subseq items 0 mid))
+            (right (subseq items mid)))
+       (jam.ffi:keccak-256
+        (concatenate '(vector (unsigned-byte 8))
+                     (binary-merkle-root-keccak (coerce left 'list))
+                     (binary-merkle-root-keccak (coerce right 'list))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; HELPERS

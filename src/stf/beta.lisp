@@ -92,20 +92,7 @@
                       theta-prime)))
         (binary-merkle-root-keccak encoded-items))))
 
-(defun binary-merkle-root-keccak (items)
-  "MB(items, HK) — Binary Merklization using Keccak-256."
-  (cond
-    ((null items) +zero-hash+)
-    ((= (length items) 1)
-     (jam.ffi:keccak-256 (first items)))
-    (t
-     (let* ((mid (ceiling (length items) 2))
-            (left  (subseq items 0 mid))
-            (right (subseq items mid)))
-       (jam.ffi:keccak-256
-        (concatenate '(vector (unsigned-byte 8))
-                     (binary-merkle-root-keccak (coerce left 'list))
-                     (binary-merkle-root-keccak (coerce right 'list))))))))
+;;; binary-merkle-root-keccak → utils/mmr.lisp
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; WORK PACKAGES FROM GUARANTEES (GP §7.8)

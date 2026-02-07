@@ -7,7 +7,7 @@
 ;;;;   3 — Fill the history queue (→ 8 entries)
 ;;;;   4 — Shift the history queue (overflow → bounded append)
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;; Load shared test helpers
 (load (merge-pathnames "test-utils.lisp" *load-pathname*))

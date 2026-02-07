@@ -41,7 +41,8 @@
     :serial t
     :components
     ((:file "merkle-trie")
-     (:file "mmr")))
+     (:file "mmr")
+     (:file "display")))
    
    ;; 5. Block — Data structures B=(H,E) + encode/decode + hash + validation
    (:module "block"

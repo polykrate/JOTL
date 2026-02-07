@@ -1,7 +1,7 @@
 ;;;; block/extrinsic/assurances.lisp — EA (Assurances Extrinsic)
 ;;;; Gray Paper §11
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Assurances Extrinsic (EA)

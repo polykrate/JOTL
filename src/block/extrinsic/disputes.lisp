@@ -1,7 +1,7 @@
 ;;;; block/extrinsic/disputes.lisp — ED (Disputes Extrinsic)
 ;;;; Gray Paper §10
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Disputes Extrinsic (ED)

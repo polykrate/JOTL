@@ -4,7 +4,7 @@
 ;;;; strawberry (Go implementation) to validate the extrinsic hash computation.
 ;;;; Unlike codec test vectors, these contain REAL blocks with correct HX values.
 
-(in-package :jotl)
+(in-package #:jotl)
 
 (defun hex-string-to-bytes-safe (hex-str)
   "Convert hex string to byte array, handling 0x prefix."

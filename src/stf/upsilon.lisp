@@ -27,12 +27,6 @@
                      errors))))
   (transition-state sigma block))
 
-(defun import-block (sigma block &key current-time parent-header-encoded)
-  "Alias for apply-block."
-  (apply-block sigma block
-               :current-time current-time
-               :parent-header-encoded parent-header-encoded))
-
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; transition-state — σ → σ' (GP §4.2.1)
 ;;; ═════════════════════════════════════════════════════════════════

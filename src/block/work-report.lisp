@@ -1,7 +1,7 @@
 ;;;; block/work-report.lisp — WorkReport Structure
 ;;;; Gray Paper §11-12
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; WorkPackageSpec

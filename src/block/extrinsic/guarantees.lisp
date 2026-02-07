@@ -3,7 +3,7 @@
 ;;;;
 ;;;; Depends on: block/work-report.lisp (loaded before this)
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; EG(EG) = E(↕[(r, E4(t), ↕[(E2(v), s) | (v, s) ← a]) | ...])

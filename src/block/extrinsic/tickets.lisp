@@ -1,7 +1,7 @@
 ;;;; block/extrinsic/tickets.lisp — ET (Tickets Extrinsic)
 ;;;; Gray Paper §6.4, §6.29-6.35
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Tickets Extrinsic (ET)

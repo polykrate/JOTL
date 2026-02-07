@@ -1,7 +1,7 @@
 ;;;; block/extrinsic/preimages.lisp — EP (Preimages Extrinsic)
 ;;;; Gray Paper §7.4
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Preimages Extrinsic (EP)

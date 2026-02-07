@@ -73,9 +73,9 @@
    #:mmr-merge
    #:mmr-super-peak
    #:mmr-append
-   #:mmr-carry
    #:mmr-leaf-count
    #:mmr-from-leaves
+   #:binary-merkle-root-keccak
    
    ;; ═══════════════════════════════════════════
    ;; Block — Header (GP §5)
@@ -98,7 +98,7 @@
    #:encode-extrinsic #:decode-extrinsic
    #:extrinsic-tickets #:extrinsic-disputes #:extrinsic-preimages
    #:extrinsic-assurances #:extrinsic-guarantees
-   #:compute-extrinsic-hash #:compute-extrinsic-hash-from-closure
+   #:compute-extrinsic-hash
    
    ;; ═══════════════════════════════════════════
    ;; Block — B ≡ (H, E) (GP §4.2)
@@ -156,7 +156,6 @@
    ;; ═══════════════════════════════════════════
    #:transition-state
    #:apply-block
-   #:import-block
    
    ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)

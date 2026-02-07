@@ -3,7 +3,7 @@
 ;;;;   1. decode(header.bin) → encode → bytes = original
 ;;;;   2. H(E(H)) = blake2b(sealed header bytes)
 
-(in-package :jotl)
+(in-package #:jotl)
 
 (defun run-header-roundtrip-tests ()
   (let* ((header-bin (alexandria:read-file-into-byte-vector

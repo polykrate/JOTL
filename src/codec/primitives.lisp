@@ -1,7 +1,7 @@
 ;;;; primitives.lisp - JAM Codec (Gray Paper Appendix C)
 ;;;; NOT SCALE! JAM has its own encoding, especially for compact integers.
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ==========================================================================
 ;;; C.1.7 - Fixed-Length Integer Encoding (Gray Paper C.12)

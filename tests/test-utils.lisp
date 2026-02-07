@@ -3,7 +3,7 @@
 ;;;; Loaded by all test files. Provides:
 ;;;;   hex-to-bytes, bytes=, hex=, load-json, load-bin
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; SHARED TEST HELPERS

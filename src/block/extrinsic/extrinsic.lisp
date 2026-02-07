@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Binary order: ET → EP → EG → EA → ED
 
-(in-package :jotl)
+(in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; EXTRINSIC ENCODING / DECODING
@@ -53,59 +53,36 @@
                       (- pos offset)))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; EXTRINSIC CLOSURE — make-extrinsic
+;;; EXTRINSIC CLOSURE — via define-value-object
 ;;; ═════════════════════════════════════════════════════════════════
+;;;
+;;; GP §4.3: E ≡ (ET, ED, EP, EA, EG)
+;;;
+;;; Fields → :tickets, :disputes, :preimages, :assurances, :guarantees
+;;; Memoized → :encoded, :extrinsic-hash (computed once)
 
-(defun make-extrinsic (&key tickets disputes preimages assurances guarantees)
-  "Creates extrinsic closure E ≡ (ET, ED, EP, EA, EG).
-   
-   Gray Paper §4.3. Immutable, lazy encoding."
-  (lambda (msg &rest args)
-    (declare (ignore args))
-    (case msg
-      ;; Core fields
-      (:tickets tickets)
-      (:disputes disputes)
-      (:preimages preimages)
-      (:assurances assurances)
-      (:guarantees guarantees)
-      
-      ;; Aliases
-      (:reports guarantees)
-      
-      ;; Encoding (lazy)
-      (:encoded (encode-extrinsic tickets disputes preimages assurances guarantees))
-      
-      ;; Snapshot
-      (:as-plist (list :tickets tickets :disputes disputes
-                       :preimages preimages :assurances assurances
-                       :guarantees guarantees))
-      
-      ;; Counts
-      (:num-tickets (length (or tickets '())))
-      (:num-disputes (if (and disputes (listp disputes))
-                         (+ (length (or (getf disputes :verdicts) '()))
-                            (length (or (getf disputes :culprits) '()))
-                            (length (or (getf disputes :faults) '())))
-                         0))
-      (:num-preimages (length (or preimages '())))
-      (:num-assurances (length (or assurances '())))
-      (:num-guarantees (length (or guarantees '())))
-      
-      ;; Metadata
-      (:type :extrinsic)
-      
-      (otherwise (error "Unknown extrinsic message: ~a" msg)))))
-
-;;; ═════════════════════════════════════════════════════════════════
-;;; EXTRINSIC ACCESSORS
-;;; ═════════════════════════════════════════════════════════════════
-
-(defun extrinsic-tickets (e) "ET" (funcall e :tickets))
-(defun extrinsic-disputes (e) "ED" (funcall e :disputes))
-(defun extrinsic-preimages (e) "EP" (funcall e :preimages))
-(defun extrinsic-assurances (e) "EA" (funcall e :assurances))
-(defun extrinsic-guarantees (e) "EG" (funcall e :guarantees))
+(define-value-object extrinsic
+  ((tickets nil) (disputes nil) (preimages nil)
+   (assurances nil) (guarantees nil))
+  ;; Aliases
+  (:reports guarantees)
+  ;; Memoized
+  (:encoded :memo
+   (encode-extrinsic tickets disputes preimages assurances guarantees))
+  (:extrinsic-hash :memo
+   (compute-extrinsic-hash :tickets tickets :disputes disputes
+                           :preimages preimages :assurances assurances
+                           :guarantees guarantees))
+  ;; Counts
+  (:num-tickets (length (or tickets '())))
+  (:num-disputes (if (and disputes (listp disputes))
+                     (+ (length (or (getf disputes :verdicts) '()))
+                        (length (or (getf disputes :culprits) '()))
+                        (length (or (getf disputes :faults) '())))
+                     0))
+  (:num-preimages (length (or preimages '())))
+  (:num-assurances (length (or assurances '())))
+  (:num-guarantees (length (or guarantees '()))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; EXTRINSIC HASH — HX (GP §5.4-5.6)
@@ -131,22 +108,15 @@
    Compact-prefixed sequence of guarantee summaries."
   (encode-sequence (or guarantees '()) #'encode-guarantee-summary))
 
-(defun compute-extrinsic-hash (extrinsic-data)
-  "Compute HX from extrinsic data (plist).
+(defun compute-extrinsic-hash (&key tickets disputes preimages
+                                     assurances guarantees)
+  "Compute HX from extrinsic components.
    
    GP §5.4-5.6:
      HX = blake2b(H(ET) || H(EP) || H(g) || H(EA) || H(ED))
    
-   Args:
-     extrinsic-data: plist with :tickets :preimages :assurances :disputes :guarantees
-   
    Returns: 32-byte hash"
-  (let* ((tickets    (getf extrinsic-data :tickets))
-         (preimages  (getf extrinsic-data :preimages))
-         (guarantees (getf extrinsic-data :guarantees))
-         (assurances (getf extrinsic-data :assurances))
-         (disputes   (getf extrinsic-data :disputes))
-         ;; Encode each component
+  (let* (;; Encode each component
          (encoded-tickets    (encode-tickets-extrinsic (or tickets '())))
          (encoded-preimages  (encode-preimages-extrinsic (or preimages '())))
          (encoded-assurances (encode-assurances-extrinsic (or assurances '())))
@@ -168,9 +138,5 @@
          (concatenated (concatenate '(vector (unsigned-byte 8))
                                     h-et h-ep h-g h-ea h-ed)))
     (jam.ffi:blake2b-256 concatenated)))
-
-(defun compute-extrinsic-hash-from-closure (extrinsic-closure)
-  "Compute HX from an extrinsic closure."
-  (compute-extrinsic-hash (funcall extrinsic-closure :as-plist)))
 
 ;;; Exports managed in package.lisp
