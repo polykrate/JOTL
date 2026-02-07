@@ -112,16 +112,22 @@
 (defun decode-tickets-mark (bytes offset)
   "Decode Option<TicketsMark> (HW).
    
-   TODO: Implement full decoding when structure is defined
+   Gray Paper §6.6: TicketsMark is a sequence of ticket identifiers (32 bytes each)
    
    Returns: (values tickets-mark-or-nil bytes-consumed)"
   (let ((tag (aref bytes offset)))
     (cond
       ((= tag 0)  ; None
        (values nil 1))
-      ((= tag 1)  ; Some
-       ;; TODO: Decode full structure
-       (error "TicketsMark decoding not yet implemented"))
+      ((= tag 1)  ; Some - decode sequence of 32-byte ticket IDs
+       ;; TicketsMark = sequence of ticket identifiers (H = 32 bytes each)
+       ;; Format: [0x01] [compact-length] [id1:32] [id2:32] ...
+       (multiple-value-bind (num-tickets len-bytes)
+           (decode-compact bytes (1+ offset))
+         (let ((tickets-data (subseq bytes (+ offset 1)
+                                     (+ offset 1 len-bytes (* num-tickets 32)))))
+           (values tickets-data
+                   (+ 1 len-bytes (* num-tickets 32))))))
       (t
        (error "Invalid option tag for tickets mark: ~A" tag)))))
 
@@ -278,11 +284,86 @@
       (otherwise (error "Unknown header message: ~a" msg)))))
 
 ;;; ==========================================================================
+;;; Header Decoding
+;;; ==========================================================================
+
+(defun decode-header (bytes &optional (offset 0))
+  "Decode complete header from binary.
+   
+   Gray Paper §5.8:
+   E(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO)
+   
+   Note: HS (seal) is optional at the end if present.
+   
+   Returns: (values header-plist bytes-consumed)"
+  (let ((pos offset)
+        (result '()))
+    
+    ;; HP - Parent hash (32 bytes)
+    (let ((parent-hash (subseq bytes pos (+ pos 32))))
+      (setf result (append result (list :parent-hash parent-hash)))
+      (incf pos 32))
+    
+    ;; HR - State root (32 bytes)
+    (let ((state-root (subseq bytes pos (+ pos 32))))
+      (setf result (append result (list :state-root state-root)))
+      (incf pos 32))
+    
+    ;; HX - Extrinsic hash (32 bytes)
+    (let ((extrinsic-hash (subseq bytes pos (+ pos 32))))
+      (setf result (append result (list :extrinsic-hash extrinsic-hash)))
+      (incf pos 32))
+    
+    ;; HT - Timeslot (u32, 4 bytes)
+    (multiple-value-bind (slot bytes-consumed)
+        (decode-u32 bytes pos)
+      (setf result (append result (list :slot slot)))
+      (incf pos bytes-consumed))
+    
+    ;; HE - Epoch mark (Option<EpochMark>)
+    (multiple-value-bind (epoch-mark epoch-size)
+        (decode-epoch-marker bytes pos (num-validators))
+      (setf result (append result (list :epoch-mark epoch-mark)))
+      (incf pos epoch-size))
+    
+    ;; HW - Tickets mark (Option<TicketsMark>)
+    (multiple-value-bind (tickets-mark tickets-size)
+        (decode-tickets-mark bytes pos)
+      (setf result (append result (list :tickets-mark tickets-mark)))
+      (incf pos tickets-size))
+    
+    ;; HI - Author index (u16, 2 bytes)
+    (multiple-value-bind (author-index bytes-consumed)
+        (decode-u16 bytes pos)
+      (setf result (append result (list :author-index author-index)))
+      (incf pos bytes-consumed))
+    
+    ;; HV - Entropy source (96 bytes - Bandersnatch VRF)
+    (let ((entropy-source (subseq bytes pos (+ pos 96))))
+      (setf result (append result (list :entropy-source entropy-source)))
+      (incf pos 96))
+    
+    ;; HO - Offenders mark (Sequence<Ed25519>)
+    (multiple-value-bind (offenders offenders-size)
+        (decode-offenders bytes pos)
+      (setf result (append result (list :offenders-mark offenders)))
+      (incf pos offenders-size))
+    
+    ;; HS - Seal (96 bytes) - check if present
+    (when (>= (- (length bytes) pos) 96)
+      (let ((seal (subseq bytes pos (+ pos 96))))
+        (setf result (append result (list :seal seal)))
+        (incf pos 96)))
+    
+    (values result (- pos offset))))
+
+;;; ==========================================================================
 ;;; Exports
 ;;; ==========================================================================
 
 (export '(encode-header
           encode-header-unsealed
+          decode-header
           compute-header-hash
           make-header-encoded
           encode-epoch-marker

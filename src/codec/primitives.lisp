@@ -62,20 +62,24 @@
 (defun encode-u64 (value) "Encode u64" (encode-fixed-le value 8))
 
 (defun decode-u8 (bytes &optional (offset 0))
-  "Decode u8 from bytes at offset"
-  (decode-fixed-le (subseq bytes offset (+ offset 1))))
+  "Decode u8 from bytes at offset.
+   Returns: (values decoded-value bytes-consumed)"
+  (values (decode-fixed-le (subseq bytes offset (+ offset 1))) 1))
 
 (defun decode-u16 (bytes &optional (offset 0))
-  "Decode u16 from bytes at offset"
-  (decode-fixed-le (subseq bytes offset (+ offset 2))))
+  "Decode u16 from bytes at offset.
+   Returns: (values decoded-value bytes-consumed)"
+  (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
 
 (defun decode-u32 (bytes &optional (offset 0))
-  "Decode u32 from bytes at offset"
-  (decode-fixed-le (subseq bytes offset (+ offset 4))))
+  "Decode u32 from bytes at offset.
+   Returns: (values decoded-value bytes-consumed)"
+  (values (decode-fixed-le (subseq bytes offset (+ offset 4))) 4))
 
 (defun decode-u64 (bytes &optional (offset 0))
-  "Decode u64 from bytes at offset"
-  (decode-fixed-le (subseq bytes offset (+ offset 8))))
+  "Decode u64 from bytes at offset.
+   Returns: (values decoded-value bytes-consumed)"
+  (values (decode-fixed-le (subseq bytes offset (+ offset 8))) 8))
 
 ;;; ==========================================================================
 ;;; C.1.8 - Variable-Length Integer Encoding (Compact)
