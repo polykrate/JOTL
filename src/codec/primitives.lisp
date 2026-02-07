@@ -55,6 +55,28 @@
 (defun E4 (value) "Encode u32" (encode-fixed-le value 4))
 (defun E8 (value) "Encode u64" (encode-fixed-le value 8))
 
+;; User-friendly named aliases
+(defun encode-u8 (value) "Encode u8" (encode-fixed-le value 1))
+(defun encode-u16 (value) "Encode u16" (encode-fixed-le value 2))
+(defun encode-u32 (value) "Encode u32" (encode-fixed-le value 4))
+(defun encode-u64 (value) "Encode u64" (encode-fixed-le value 8))
+
+(defun decode-u8 (bytes &optional (offset 0))
+  "Decode u8 from bytes at offset"
+  (decode-fixed-le (subseq bytes offset (+ offset 1))))
+
+(defun decode-u16 (bytes &optional (offset 0))
+  "Decode u16 from bytes at offset"
+  (decode-fixed-le (subseq bytes offset (+ offset 2))))
+
+(defun decode-u32 (bytes &optional (offset 0))
+  "Decode u32 from bytes at offset"
+  (decode-fixed-le (subseq bytes offset (+ offset 4))))
+
+(defun decode-u64 (bytes &optional (offset 0))
+  "Decode u64 from bytes at offset"
+  (decode-fixed-le (subseq bytes offset (+ offset 8))))
+
 ;;; ==========================================================================
 ;;; C.1.8 - Variable-Length Integer Encoding (Compact)
 ;;; ==========================================================================
@@ -245,6 +267,8 @@
 
 (export '(encode-fixed-le decode-fixed-le
           E1 E2 E4 E8
+          encode-u8 encode-u16 encode-u32 encode-u64
+          decode-u8 decode-u16 decode-u32 decode-u64
           encode-compact decode-compact
           encode-sequence decode-sequence
           encode-option decode-option
