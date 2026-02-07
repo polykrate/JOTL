@@ -1,182 +1,147 @@
-# JOTL v3 - JAM On The Lisp
+# JOTL v3.1 — JAM On The Lisp
 
-**Pure Functional JAM Protocol Implementation in Common Lisp**
+Pure Functional JAM Protocol implementation in Common Lisp.
 
-## ✅ What Works
+Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
-- ✅ **Timeslot** (Gray Paper §6.1-6.2) - Verified 20/20 test vectors
-- ✅ **JAM Codec** (Appendix C) - Fixed & compact integers, sequences
-- ✅ **Chainspec** (tiny/full configs)
-- ✅ **Header Encoding** with Blake2b hashing via FFI
-- ✅ **Crypto FFI** (Blake2b, Keccak, Ed25519, Bandersnatch VRF, PVM)
+## What Works
+
+- **Block codec** — Full decode/encode of B = (H, E) against test vectors
+  - Header H = (HP, HR, HX, HT, HE, HW, HO, HI, HV, HS)
+  - Extrinsic E = (ET, EP, EG, EA, ED)
+  - WorkReport structure within EG
+  - Header hash H(E(H)) = blake2b(sealed header)
+  - Extrinsic hash HX = H(ET‖EP‖g‖EA‖ED)
+- **State σ** — Immutable closure with 17 segments (GP §4.4)
+- **Υ(σ, B) → σ'** — Block-level STF with dependency graph (GP §4.2.1)
+- **Timeslot τ** — STF with epoch/phase derivation (GP §6.1-6.2)
+- **Structural validation** — HX, HP, HT·P≤T checks (GP §5)
+- **Crypto FFI** — Blake2b, Keccak, Ed25519, Bandersnatch VRF, PVM
+- **Chainspec** — tiny/full configs switchable at runtime
+
+## Architecture
+
+```
+src/
+├── core/               CONSTANTS
+│   └── constants.lisp      Chainspec (tiny/full)
+│
+├── codec/              ENCODING PRIMITIVES (GP Appendix C)
+│   ├── primitives.lisp     HOW to encode: El, compact, sequence, option
+│   └── types.lisp          WHAT to encode: Hash, Key, Signature, Validator
+│
+├── block/              BLOCK DATA — B=(H,E) + encode/decode/hash/validation
+│   ├── header.lisp         H closure + encode/decode + hash (GP §5)
+│   ├── work-report.lisp    WorkReport structures (GP §11-12)
+│   ├── extrinsic/          Extrinsic sub-types + orchestrator + HX
+│   │   ├── tickets.lisp        ET (GP §6.4)
+│   │   ├── preimages.lisp      EP (GP §7.4)
+│   │   ├── assurances.lisp     EA (GP §11)
+│   │   ├── disputes.lisp       ED (GP §10)
+│   │   ├── guarantees.lisp     EG (GP §11-12)
+│   │   └── extrinsic.lisp      E closure + encode/decode + HX (GP §4.3, §5.4-5.6)
+│   ├── block.lisp          B closure + decode-block (→closures) (GP §4.2)
+│   └── validation.lisp     Structural checks: HX, HP, HT (GP §5)
+│
+├── stf/                STATE TRANSITION FUNCTIONS
+│   ├── sigma.lisp          σ closure — 17 segments (GP §4.4)
+│   ├── tau.lisp            τ STF — epoch, phase (GP §6.1-6.2)
+│   └── upsilon.lisp        Υ(σ,B)→σ' + sub-STF stubs (GP §4.2.1)
+│
+├── utils/
+│   └── merkle-trie.lisp    Merkle Trie (GP Appendix D)
+│
+crypto/                 FFI to Rust (jam-crypto)
+tests/                  Test vectors (w3f/jamtestvectors)
+```
+
+### Design Principles
+
+**One representation, everywhere.** `decode-block` returns closures.
+No `(if (functionp x) ...)` dispatch. Closures all the way down.
+
+**Three domains, zero overlap:**
+- `codec/` = HOW to serialize (encoding primitives, protocol types)
+- `block/` = WHAT a block is (pure data + its codec + structural validation)
+- `stf/`   = HOW state evolves (σ, τ, Υ — pure computation)
+
+**Block is data, not computation.** A block is immutable, self-sufficient,
+and carries its own encoding/hashing. It's not an STF.
+
+### Pure FP with Closures
+
+No `defstruct`. Everything is functions returning functions:
+
+```lisp
+;; State is an immutable closure
+(let* ((σ  (make-state :tau 0))
+       (σ' (apply-block σ block)))
+  (state-tau σ)   ; → 0  (unchanged)
+  (state-tau σ'))  ; → 42 (new state)
+```
+
+### STF Pipeline: Υ(σ, B) → σ'
+
+```
+apply-block (Υ)
+  │
+  ├─ 1. validate-block    structural checks (HX, HP, HT)
+  │
+  └─ 2. transition-state  pure composition of sub-STFs
+         │
+         ├─ WAVE 1: τ', η', ψ', ρ†, β†  (independent)
+         ├─ WAVE 2: κ', λ', ρ‡, R*      (depends on wave 1)
+         ├─ WAVE 3: ρ', γ'              (depends on wave 2)
+         ├─ WAVE 4: accumulate → ω', ξ', δ‡, χ', ι', ϕ', θ', S
+         └─ WAVE 5: β', δ', α', π'     (merge/join)
+```
+
+Each sub-STF owns its domain: math AND conditions.
 
 ## Quick Start
 
 ```bash
-# Start REPL
 ./scripts/repl.sh
 
-# Or manually
-echo '(load "scripts/load-jotl.lisp")' | sbcl
+# Or
+sbcl --eval '(asdf:load-system :jotl)' --eval '(asdf:load-system :jam-crypto)'
 ```
 
-## Project Structure
-
-```
-jotl/
-├── src/
-│   ├── core/           # Protocol foundations (GP §3-4)
-│   │   └── constants.lisp    # Chainspec (tiny/full)
-│   │
-│   ├── codec/          # JAM Codec (GP Appendix C)
-│   │   ├── primitives.lisp   # encode-u8, encode-compact, etc.
-│   │   └── structures.lisp   # encode-header, encode-block
-│   │
-│   ├── block/          # Block structure (GP §4-5)
-│   │   ├── header.lisp       # H ≡ (HP, HR, HX, ...)
-│   │   ├── extrinsic.lisp    # E ≡ (ET, ED, EP, ...)
-│   │   └── block.lisp        # B ≡ (H, E)
-│   │
-│   ├── state/          # State components (GP §6-7)
-│   │   └── timeslot.lisp     # τ, e, m
-│   │
-│   └── stf/            # State Transition Functions (future)
-│       ├── accumulate.lisp   # Α (GP §8)
-│       └── refine.lisp       # Ρ (GP §9)
-│
-├── crypto/             # Cryptography (FFI to Rust)
-│   ├── bindings.lisp
-│   ├── primitives.lisp
-│   └── jam-crypto/     # Rust library
-│
-├── tests/              # Unit tests
-│   ├── timeslot-tests.lisp
-│   ├── codec-tests.lisp
-│   └── header-tests.lisp
-│
-└── scripts/            # Utilities
-    ├── repl.sh
-    └── load-jotl.lisp
-
-Total: ~4800 lines of Lisp + Rust crypto
-```
-
-## Architecture: Pure FP with Closures
-
-No `defstruct`, everything is functions returning functions:
-
-```lisp
-;; Traditional OOP
-(defstruct header parent-hash state-root slot)
-(header-slot my-header)
-
-;; JOTL Pure FP
-(defun make-header (&key parent-hash state-root slot)
-  (lambda (msg)
-    (case msg
-      (:parent-hash parent-hash)
-      (:state-root state-root)
-      (:slot slot))))
-
-(funcall my-header :slot)  ; Pure closure!
-```
-
-## Usage Examples
-
-### Timeslot
-```lisp
-(in-package :jotl)
-
-(let ((ts (make-timeslot 42)))
-  (funcall ts :timeslot)  ; => 42
-  (funcall ts :epoch)     ; => 0
-  (funcall ts :phase))    ; => 42
-```
-
-### Crypto
-```lisp
-;; Blake2b hash
-(jam.ffi:blake2b-256 #(104 101 108 108 111))
-;; => 32-byte hash
-
-;; With hex output
-(jam.ffi:bytes-to-hex-string 
-  (jam.ffi:blake2b-256 data))
-;; => "0x324DCF02..."
-```
-
-### Header Encoding
-```lisp
-(let* ((header-bytes (concatenate 'vector 
-                       parent-hash state-root extrinsic-hash slot))
-       (hash (jam.ffi:blake2b-256 header-bytes)))
-  hash)
-```
-
-## Testing
+## Tests
 
 ```bash
-# Test loading
-./scripts/test-load.sh
-
-# Run unit tests
-sbcl --load tests/timeslot-tests.lisp
-sbcl --load tests/codec-tests.lisp
+./scripts/test-load.sh              # Compile check
+./scripts/test-header-roundtrip.sh  # Header codec round-trip
+./scripts/test-hx-trace.sh          # HX against trace vectors
 ```
-
-## Important: FFI Limitation
-
-**SBCL `--non-interactive --eval` doesn't work with CFFI** (hangs)
-
-✅ **Works:**
-```bash
-echo '(code)' | sbcl
-sbcl --load script.lisp
-```
-
-❌ **Doesn't work:**
-```bash
-sbcl --non-interactive --eval '(code)'  # Hangs!
-```
-
-Use pipes or `--load` instead.
 
 ## Roadmap
 
-- [x] Project structure
-- [x] Timeslot (§6)
 - [x] JAM Codec (Appendix C)
-- [x] Header encoding (§5)
-- [x] Crypto FFI
-- [ ] Complete header implementation
-- [ ] Extrinsic Hash & Merkle tree (§5.4-5.6)
-- [ ] State management
-- [ ] Accumulate STF (§8)
-- [ ] Refine STF (§9)
-- [ ] PVM integration (§14)
+- [x] Block B = (H, E) full codec
+- [x] Header hash H(E(H))
+- [x] Extrinsic hash HX
+- [x] State σ closure (17 segments)
+- [x] Υ(σ, B) → σ' dependency graph
+- [x] Timeslot τ STF (§6)
+- [x] Structural validation (§5)
+- [x] **Unified architecture** — codec→block merge, closures everywhere
+- [ ] Safrole γ STF (§6) — tickets, VRF, validator selection
+- [ ] Entropy η STF (§7)
+- [ ] Disputes ψ STF (§10)
+- [ ] Assurances/Guarantees ρ STF (§11-12)
+- [ ] Accumulate STF (§8) + PVM
+- [ ] Refine STF (§9) + PVM
+- [ ] State Merklization HR (Appendix D)
+- [ ] Bandersnatch VRF validation (HV, HS)
 
 ## Dependencies
 
-- **SBCL** (Common Lisp)
-- **CFFI** (Foreign Function Interface)
-- **Alexandria** (Utilities)
-- **FiveAM** (Testing)
-- **Rust** (for crypto library)
-
-## Building Crypto Library
-
-```bash
-cd crypto/jam-crypto
-cargo build --release
-# Creates: target/release/libjam_crypto.so
-```
+- SBCL (Common Lisp)
+- Alexandria
+- CFFI + Rust crypto (`cargo build --release` in `crypto/jam-crypto/`)
+- Test vectors: `git clone https://github.com/w3f/jamtestvectors tests/jamtestvectors`
 
 ## License
 
 MIT
-
----
-
-**Status:** ✅ Organized, tested, ready for STF implementation  
-**Lines:** ~4800 (Lisp) + Rust crypto  
-**Coverage:** Timeslot (20/20), Codec (100%), Header (basic)

@@ -1,163 +1,147 @@
-;;;; block.lisp - JAM Block (Pure FP)
-;;;; Gray Paper Section 4.1 & 4.2
+;;;; block/block.lisp — JAM Block B ≡ (H, E)
+;;;; Gray Paper §4.1-4.2
+;;;;
+;;;; Single source of truth: closure + encode/decode + hash.
+;;;; decode-block returns closures — ONE representation everywhere.
 
-(in-package #:jotl)
+(in-package :jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; GRAY PAPER SECTION 4.1: THE BLOCK
-;;; ═══════════════════════════════════════════════════════════════
-
-#|
-Gray Paper §4.1-4.2:
-
-The block B is restated as the header H and some input data
-external to the system (extrinsic), E:
-
-  B ≡ (H, E)                                               (4.2)
-
-Where:
-  B = Block
-  H = Header (metadata, cryptographic references)
-  E = Extrinsic data (external input)
-
-The extrinsic data is split into several portions:
-
-  E ≡ (ET, ED, EP, EA, EG)                                 (4.3)
-
-Where:
-  ET = Tickets (validator selection mechanism)
-  ED = Disputes (disputes between validators)
-  EP = Preimages (static data for workloads)
-  EA = Availability assurances (validators' storage confirmations)
-  EG = Guarantees/Reports (newly completed workloads)
-
-The header H is immutable and known a priori, assumed to be
-available throughout the functional components of block transition.
-|#
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; BLOCK CONSTRUCTION (Pure FP with Closures)
-;;; ═══════════════════════════════════════════════════════════════
+;;; ═════════════════════════════════════════════════════════════════
+;;; BLOCK CLOSURE — make-block
+;;; ═════════════════════════════════════════════════════════════════
 
 (defun make-block (header extrinsic)
-  "Creates a block closure B ≡ (H, E)
+  "Creates block closure B ≡ (H, E).
    
-   Gray Paper §4.2
-   
-   Args:
-     header     - Header closure H
-     extrinsic  - Extrinsic closure E
-   
-   Returns: Block closure B"
-  
+   Gray Paper §4.2. Immutable. Both H and E are closures."
   (lambda (msg &rest args)
+    (declare (ignore args))
     (case msg
+      ;; Core components
       (:header header)
       (:extrinsic extrinsic)
       
-      ;; Derived accessors
-      (:tickets (funcall extrinsic :tickets))
-      (:disputes (funcall extrinsic :disputes))
-      (:preimages (funcall extrinsic :preimages))
+      ;; Extrinsic passthrough
+      (:tickets    (funcall extrinsic :tickets))
+      (:disputes   (funcall extrinsic :disputes))
+      (:preimages  (funcall extrinsic :preimages))
       (:assurances (funcall extrinsic :assurances))
       (:guarantees (funcall extrinsic :guarantees))
       
       ;; Header passthrough
-      (:slot (funcall header :slot))
-      (:parent-hash (funcall header :parent-hash))
-      (:state-root (funcall header :state-root))
+      (:slot         (funcall header :slot))
+      (:timeslot     (funcall header :slot))
+      (:parent-hash  (funcall header :parent-hash))
+      (:state-root   (funcall header :state-root))
       
-      ;; Metadata
+      ;; Hash (block hash = header hash)
+      (:hash (funcall header :hash))
+      
+      ;; Encoding (lazy)
+      (:encoded
+       (concatenate '(vector (unsigned-byte 8))
+                    (funcall header :encoded)
+                    (funcall extrinsic :encoded)))
+      
+      ;; Convenience
+      (:is-genesis (funcall header :is-genesis))
       (:type :block)
       
       (otherwise (error "Unknown block message: ~a" msg)))))
 
-;;; ═══════════════════════════════════════════════════════════════
+;;; ═════════════════════════════════════════════════════════════════
 ;;; BLOCK ACCESSORS
-;;; ═══════════════════════════════════════════════════════════════
+;;; ═════════════════════════════════════════════════════════════════
 
-(defun block-header (block)
-  "Returns header H from block B"
-  (funcall block :header))
+(defun block-header (b) (funcall b :header))
+(defun block-extrinsic (b) (funcall b :extrinsic))
+(defun block-tickets (b) (funcall b :tickets))
+(defun block-disputes (b) (funcall b :disputes))
+(defun block-preimages (b) (funcall b :preimages))
+(defun block-assurances (b) (funcall b :assurances))
+(defun block-guarantees (b) (funcall b :guarantees))
+(defun block-slot (b) (funcall b :slot))
 
-(defun block-extrinsic (block)
-  "Returns extrinsic E from block B"
-  (funcall block :extrinsic))
+;;; ═════════════════════════════════════════════════════════════════
+;;; BLOCK ENCODING
+;;; ═════════════════════════════════════════════════════════════════
 
-(defun block-tickets (block)
-  "Returns tickets ET from block B"
-  (funcall block :tickets))
+(defun encode-block (header extrinsic)
+  "Encode block B ≡ (H, E). Accepts closures."
+  (concatenate '(vector (unsigned-byte 8))
+               (funcall header :encoded)
+               (funcall extrinsic :encoded)))
 
-(defun block-disputes (block)
-  "Returns disputes ED from block B"
-  (funcall block :disputes))
+;;; ═════════════════════════════════════════════════════════════════
+;;; BLOCK DECODING — returns closures
+;;; ═════════════════════════════════════════════════════════════════
 
-(defun block-preimages (block)
-  "Returns preimages EP from block B"
-  (funcall block :preimages))
+(defun decode-block (bytes &optional (offset 0))
+  "Decode block B ≡ (H, E) from binary.
+   
+   Returns CLOSURES — not plists. This is the single entry point.
+   
+   Returns: (values block-closure total-bytes-consumed)"
+  (let ((pos offset))
+    ;; 1. Decode header → plist
+    (multiple-value-bind (h-plist header-bytes)
+        (decode-header bytes pos)
+      (incf pos header-bytes)
+      ;; 2. Decode extrinsic → plist
+      (multiple-value-bind (e-plist extrinsic-bytes)
+          (decode-extrinsic bytes pos)
+        (incf pos extrinsic-bytes)
+        ;; 3. Wrap in closures
+        (let* ((header (apply #'make-header
+                              ;; Flatten plist into keyword args
+                              h-plist))
+               (extrinsic (make-extrinsic
+                           :tickets    (getf e-plist :tickets)
+                           :disputes   (getf e-plist :disputes)
+                           :preimages  (getf e-plist :preimages)
+                           :assurances (getf e-plist :assurances)
+                           :guarantees (getf e-plist :guarantees)))
+               (block (make-block header extrinsic)))
+          (values block (- pos offset)))))))
 
-(defun block-assurances (block)
-  "Returns assurances EA from block B"
-  (funcall block :assurances))
+;;; ═════════════════════════════════════════════════════════════════
+;;; BLOCK HASHING
+;;; ═════════════════════════════════════════════════════════════════
 
-(defun block-guarantees (block)
-  "Returns guarantees/reports EG from block B"
-  (funcall block :guarantees))
+(defun compute-block-hash (block)
+  "Block hash = header hash H(E(H))."
+  (funcall (funcall block :header) :hash))
 
-(defun block-slot (block)
-  "Returns slot from block header"
-  (funcall block :slot))
+;;; ═════════════════════════════════════════════════════════════════
+;;; HELPERS
+;;; ═════════════════════════════════════════════════════════════════
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; BLOCK-CONTEXT TERMS (Gray Paper §I.4.1)
-;;; ═══════════════════════════════════════════════════════════════
+(defun validate-block-structure (block)
+  "Basic structural check: header and extrinsic present."
+  (assert (funcall block :header) () "Block must have a header")
+  (assert (funcall block :extrinsic) () "Block must have an extrinsic")
+  t)
 
-#|
-Gray Paper §I.4.1:
+(defun block-size (block)
+  "Size of encoded block in bytes."
+  (length (funcall block :encoded)))
 
-These terms are all contextualized to a single block. They may be
-superscripted with some other term to alter the context and reference
-some other block.
+;;; ═════════════════════════════════════════════════════════════════
+;;; BLOCK-CONTEXT TERMS (GP §I.4.1) — for reference
+;;; ═════════════════════════════════════════════════════════════════
+;;; A: Ancestor set | B: Block | E: Extrinsic | H: Header
+;;; S: Accumulated work-reports | R: Ready work-reports
+;;; T: Ticketed condition | U: Audit condition
 
-Key terms:
-
-A:  Ancestor set of the block (see §5.3)
-B:  The block (see §4.2)
-E:  Block extrinsic (see §4.3)
-Fv: Beefy signed commitment of validator v (see §18.1)
-G:  Set of Ed25519 guarantor keys who made a work-report (see §11.26)
-H:  Block header (see §5.1)
-S:  Sequence of work-reports accumulated in this block (see §12.28, §12.29)
-M:  Mapping from cores to guarantor keys (see §11.3)
-M*: Mapping from cores to guarantor keys for previous rotation (see §11.3)
-R:  Sequence of work-reports now available and ready for accumulation (see §11.16)
-T:  Ticketed condition (true if sealed with ticket signature, not fallback) (see §6.15, §6.16)
-U:  Audit condition (⊺ once block is audited) (see §17)
-
-Superscripts:
-  B♮: Latest finalized block (see §19)
-  B♭: Block at head of best chain (see §19)
-|#
-
-;;; TODO: Implement block-context terms as needed
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; EXAMPLES
-;;; ═══════════════════════════════════════════════════════════════
-
-#|
-Usage:
-
-;; Create a block
-(let* ((header (make-header ...))
-       (extrinsic (make-extrinsic ...))
-       (block (make-block header extrinsic)))
-  
-  ;; Access components
-  (block-header block)      ; => H
-  (block-extrinsic block)   ; => E
-  (block-tickets block)     ; => ET
-  (block-slot block))       ; => τ'
-
-Code is Law - Pure FP Blocks ! 🚀
-|#
+(export '(;; Closure
+          make-block
+          ;; Accessors
+          block-header block-extrinsic
+          block-tickets block-disputes block-preimages
+          block-assurances block-guarantees block-slot
+          ;; Encoding/Decoding
+          encode-block decode-block
+          ;; Hashing
+          compute-block-hash
+          ;; Helpers
+          validate-block-structure block-size))

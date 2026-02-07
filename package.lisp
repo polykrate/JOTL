@@ -1,4 +1,4 @@
-;;;; package.lisp - Package definitions for JOTL
+;;;; package.lisp — Package definition for JOTL
 
 (defpackage #:jotl
   (:use #:cl #:alexandria)
@@ -7,15 +7,15 @@
                 #:keccak-256
                 #:hex-string-to-bytes
                 #:bytes-to-hex-string)
-  (:documentation "JAM On The Lisp - Pure Functional Programming")
+  (:documentation "JAM On The Lisp — Pure Functional Programming")
   (:export
-   ;; Constants
+   ;; ═══════════════════════════════════════════
+   ;; Core — Constants
+   ;; ═══════════════════════════════════════════
    #:*chain*
    #:chain
    #:switch-chain
    #:with-chain
-   
-   ;; Constant accessors
    #:num-validators
    #:num-cores
    #:slot-duration
@@ -29,86 +29,107 @@
    #:rotation-period
    #:num-ec-pieces-per-segment
    
-   ;; Timeslot
+   ;; ═══════════════════════════════════════════
+   ;; Codec — Primitives (GP Appendix C)
+   ;; ═══════════════════════════════════════════
+   #:encode-fixed-le #:decode-fixed-le
+   #:E1 #:E2 #:E4 #:E8
+   #:encode-u8 #:encode-u16 #:encode-u32 #:encode-u64
+   #:decode-u8 #:decode-u16 #:decode-u32 #:decode-u64
+   #:encode-compact #:decode-compact
+   #:encode-sequence #:decode-sequence
+   #:encode-option #:decode-option
+   
+   ;; ═══════════════════════════════════════════
+   ;; Codec — Types
+   ;; ═══════════════════════════════════════════
+   #:encode-hash-32 #:decode-hash-32
+   #:encode-ed25519-key #:decode-ed25519-key
+   #:encode-bandersnatch-key #:decode-bandersnatch-key
+   #:encode-signature-96 #:decode-signature-96
+   #:encode-validator #:decode-validator
+   #:encode-validator-sequence #:decode-validator-sequence
+   #:encode-service-account-index #:decode-service-account-index
+   #:encode-validator-index #:decode-validator-index
+   
+   ;; ═══════════════════════════════════════════
+   ;; Block — Header (GP §5)
+   ;; ═══════════════════════════════════════════
+   #:make-header
+   #:encode-header #:encode-header-unsealed #:decode-header
+   #:compute-header-hash #:compute-header-hash-from-plist
+   #:compute-header-hash-from-decoded
+   #:header-parent-hash #:header-state-root #:header-extrinsic-hash
+   #:header-slot #:header-epoch-mark #:header-tickets-mark
+   #:header-author-index #:header-entropy-source #:header-offenders-mark
+   #:header-seal #:header-hash #:header-is-genesis-p
+   #:parent-function #:compute-parent-hash
+   #:+ancestor-retention-hours+ #:compute-ancestor-set #:is-ancestor-p
+   
+   ;; ═══════════════════════════════════════════
+   ;; Block — Extrinsic (GP §4.3)
+   ;; ═══════════════════════════════════════════
+   #:make-extrinsic
+   #:encode-extrinsic #:decode-extrinsic
+   #:extrinsic-tickets #:extrinsic-disputes #:extrinsic-preimages
+   #:extrinsic-assurances #:extrinsic-guarantees
+   #:compute-extrinsic-hash #:compute-extrinsic-hash-from-closure
+   
+   ;; ═══════════════════════════════════════════
+   ;; Block — B ≡ (H, E) (GP §4.2)
+   ;; ═══════════════════════════════════════════
+   #:make-block
+   #:encode-block #:decode-block
+   #:block-header #:block-extrinsic
+   #:block-tickets #:block-disputes #:block-preimages
+   #:block-assurances #:block-guarantees #:block-slot
+   #:compute-block-hash
+   
+   ;; ═══════════════════════════════════════════
+   ;; Block — Validation (GP §5)
+   ;; ═══════════════════════════════════════════
+   #:validate-extrinsic-hash
+   #:validate-timeslot-not-future
+   #:validate-parent-hash
+   #:validate-block
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — State σ (GP §4.4)
+   ;; ═══════════════════════════════════════════
+   #:make-state #:make-genesis-state
+   #:state-tau #:state-kappa #:state-lambda #:state-iota
+   #:state-gamma #:state-eta #:state-beta #:state-delta
+   #:state-rho #:state-alpha #:state-phi #:state-chi
+   #:state-psi #:state-pi #:state-omega #:state-xi #:state-theta
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Timeslot τ (GP §6.1-6.2)
+   ;; ═══════════════════════════════════════════
    #:timeslot-to-epoch-and-phase
-   #:timeslot-epoch
-   #:timeslot-phase
+   #:timeslot-epoch #:timeslot-phase
    #:epoch-phase-to-timeslot
    #:new-epoch-p
-   #:timeslot-state-key
-   #:get-timeslot-from-state
-   #:set-timeslot-in-state
+   #:timeslot-from-header
+   #:apply-timeslot-transition
    
-   ;; Block (Gray Paper §4)
-   #:make-block
-   #:block-header
-   #:block-extrinsic
-   #:block-tickets
-   #:block-disputes
-   #:block-preimages
-   #:block-assurances
-   #:block-guarantees
-   #:block-slot
+   ;; ═══════════════════════════════════════════
+   ;; STF — Υ(σ,B)→σ' (GP §4.1)
+   ;; ═══════════════════════════════════════════
+   #:transition-state
+   #:apply-block
+   #:import-block
    
-   ;; Header (Gray Paper §5)
-   #:make-header
-   #:header-parent-hash
-   #:header-state-root
-   #:header-extrinsic-hash
-   #:header-slot
-   #:header-epoch-mark
-   #:header-tickets-mark
-   #:header-author-index
-   #:header-entropy-source
-   #:header-offenders-mark
-   #:header-seal
-   #:header-hash
-   #:header-is-genesis-p
-   #:+ancestor-retention-hours+
-   #:compute-ancestor-set
-   #:is-ancestor-p
-  #:compute-extrinsic-hash
-  #:parent-function
-  #:compute-parent-hash
-  #:compute-header-hash-from-decoded
-  #:validate-parent-hash
-  #:validate-timeslot
-  #:timeslot-in-past-p
-  #:timeslot-greater-than-parent-p
-  
-  ;; Block Validation (Gray Paper §5)
-  #:validate-extrinsic-hash
-  #:validate-header
-  #:validate-block
-  #:validate-block-from-binary
+   ;; ═══════════════════════════════════════════
+   ;; Utils
+   ;; ═══════════════════════════════════════════
+   #:trie-bit #:trie-branch #:trie-leaf
+   #:merkle-root #:compute-state-root #:pad-key-to-32
    
-  ;; Extrinsic (Gray Paper §4.3)
-  #:make-extrinsic
-  #:extrinsic-tickets
-  #:extrinsic-disputes
-  #:extrinsic-preimages
-  #:extrinsic-assurances
-  #:extrinsic-guarantees
-  
-  ;; Header & Extrinsic Encoding/Decoding
-  #:encode-header
-  #:decode-header
-  #:encode-extrinsic
-  #:decode-extrinsic
-  
-  ;; Merkle Trie (Gray Paper Appendix D)
-   #:trie-bit
-   #:trie-branch
-   #:trie-leaf
-   #:merkle-root
-   #:compute-state-root
-   #:pad-key-to-32
-   
+   ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)
-   #:blake2b-256
-   #:keccak-256
-   #:hex-string-to-bytes
-   #:bytes-to-hex-string
+   ;; ═══════════════════════════════════════════
+   #:blake2b-256 #:keccak-256
+   #:hex-string-to-bytes #:bytes-to-hex-string
    
    ;; Version
    #:*jotl-version*))

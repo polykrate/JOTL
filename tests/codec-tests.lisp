@@ -66,27 +66,38 @@
     (assert (= (jotl:decode-compact encoded) 63))
     (format t "  ✓ Compact: 63 = 1 byte~%"))
   
-  ;; Two byte mode (64-16383)
+  ;; Still single byte (JAM compact: 0-127 = 1 byte, NOT SCALE!)
   (let ((encoded (jotl:encode-compact 64)))
-    (assert (= (length encoded) 2))
+    (assert (= (length encoded) 1))
     (assert (= (jotl:decode-compact encoded) 64))
-    (format t "  ✓ Compact: 64 = 2 bytes~%"))
+    (format t "  ✓ Compact: 64 = 1 byte (JAM, not SCALE!)~%"))
+  
+  (let ((encoded (jotl:encode-compact 127)))
+    (assert (= (length encoded) 1))
+    (assert (= (jotl:decode-compact encoded) 127))
+    (format t "  ✓ Compact: 127 = 1 byte (max for l=0)~%"))
+  
+  ;; Two byte mode (l=1: 128 to 2^14-1)
+  (let ((encoded (jotl:encode-compact 128)))
+    (assert (= (length encoded) 2))
+    (assert (= (jotl:decode-compact encoded) 128))
+    (format t "  ✓ Compact: 128 = 2 bytes (l=1)~%"))
   
   (let ((encoded (jotl:encode-compact 16383)))
     (assert (= (length encoded) 2))
     (assert (= (jotl:decode-compact encoded) 16383))
     (format t "  ✓ Compact: 16383 = 2 bytes~%"))
   
-  ;; Four byte mode (16384 - 2^30-1)
+  ;; Three byte mode (l=2: 2^14 to 2^21-1)
   (let ((encoded (jotl:encode-compact 16384)))
-    (assert (= (length encoded) 4))
+    (assert (= (length encoded) 3))
     (assert (= (jotl:decode-compact encoded) 16384))
-    (format t "  ✓ Compact: 16384 = 4 bytes~%"))
+    (format t "  ✓ Compact: 16384 = 3 bytes (l=2)~%"))
   
   (let ((encoded (jotl:encode-compact 1000000)))
-    (assert (= (length encoded) 4))
+    (assert (= (length encoded) 3))
     (assert (= (jotl:decode-compact encoded) 1000000))
-    (format t "  ✓ Compact: 1000000 = 4 bytes~%"))
+    (format t "  ✓ Compact: 1000000 = 3 bytes~%"))
   
   (format t "  ✅ All compact encoding tests passed!~%"))
 

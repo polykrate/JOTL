@@ -1,24 +1,19 @@
-;;;; disputes.lisp - ED (Disputes Extrinsic) Encoding/Decoding
+;;;; block/extrinsic/disputes.lisp — ED (Disputes Extrinsic)
 ;;;; Gray Paper §10
 
 (in-package :jotl)
 
-;;; ==========================================================================
+;;; ═════════════════════════════════════════════════════════════════
 ;;; Disputes Extrinsic (ED)
-;;; ==========================================================================
-;;; Gray Paper §10: Disputes and judgements
+;;; ═════════════════════════════════════════════════════════════════
 ;;;
-;;; Disputes ≡ (verdicts: [Verdict], culprits: [Culprit], faults: [Fault])
+;;; GP C.21: ED((v, c, f)) = E(↕[...], ↕c, ↕f)
 ;;;
-;;; Gray Paper C.21: ED((v, c, f)) = E(↕[(r, E4(a), [(v, E2(i), s) | ...]) | ...], ↕c, ↕f)
-;;;
-;;; Verdict ≡ (target: H, age: u32, votes: [(vote: bool, index: u16, signature: [u8; 64])])
+;;; Verdict ≡ (target: H, age: u32, votes: [...])
 ;;; Culprit ≡ (target: H, key: H, signature: [u8; 64])
 ;;; Fault   ≡ (target: H, vote: bool, key: H, signature: [u8; 64])
 
-;;; ==========================================================================
-;;; Vote Encoding/Decoding
-;;; ==========================================================================
+;;; ----- Votes -----
 
 (defun encode-vote (vote)
   "Encode a single vote (vote: bool, index: u16, signature: [u8; 64])."
@@ -32,31 +27,23 @@
       (assert (= (length sig-bytes) 64) ()
               "Vote signature must be 64 bytes, got: ~a" (length sig-bytes))
       (concatenate '(vector (unsigned-byte 8))
-                   (encode-u8 (if vote-bool 1 0))  ; bool as u8
+                   (encode-u8 (if vote-bool 1 0))
                    (encode-u16 index)
                    sig-bytes))))
 
 (defun decode-vote (bytes offset)
-  "Decode a single vote."
+  "Decode a single vote.
+   Returns: (values vote-plist bytes-consumed)"
   (let* ((vote-bool (not (zerop (decode-u8 bytes offset))))
          (index (decode-u16 bytes (+ offset 1)))
          (signature (subseq bytes (+ offset 3) (+ offset 67))))
-    (values (list :vote vote-bool
-                  :index index
-                  :signature signature)
-            67))) ; 1 + 2 + 64
+    (values (list :vote vote-bool :index index :signature signature)
+            67)))
 
-;;; ==========================================================================
-;;; Verdict Encoding/Decoding
-;;; ==========================================================================
+;;; ----- Verdicts -----
 
 (defun encode-verdict (verdict)
-  "Encode a verdict (target: H, age: u32, votes: [...]).
-   
-   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])
-   Gray Paper §10.2: Verdicts must have exactly ⌊2V/3⌋ + 1 votes (supermajority)
-   
-   NOTE: Votes have NO compact prefix! They're directly concatenated."
+  "Encode a verdict. Votes have NO compact prefix (fixed count from chainspec)."
   (let ((target (getf verdict :target))
         (age (getf verdict :age))
         (votes (getf verdict :votes)))
@@ -64,16 +51,10 @@
                           ((simple-array (unsigned-byte 8) (*)) target)
                           (string (jam.ffi:hex-string-to-bytes target))
                           (vector (coerce target '(simple-array (unsigned-byte 8) (*)))))))
-      (assert (= (length target-bytes) 32) ()
-              "Verdict target must be 32 bytes, got: ~a" (length target-bytes))
-      
-      ;; Validate vote count matches chainspec supermajority
+      (assert (= (length target-bytes) 32))
       (let ((expected-votes (1+ (floor (* 2 (num-validators)) 3))))
         (assert (= (length votes) expected-votes) ()
-                "Verdict must have exactly ~a votes (⌊2×~a/3⌋+1), got: ~a"
-                expected-votes (num-validators) (length votes)))
-      
-      ;; Encode: target (32) + age (u32) + votes (NO compact prefix!)
+                "Verdict must have ~a votes, got: ~a" expected-votes (length votes)))
       (let ((encoded-votes (mapcar #'encode-vote votes)))
         (concatenate '(vector (unsigned-byte 8))
                      target-bytes
@@ -81,38 +62,22 @@
                      (apply #'concatenate '(vector (unsigned-byte 8)) encoded-votes))))))
 
 (defun decode-verdict (bytes offset)
-  "Decode a verdict.
-   
-   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])
-   Gray Paper §10.2: Verdicts contain exactly ⌊2V/3⌋ + 1 votes (supermajority)
-   
-   NOTE: Votes have NO compact prefix! The count is derived from chainspec.
-   
+  "Decode a verdict. Vote count from chainspec: ⌊2V/3⌋+1.
    Returns: (values verdict-plist bytes-consumed)"
   (let* ((target (subseq bytes offset (+ offset 32)))
          (age (decode-u32 bytes (+ offset 32)))
          (pos (+ offset 36))
-         ;; Calculate number of votes from chainspec
-         ;; num_votes = ⌊2 × num_validators / 3⌋ + 1
          (num-votes (1+ (floor (* 2 (num-validators)) 3)))
          (votes '()))
-    
-    ;; Read exactly num-votes votes (no compact prefix)
-    ;; Each vote is: bool (1) + E2(index) (2) + signature (64) = 67 bytes
     (dotimes (i num-votes)
       (multiple-value-bind (vote vote-size)
           (decode-vote bytes pos)
         (push vote votes)
         (incf pos vote-size)))
-    
-    (values (list :target target
-                  :age age
-                  :votes (nreverse votes))
+    (values (list :target target :age age :votes (nreverse votes))
             (- pos offset))))
 
-;;; ==========================================================================
-;;; Culprit Encoding/Decoding
-;;; ==========================================================================
+;;; ----- Culprits -----
 
 (defun encode-culprit (culprit)
   "Encode a culprit (target: H, key: H, signature: [u8; 64])."
@@ -135,23 +100,18 @@
                            (vector (coerce signature '(simple-array (unsigned-byte 8) (*)))))))
           (assert (= (length sig-bytes) 64))
           (concatenate '(vector (unsigned-byte 8))
-                       target-bytes
-                       key-bytes
-                       sig-bytes))))))
+                       target-bytes key-bytes sig-bytes))))))
 
 (defun decode-culprit (bytes offset)
-  "Decode a culprit."
+  "Decode a culprit.
+   Returns: (values culprit-plist bytes-consumed)"
   (let ((target (subseq bytes offset (+ offset 32)))
         (key (subseq bytes (+ offset 32) (+ offset 64)))
         (signature (subseq bytes (+ offset 64) (+ offset 128))))
-    (values (list :target target
-                  :key key
-                  :signature signature)
-            128))) ; 32 + 32 + 64
+    (values (list :target target :key key :signature signature)
+            128)))
 
-;;; ==========================================================================
-;;; Fault Encoding/Decoding
-;;; ==========================================================================
+;;; ----- Faults -----
 
 (defun encode-fault (fault)
   "Encode a fault (target: H, vote: bool, key: H, signature: [u8; 64])."
@@ -177,35 +137,22 @@
           (concatenate '(vector (unsigned-byte 8))
                        target-bytes
                        (encode-u8 (if vote 1 0))
-                       key-bytes
-                       sig-bytes))))))
+                       key-bytes sig-bytes))))))
 
 (defun decode-fault (bytes offset)
-  "Decode a fault."
+  "Decode a fault.
+   Returns: (values fault-plist bytes-consumed)"
   (let ((target (subseq bytes offset (+ offset 32)))
         (vote (not (zerop (decode-u8 bytes (+ offset 32)))))
         (key (subseq bytes (+ offset 33) (+ offset 65)))
         (signature (subseq bytes (+ offset 65) (+ offset 129))))
-    (values (list :target target
-                  :vote vote
-                  :key key
-                  :signature signature)
-            129))) ; 32 + 1 + 32 + 64
+    (values (list :target target :vote vote :key key :signature signature)
+            129)))
 
-;;; ==========================================================================
-;;; Complete Disputes Encoding/Decoding
-;;; ==========================================================================
+;;; ----- Complete Disputes -----
 
 (defun encode-disputes-extrinsic (disputes)
-  "Encode disputes extrinsic (ED).
-   
-   Gray Paper §10: Disputes and judgements
-   
-   Args:
-     disputes: plist with :verdicts :culprits :faults
-   
-   Returns:
-     byte array"
+  "Encode disputes extrinsic (ED)."
   (let ((verdicts (getf disputes :verdicts))
         (culprits (getf disputes :culprits))
         (faults (getf disputes :faults)))
@@ -213,22 +160,17 @@
           (encoded-culprits (mapcar #'encode-culprit culprits))
           (encoded-faults (mapcar #'encode-fault faults)))
       (concatenate '(vector (unsigned-byte 8))
-                   ;; Verdicts sequence
                    (encode-compact (length verdicts))
                    (apply #'concatenate '(vector (unsigned-byte 8)) encoded-verdicts)
-                   ;; Culprits sequence
                    (encode-compact (length culprits))
                    (apply #'concatenate '(vector (unsigned-byte 8)) encoded-culprits)
-                   ;; Faults sequence
                    (encode-compact (length faults))
                    (apply #'concatenate '(vector (unsigned-byte 8)) encoded-faults)))))
 
 (defun decode-disputes-extrinsic (bytes offset)
   "Decode disputes extrinsic (ED).
-   
    Returns: (values disputes-plist bytes-consumed)"
   (let ((pos offset))
-    ;; Decode verdicts
     (multiple-value-bind (num-verdicts bytes-consumed-len-v)
         (decode-compact bytes pos)
       (incf pos bytes-consumed-len-v)
@@ -239,8 +181,6 @@
             (push verdict verdicts)
             (incf pos verdict-size)))
         (setf verdicts (nreverse verdicts))
-        
-        ;; Decode culprits
         (multiple-value-bind (num-culprits bytes-consumed-len-c)
             (decode-compact bytes pos)
           (incf pos bytes-consumed-len-c)
@@ -251,8 +191,6 @@
                 (push culprit culprits)
                 (incf pos culprit-size)))
             (setf culprits (nreverse culprits))
-            
-            ;; Decode faults
             (multiple-value-bind (num-faults bytes-consumed-len-f)
                 (decode-compact bytes pos)
               (incf pos bytes-consumed-len-f)
@@ -263,23 +201,11 @@
                     (push fault faults)
                     (incf pos fault-size)))
                 (setf faults (nreverse faults))
-                
-                (values (list :verdicts verdicts
-                              :culprits culprits
-                              :faults faults)
+                (values (list :verdicts verdicts :culprits culprits :faults faults)
                         (- pos offset))))))))))
 
-;;; ==========================================================================
-;;; Exports
-;;; ==========================================================================
-
-(export '(encode-vote
-          decode-vote
-          encode-verdict
-          decode-verdict
-          encode-culprit
-          decode-culprit
-          encode-fault
-          decode-fault
-          encode-disputes-extrinsic
-          decode-disputes-extrinsic))
+(export '(encode-vote decode-vote
+          encode-verdict decode-verdict
+          encode-culprit decode-culprit
+          encode-fault decode-fault
+          encode-disputes-extrinsic decode-disputes-extrinsic))
