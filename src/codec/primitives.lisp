@@ -1,5 +1,5 @@
-;;;; codec.lisp - JAM Codec (Gray Paper Appendix C)
-;;;; NOT exactly SCALE - JAM has its own encoding!
+;;;; primitives.lisp - JAM Codec (Gray Paper Appendix C)
+;;;; NOT SCALE! JAM has its own encoding, especially for compact integers.
 
 (in-package :jotl)
 
@@ -49,7 +49,7 @@
           do (setf result (logior result (ash (aref bytes i) (* 8 i)))))
     result))
 
-;; Convenience aliases for common sizes
+;; Convenience aliases for common sizes (Gray Paper notation)
 (defun E1 (value) "Encode u8"  (encode-fixed-le value 1))
 (defun E2 (value) "Encode u16" (encode-fixed-le value 2))
 (defun E4 (value) "Encode u32" (encode-fixed-le value 4))
@@ -82,64 +82,142 @@
   (values (decode-fixed-le (subseq bytes offset (+ offset 8))) 8))
 
 ;;; ==========================================================================
-;;; C.1.8 - Variable-Length Integer Encoding (Compact)
+;;; JAM Compact Integer Encoding (GP Appendix C.1.5)
 ;;; ==========================================================================
 ;;;
-;;; Used EXCLUSIVELY for length prefixes of variable-length sequences
-;;; (Gray Paper note after definition)
+;;; ⚠️  THIS IS NOT SCALE COMPACT! JAM uses a different scheme!
 ;;;
-;;; Similar to SCALE compact encoding but with JAM-specific rules
+;;; The number of leading 1-bits in the first byte determines how many
+;;; additional bytes follow. Value stored big-endian in remaining bits.
+;;;
+;;; Leading 1s | Total bytes | Data bits | Max value
+;;; -----------+-------------+-----------+-----------
+;;;     0      |      1      |     7     |       127
+;;;     1      |      2      |    14     |    16,383
+;;;     2      |      3      |    21     | 2,097,151
+;;;     3      |      4      |    28     | ~268M
+;;;     4      |      5      |    35     | ~34B
+;;;     5      |      6      |    42     | ~4T
+;;;     6      |      7      |    49     | ~562T
+;;;     7      |      8      |    56     | ~72P
+;;;     8      |      9      |    64     | 2^64-1
+
+(defun count-leading-ones (byte)
+  "Count the number of leading 1-bits in a byte (MSB first)."
+  (loop for i from 7 downto 0
+        while (logbitp i byte)
+        count 1))
 
 (defun encode-compact (value)
-  "Encode natural number in compact (variable-length) format.
-   Used for sequence length prefixes.
+  "Encode natural number in JAM compact format.
    
-   Encoding rules:
-   - 0..63:       1 byte:  [xx]
-   - 64..16383:   2 bytes: [01 xx xx]
-   - 16384..2^30: 4 bytes: [10 xx xx xx xx]
-   - 2^30+:       5+ bytes: [11 nn xx xx ...]
+   JAM compact encoding (NOT SCALE!):
+   Number of leading 1-bits in first byte = number of additional bytes.
+   Value stored big-endian in remaining bits.
    
    Args:
-     value: Natural number (usually a length)
+     value: Natural number (usually a length or small integer)
    
    Returns:
      Byte array (1-9 bytes)"
   (check-type value (integer 0 *))
   
   (cond
-    ;; Single byte mode: 0-63
-    ((<= value 63)
+    ;; 1 byte: 0xxxxxxx (0-127)
+    ((< value #x80)
      (make-array 1 :element-type '(unsigned-byte 8)
-                 :initial-contents (list (logior #b00000000 value))))
+                 :initial-contents (list value)))
     
-    ;; Two byte mode: 64-16383
-    ((<= value 16383)
-     (let ((bytes (make-array 2 :element-type '(unsigned-byte 8))))
-       (setf (aref bytes 0) (logior #b01000000 (ldb (byte 6 0) value)))
-       (setf (aref bytes 1) (ldb (byte 8 6) value))
-       bytes))
+    ;; 2 bytes: 10xxxxxx xxxxxxxx (128-16383)
+    ((< value #x4000)
+     (make-array 2 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #x80 (ash value -8))
+                       (logand value #xFF))))
     
-    ;; Four byte mode: 16384 - 2^30-1
-    ((< value (expt 2 30))
-     (let ((bytes (make-array 4 :element-type '(unsigned-byte 8))))
-       (setf (aref bytes 0) (logior #b10000000 (ldb (byte 6 0) value)))
-       (setf (aref bytes 1) (ldb (byte 8 6) value))
-       (setf (aref bytes 2) (ldb (byte 8 14) value))
-       (setf (aref bytes 3) (ldb (byte 8 22) value))
-       bytes))
+    ;; 3 bytes: 110xxxxx xxxxxxxx xxxxxxxx (16384-2097151)
+    ((< value #x200000)
+     (make-array 3 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #xC0 (ash value -16))
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
     
-    ;; Big integer mode: 2^30+
+    ;; 4 bytes: 1110xxxx xxxxxxxx xxxxxxxx xxxxxxxx
+    ((< value #x10000000)
+     (make-array 4 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #xE0 (ash value -24))
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
+    
+    ;; 5 bytes: 11110xxx ...
+    ((< value #x800000000)
+     (make-array 5 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #xF0 (ash value -32))
+                       (logand (ash value -24) #xFF)
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
+    
+    ;; 6 bytes: 111110xx ...
+    ((< value #x40000000000)
+     (make-array 6 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #xF8 (ash value -40))
+                       (logand (ash value -32) #xFF)
+                       (logand (ash value -24) #xFF)
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
+    
+    ;; 7 bytes: 1111110x ...
+    ((< value #x2000000000000)
+     (make-array 7 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list (logior #xFC (ash value -48))
+                       (logand (ash value -40) #xFF)
+                       (logand (ash value -32) #xFF)
+                       (logand (ash value -24) #xFF)
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
+    
+    ;; 8 bytes: 11111110 xxxxxxxx ... (7 data bytes, 56 bits)
+    ((< value #x100000000000000)
+     (make-array 8 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list #xFE
+                       (logand (ash value -48) #xFF)
+                       (logand (ash value -40) #xFF)
+                       (logand (ash value -32) #xFF)
+                       (logand (ash value -24) #xFF)
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))
+    
+    ;; 9 bytes: 11111111 xxxxxxxx ... (8 data bytes, 64 bits)
     (t
-     (let* ((num-bytes (ceiling (integer-length value) 8))
-            (result (make-array (1+ num-bytes) :element-type '(unsigned-byte 8))))
-       (setf (aref result 0) (logior #b11000000 (- num-bytes 4)))
-       (loop for i from 0 below num-bytes
-             do (setf (aref result (1+ i)) (ldb (byte 8 (* 8 i)) value)))
-       result))))
+     (make-array 9 :element-type '(unsigned-byte 8)
+                 :initial-contents
+                 (list #xFF
+                       (logand (ash value -56) #xFF)
+                       (logand (ash value -48) #xFF)
+                       (logand (ash value -40) #xFF)
+                       (logand (ash value -32) #xFF)
+                       (logand (ash value -24) #xFF)
+                       (logand (ash value -16) #xFF)
+                       (logand (ash value -8) #xFF)
+                       (logand value #xFF))))))
 
 (defun decode-compact (bytes &optional (offset 0))
-  "Decode compact-encoded natural number.
+  "Decode JAM compact-encoded natural number.
+   
+   JAM compact encoding (NOT SCALE!):
+   Number of leading 1-bits in first byte = number of additional bytes.
+   Value stored big-endian in remaining bits.
    
    Args:
      bytes: Byte array containing compact-encoded value
@@ -147,33 +225,25 @@
    
    Returns:
      (values decoded-value bytes-consumed)"
-  (let ((first-byte (aref bytes offset)))
-    (case (logand first-byte #b11000000)
-      ;; Single byte mode
-      (#b00000000
-       (values (logand first-byte #b00111111) 1))
-      
-      ;; Two byte mode
-      (#b01000000
-       (values (logior (logand first-byte #b00111111)
-                       (ash (aref bytes (1+ offset)) 6))
-               2))
-      
-      ;; Four byte mode
-      (#b10000000
-       (values (logior (logand first-byte #b00111111)
-                       (ash (aref bytes (+ offset 1)) 6)
-                       (ash (aref bytes (+ offset 2)) 14)
-                       (ash (aref bytes (+ offset 3)) 22))
-               4))
-      
-      ;; Big integer mode
-      (#b11000000
-       (let* ((num-bytes (+ (logand first-byte #b00111111) 4))
-              (value 0))
-         (loop for i from 0 below num-bytes
-               do (setf value (logior value (ash (aref bytes (+ offset 1 i)) (* 8 i)))))
-         (values value (1+ num-bytes)))))))
+  (let* ((first-byte (aref bytes offset))
+         (l (count-leading-ones first-byte))
+         (total-bytes (1+ l)))
+    (if (= l 8)
+        ;; Special case: first byte = 0xFF, 8 data bytes following
+        (let ((value 0))
+          (loop for i from 1 to 8
+                do (setf value (logior (ash value 8)
+                                       (aref bytes (+ offset i)))))
+          (values value 9))
+        ;; General case: l leading 1s + separator 0, remaining bits + l more bytes
+        (let* ((data-bits (- 7 l))
+               (mask (1- (ash 1 data-bits)))
+               (value (logand first-byte mask)))
+          ;; Read remaining bytes in big-endian order
+          (loop for i from 1 to l
+                do (setf value (logior (ash value 8)
+                                       (aref bytes (+ offset i)))))
+          (values value total-bytes)))))
 
 ;;; ==========================================================================
 ;;; Sequence Encoding (with compact length prefix)
@@ -273,6 +343,7 @@
           E1 E2 E4 E8
           encode-u8 encode-u16 encode-u32 encode-u64
           decode-u8 decode-u16 decode-u32 decode-u64
+          count-leading-ones
           encode-compact decode-compact
           encode-sequence decode-sequence
           encode-option decode-option

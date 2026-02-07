@@ -1,39 +1,54 @@
 ;;;; extrinsic.lisp - Complete Extrinsic Orchestrator
-;;;; Gray Paper §4.3 - E ≡ (ET, ED, EP, EA, EG)
+;;;; ACTUAL BINARY ORDER: ET → EP → EG → EA → ED
+;;;;
+;;;; ⚠️  IMPORTANT: Gray Paper §4.3 states E ≡ (ET, ED, EP, EA, EG)
+;;;;     BUT actual test vectors use order: (ET, EP, EG, EA, ED)
+;;;;     See: docs/TODO-EXTRINSIC-ORDER.md
 
 (in-package :jotl)
 
 ;;; ==========================================================================
-;;; Complete Extrinsic Encoding (Gray Paper §4.3)
+;;; Complete Extrinsic Encoding (ACTUAL BINARY ORDER)
 ;;; ==========================================================================
 ;;;
-;;; E ≡ (ET, ED, EP, EA, EG)
+;;; ACTUAL ORDER: ET → EP → EG → EA → ED
 ;;;
 ;;; The extrinsic data is split into its several portions:
 ;;;   ET : Tickets - validator block authoring permissions
-;;;   ED : Disputes - disputes between validators
 ;;;   EP : Preimages - static data for on-demand fetching
-;;;   EA : Assurances - validator availability statements
 ;;;   EG : Guarantees - work reports with guarantor signatures
+;;;   EA : Assurances - validator availability statements
+;;;   ED : Disputes - disputes between validators
 
 (defun encode-extrinsic (tickets disputes preimages assurances guarantees)
-  "Encode complete extrinsic E ≡ (ET, ED, EP, EA, EG).
+  "Encode complete extrinsic with ACTUAL binary order: ET → EP → EG → EA → ED.
    
-   Gray Paper §4.3
-   E ≡ (ET, ED, EP, EA, EG)
+   ⚠️  Gray Paper §4.3 says E ≡ (ET, ED, EP, EA, EG)
+   ⚠️  BUT test vectors use: (ET, EP, EG, EA, ED)
    
    Args:
      tickets: ET - list of ticket plists (✅ implemented)
      disputes: ED - disputes structure (✅ implemented)
      preimages: EP - list of preimage plists (✅ implemented)
      assurances: EA - list of assurance plists (✅ implemented)
-     guarantees: EG - list of guarantee plists (⏳ stub - only accepts empty for now)
+     guarantees: EG - list of guarantee plists (✅ implemented)
    
    Returns:
      byte array"
   (concatenate '(vector (unsigned-byte 8))
                ;; ET - Tickets (✅ implemented)
                (encode-tickets-extrinsic tickets)
+               
+               ;; EP - Preimages (✅ implemented)
+               (encode-preimages-extrinsic preimages)
+               
+               ;; EG - Guarantees (✅ implemented)
+               (encode-guarantees-extrinsic guarantees)
+               
+               ;; EA - Assurances (✅ implemented)
+               (if assurances
+                   (encode-assurances-extrinsic assurances)
+                   (encode-compact 0)) ; Empty sequence = compact(0)
                
                ;; ED - Disputes (✅ implemented)
                (if disputes
@@ -42,21 +57,10 @@
                    (concatenate '(vector (unsigned-byte 8))
                                 (encode-compact 0)  ; verdicts
                                 (encode-compact 0)  ; culprits
-                                (encode-compact 0))) ; faults
-               
-               ;; EP - Preimages (✅ implemented)
-               (encode-preimages-extrinsic preimages)
-               
-               ;; EA - Assurances (✅ implemented)
-               (if assurances
-                   (encode-assurances-extrinsic assurances)
-                   (encode-compact 0)) ; Empty sequence = compact(0)
-               
-               ;; EG - Guarantees (⏳ stub - only accepts empty for now)
-               (encode-guarantees-extrinsic guarantees)))
+                                (encode-compact 0)))))
 
 (defun decode-extrinsic (bytes offset)
-  "Decode complete extrinsic E ≡ (ET, ED, EP, EA, EG).
+  "Decode complete extrinsic with ACTUAL binary order: ET → EP → EG → EA → ED.
    
    Returns: (values extrinsic-plist bytes-consumed)"
   (let ((pos offset))
@@ -65,25 +69,25 @@
         (decode-tickets-extrinsic bytes pos)
       (incf pos bytes-consumed-tickets)
       
-      ;; ED - Disputes (✅ implemented)
-      (multiple-value-bind (disputes bytes-consumed-disputes)
-          (decode-disputes-extrinsic bytes pos)
-        (incf pos bytes-consumed-disputes)
+      ;; EP - Preimages (✅ implemented)
+      (multiple-value-bind (preimages bytes-consumed-preimages)
+          (decode-preimages-extrinsic bytes pos)
+        (incf pos bytes-consumed-preimages)
         
-        ;; EP - Preimages (✅ implemented)
-        (multiple-value-bind (preimages bytes-consumed-preimages)
-            (decode-preimages-extrinsic bytes pos)
-          (incf pos bytes-consumed-preimages)
+        ;; EG - Guarantees (✅ implemented)
+        (multiple-value-bind (guarantees bytes-consumed-guarantees)
+            (decode-guarantees-extrinsic bytes pos)
+          (incf pos bytes-consumed-guarantees)
           
           ;; EA - Assurances (✅ implemented)
           (multiple-value-bind (assurances bytes-consumed-assurances)
               (decode-assurances-extrinsic bytes pos)
             (incf pos bytes-consumed-assurances)
             
-            ;; EG - Guarantees (⏳ stub - expects empty only)
-            (multiple-value-bind (guarantees bytes-consumed-guarantees)
-                (decode-guarantees-extrinsic bytes pos)
-              (incf pos bytes-consumed-guarantees)
+            ;; ED - Disputes (✅ implemented)
+            (multiple-value-bind (disputes bytes-consumed-disputes)
+                (decode-disputes-extrinsic bytes pos)
+              (incf pos bytes-consumed-disputes)
               
               (values (list :tickets tickets
                             :disputes disputes

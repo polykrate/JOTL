@@ -27,6 +27,7 @@
     ((:file "primitives")     ; u8, u16, u32, compact, option, sequence, result
      (:file "types")          ; hash-32, sig-96, ed25519, bandersnatch, validator
      (:file "header")         ; encode/decode header (GP §5)
+     (:file "work-report")    ; WorkReport structure (GP §11-12)
      
      ;; Extrinsic modules (GP §4.3) - E ≡ (ET, ED, EP, EA, EG)
      (:module "extrinsic"
