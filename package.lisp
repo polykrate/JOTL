@@ -50,6 +50,14 @@
    #:encode-option #:decode-option
    
    ;; ═══════════════════════════════════════════
+   ;; Codec — State Keys (GP Appendix D)
+   ;; ═══════════════════════════════════════════
+   #:state-key #:service-key #:state-key-for-segment
+   #:+C1+ #:+C2+ #:+C3+ #:+C4+ #:+C5+ #:+C6+ #:+C7+ #:+C8+
+   #:+C9+ #:+C10+ #:+C11+ #:+C12+ #:+C13+ #:+C14+ #:+C15+ #:+C16+
+   #:+state-key-names+
+   
+   ;; ═══════════════════════════════════════════
    ;; Codec — Types
    ;; ═══════════════════════════════════════════
    #:encode-hash-32 #:decode-hash-32
@@ -113,10 +121,12 @@
    ;; ═══════════════════════════════════════════
    ;; Block — Validation (GP §5)
    ;; ═══════════════════════════════════════════
+   ;; Intrinsic (called by Υ):
    #:validate-extrinsic-hash
+   #:validate-block
+   ;; Environmental (called by import-block / node layer):
    #:validate-timeslot-not-future
    #:validate-parent-hash
-   #:validate-block
    
    ;; ═══════════════════════════════════════════
    ;; STF — State σ (GP §4.4)
@@ -136,6 +146,7 @@
    #:new-epoch-p
    #:timeslot-from-header
    #:transition-tau
+   #:encode-state-tau #:decode-state-tau
    
    ;; ═══════════════════════════════════════════
    ;; STF — Recent History β (GP §7)
@@ -150,6 +161,16 @@
    #:transition-beta-with-root
    #:transition-beta-from-inputs
    #:bounded-append
+   #:encode-state-beta #:decode-state-beta
+   #:encode-block-info #:decode-block-info
+   #:encode-reported-wp #:decode-reported-wp
+   #:encode-mmr-peak #:decode-mmr-peak
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Entropy η (GP §6.21-6.23)
+   ;; ═══════════════════════════════════════════
+   #:transition-eta
+   #:encode-state-eta #:decode-state-eta
    
    ;; ═══════════════════════════════════════════
    ;; STF — Υ(σ,B)→σ' (GP §4.1)

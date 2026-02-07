@@ -192,7 +192,7 @@ FULL (production, must match Gray Paper):
 (defparameter +zero-hash+
   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
   "H0 — the zero hash (32 bytes of 0x00). GP notation: ∅ for hashes.")
-
+    
 (defparameter +mmr-peak-prefix+
   (map '(vector (unsigned-byte 8)) #'char-code "peak")
   "The 'peak' prefix used in MMR super-peak computation (GP E.11).")

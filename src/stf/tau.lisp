@@ -36,6 +36,18 @@
   (> (timeslot-epoch tau-prime) (timeslot-epoch tau)))
 
 ;;; ═════════════════════════════════════════════════════════════════
+;;; STATE CODEC — C(11) ↦ E4(τ)
+;;; ═════════════════════════════════════════════════════════════════
+
+(defun encode-state-tau (tau)
+  "C(11) ↦ E4(τ) — 4-byte LE encoding for Merklization."
+  (E4 tau))
+
+(defun decode-state-tau (bytes &optional (offset 0))
+  "Decode τ from 4 bytes LE. Returns: (values tau 4)"
+  (decode-u32 bytes offset))
+
+;;; ═════════════════════════════════════════════════════════════════
 ;;; τ STF (GP §5.7 + §6.1-6.2)
 ;;; ═════════════════════════════════════════════════════════════════
 

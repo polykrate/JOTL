@@ -16,100 +16,8 @@
 ;;; BINARY CODEC — History Test Vector Format
 ;;; ═══════════════════════════════════════════════════════════════
 ;;;
-;;; From history.asn + jam-types.asn:
-;;;
-;;; TestCase       = Input + State + Output(NULL) + State
-;;; Input          = HeaderHash(32) + StateRoot(32) + OpaqueHash(32)
-;;;                  + Seq<ReportedWorkPackage>
-;;; State          = RecentBlocks = Seq<BlockInfo> + Seq<MmrPeak>
-;;; BlockInfo      = HeaderHash(32) + OpaqueHash(32) + StateRoot(32)
-;;;                  + Seq<ReportedWorkPackage>
-;;; ReportedWorkPackage = Hash(32) + ExportsRoot(32)
-;;; MmrPeak        = Option<OpaqueHash(32)>
-
-;; -- Hash (fixed 32 bytes) --
-
-(defun decode-hash32 (bytes offset)
-  "Decode 32-byte hash. Returns (values hash 32)."
-  (values (subseq bytes offset (+ offset 32)) 32))
-
-(defun encode-hash32 (hash)
-  "Encode 32-byte hash (identity — already bytes)."
-  hash)
-
-;; -- ReportedWorkPackage = hash(32) + exports_root(32) --
-
-(defun decode-reported-wp (bytes offset)
-  "Decode ReportedWorkPackage. Returns (values plist 64)."
-  (values (list :hash (subseq bytes offset (+ offset 32))
-                :exports-root (subseq bytes (+ offset 32) (+ offset 64)))
-          64))
-
-(defun encode-reported-wp (wp)
-  "Encode ReportedWorkPackage."
-  (concatenate '(vector (unsigned-byte 8))
-               (getf wp :hash)
-               (getf wp :exports-root)))
-
-;; -- BlockInfo = header_hash(32) + beefy_root(32) + state_root(32) + Seq<ReportedWP> --
-
-(defun decode-block-info (bytes offset)
-  "Decode BlockInfo. Returns (values history-record-plist consumed)."
-  (let ((start offset))
-    (let ((header-hash (subseq bytes offset (+ offset 32))))
-      (incf offset 32)
-      (let ((beefy-root (subseq bytes offset (+ offset 32))))
-        (incf offset 32)
-        (let ((state-root (subseq bytes offset (+ offset 32))))
-          (incf offset 32)
-          (multiple-value-bind (reported consumed)
-              (decode-sequence bytes #'decode-reported-wp offset)
-            (values (make-history-record
-                     :header-hash header-hash
-                     :beefy-root beefy-root
-                     :state-root state-root
-                     :reported reported)
-                    (+ (- offset start) consumed))))))))
-
-(defun encode-block-info (rec)
-  "Encode BlockInfo."
-  (concatenate '(vector (unsigned-byte 8))
-               (getf rec :header-hash)
-               (getf rec :beefy-root)
-               (getf rec :state-root)
-               (encode-sequence (getf rec :reported) #'encode-reported-wp)))
-
-;; -- MmrPeak = Option<Hash32> --
-
-(defun decode-mmr-peak (bytes offset)
-  "Decode MmrPeak (option). Returns (values hash-or-nil consumed)."
-  (decode-option bytes #'decode-hash32 offset))
-
-(defun encode-mmr-peak (peak)
-  "Encode MmrPeak (option)."
-  (encode-option peak #'encode-hash32))
-
-;; -- RecentBlocks = Seq<BlockInfo> + Mmr(Seq<MmrPeak>) --
-
-(defun decode-recent-blocks (bytes offset)
-  "Decode RecentBlocks → make-beta closure. Returns (values beta consumed)."
-  (let ((start offset))
-    (multiple-value-bind (history h-consumed)
-        (decode-sequence bytes #'decode-block-info offset)
-      (incf offset h-consumed)
-      (multiple-value-bind (peaks p-consumed)
-          (decode-sequence bytes #'decode-mmr-peak offset)
-        (incf offset p-consumed)
-        (values (make-beta :history history
-                           :mmr-peaks (coerce peaks 'vector))
-                (- offset start))))))
-
-(defun encode-recent-blocks (beta)
-  "Encode RecentBlocks from beta closure."
-  (concatenate '(vector (unsigned-byte 8))
-               (encode-sequence (funcall beta :history) #'encode-block-info)
-               (encode-sequence (coerce (funcall beta :mmr-peaks) 'list)
-                                #'encode-mmr-peak)))
+;;; State codec (decode-state-beta, encode-state-beta, etc.) → stf/beta.lisp
+;;; Below: only test-vector-specific format (Input + TestCase).
 
 ;; -- Input = HeaderHash(32) + StateRoot(32) + OpaqueHash(32) + Seq<ReportedWP> --
 
@@ -146,10 +54,10 @@
   (let ((offset 0))
     (multiple-value-bind (input consumed) (decode-history-input bytes offset)
       (incf offset consumed)
-      (multiple-value-bind (pre-beta consumed) (decode-recent-blocks bytes offset)
+      (multiple-value-bind (pre-beta consumed) (decode-state-beta bytes offset)
         (incf offset consumed)
         ;; Output = NULL (0 bytes)
-        (multiple-value-bind (post-beta consumed) (decode-recent-blocks bytes offset)
+        (multiple-value-bind (post-beta consumed) (decode-state-beta bytes offset)
           (incf offset consumed)
           (assert (= offset (length bytes)) ()
                   "Decoded ~D bytes but file has ~D bytes" offset (length bytes))
@@ -159,9 +67,9 @@
   "Encode complete history test vector to binary."
   (concatenate '(vector (unsigned-byte 8))
                (encode-history-input input)
-               (encode-recent-blocks pre-beta)
+               (encode-state-beta pre-beta)
                ;; Output = NULL (0 bytes)
-               (encode-recent-blocks post-beta)))
+               (encode-state-beta post-beta)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; JSON PARSING (for cross-validation)

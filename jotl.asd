@@ -33,7 +33,8 @@
     :serial t
     :components
     ((:file "primitives")
-     (:file "types")))
+     (:file "types")
+     (:file "state-keys")))
    
    ;; 4. Utils
    (:module "utils"
@@ -72,17 +73,7 @@
     ((:file "sigma")
      (:file "tau")
      (:file "beta")
+     (:file "eta")
      (:file "upsilon")))))
 
-;;;; Test System
-(asdf:defsystem #:jotl/tests
-  :description "Test suite for JOTL"
-  :author "Polycrate"
-  :license "MIT"
-  :depends-on (#:jotl #:fiveam)
-  :components
-  ((:module "tests"
-    :serial t
-    :components
-    ((:file "package")
-     (:file "codec-tests")))))
+;;;; Tests are run via scripts/ — see tests/README.md

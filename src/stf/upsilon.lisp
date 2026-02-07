@@ -2,7 +2,15 @@
 ;;;; Gray Paper §4.1 & §4.2.1
 ;;;;
 ;;;; TOP-LEVEL STF — orchestrates all sub-STFs.
-;;;; All inputs are closures — no plist dispatch.
+;;;; Pure function: (sigma, block) → sigma'.
+;;;;
+;;;; Call hierarchy:
+;;;;   import-block(bytes, env)  ← node layer (future, impure)
+;;;;     ├─ decode-block(bytes)  ← codec
+;;;;     ├─ validate env checks  ← wall-clock, parent hash
+;;;;     └─ apply-block(σ, B)   ← THIS FILE = Υ (pure)
+;;;;          ├─ validate-block(B)     HX check (intrinsic)
+;;;;          └─ transition-state(σ,B) sub-STFs in wave order
 
 (in-package #:jotl)
 
@@ -10,17 +18,19 @@
 ;;; Υ — BLOCK-LEVEL STATE TRANSITION (GP §4.1)
 ;;; ═════════════════════════════════════════════════════════════════
 
-(defun apply-block (sigma block &key current-time parent-header-encoded)
+(defun apply-block (sigma block)
   "Υ(σ, B) → σ' — Block-level state transition.
    
-   1. Structural validation (no STF owns)
+   Pure function: σ and B in, σ' out.
+   Environmental checks (wall-clock, parent hash) belong
+   to import-block (node layer), not here.
+   
+   1. Intrinsic validation (HX)
    2. Pure state transition
    
    Args: sigma (closure), block (closure)"
   (multiple-value-bind (valid-p errors)
-      (validate-block sigma block
-                      :current-time current-time
-                      :parent-header-encoded parent-header-encoded)
+      (validate-block block)
     (unless valid-p
       (error "Υ: block invalid — ~{~A~^, ~}"
              (mapcar (lambda (e) (format nil "~A: ~A" (first e) (second e)))
@@ -85,22 +95,22 @@
          (rho-prime     (transition-rho e-g rho-ddagger kappa tau-prime))
          (gamma-prime   (transition-gamma h tau e-t gamma-prev
                                           iota eta-prime kappa-prime psi-prime)))
-    ;; ═══════════════════════════════════════════
-    ;; WAVE 4: Accumulation
-    ;; ═══════════════════════════════════════════
-    (multiple-value-bind (omega-prime xi-prime delta-ddagger
-                          chi-prime iota-prime phi-prime
-                          theta-prime s-reports)
-        (transition-accumulate r-star omega xi delta chi
-                               iota phi tau tau-prime)
-      ;; ═══════════════════════════════════════════
-      ;; WAVE 5: Merge / Join
-      ;; ═══════════════════════════════════════════
-      (let* ((beta-prime   (transition-beta h e-g beta-dagger theta-prime))
-             (delta-prime  (transition-delta e-p delta-ddagger tau-prime))
-             (alpha-prime  (transition-alpha h e-g phi-prime alpha-prev))
-             (pi-prime     (transition-pi e-g e-p e-a e-t tau
-                                          kappa-prime pi-prev h s-reports)))
+        ;; ═══════════════════════════════════════════
+        ;; WAVE 4: Accumulation
+        ;; ═══════════════════════════════════════════
+        (multiple-value-bind (omega-prime xi-prime delta-ddagger
+                              chi-prime iota-prime phi-prime
+                              theta-prime s-reports)
+            (transition-accumulate r-star omega xi delta chi
+                                  iota phi tau tau-prime)
+        ;; ═══════════════════════════════════════════
+        ;; WAVE 5: Merge / Join
+        ;; ═══════════════════════════════════════════
+        (let* ((beta-prime   (transition-beta h e-g beta-dagger theta-prime))
+              (delta-prime  (transition-delta e-p delta-ddagger tau-prime))
+              (alpha-prime  (transition-alpha h e-g phi-prime alpha-prev))
+              (pi-prime     (transition-pi e-g e-p e-a e-t tau
+                                            kappa-prime pi-prev h s-reports)))
         ;; BUILD σ'
         (make-state
          :alpha   alpha-prime
@@ -126,9 +136,7 @@
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Each returns prior value (identity). Implement one by one.
 
-(defun transition-eta (header tau eta)
-  "GP §4.8 — Entropy. TODO: §7"
-  (declare (ignore header tau)) eta)
+;; transition-eta → stf/eta.lisp
 
 (defun transition-psi (disputes psi)
   "GP §4.11 — Judgments. TODO: §10"

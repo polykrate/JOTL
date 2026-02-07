@@ -1,18 +1,20 @@
-;;;; block/validation.lisp — Structural Block Validation
-;;;; Gray Paper §5 — Checks that NO individual STF owns
+;;;; block/validation.lisp — Block Validation
+;;;; Gray Paper §5
 ;;;;
-;;;; Called by apply-block (Υ) BEFORE transition-state(σ, B).
-;;;; All inputs are closures — no plist dispatch.
+;;;; Two layers:
+;;;;   validate-block(B)  — intrinsic checks (HX). Called by Υ.
+;;;;   validate-block-env — environmental checks (wall-clock, parent hash).
+;;;;                        Called by import-block (node layer).
 
 (in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; EXTRINSIC HASH (GP §5.4-5.6)
+;;; INTRINSIC VALIDATION — called by Υ (apply-block)
 ;;; ═════════════════════════════════════════════════════════════════
 
 (defun validate-extrinsic-hash (header extrinsic)
-  "Structural: HX ≡ H(E(H#(a))).
-   No STF owns this — it's a commitment to extrinsic data.
+  "HX ≡ H(H#(ET) ⌢ H#(EP) ⌢ H#(EG) ⌢ H#(EA) ⌢ H#(ED)) — §5.4-5.6.
+   Intrinsic to the block. No external context needed.
    
    Args: header (closure), extrinsic (closure)
    Returns: (values valid-p computed-hx)"
@@ -20,13 +22,32 @@
         (computed-hx (funcall extrinsic :extrinsic-hash)))
     (values (equalp header-hx computed-hx) computed-hx)))
 
+(defun validate-block (block)
+  "Intrinsic block validation — called by Υ(σ, B).
+   Checks only what can be verified from B alone (no σ, no env).
+   
+   Checks:
+     1. HX matches extrinsic data  (§5.4-5.6)
+   
+   Returns: (values valid-p errors)"
+  (let ((h (funcall block :header))
+        (e (funcall block :extrinsic))
+        (errors '()))
+    ;; §5.4-5.6: HX
+    (multiple-value-bind (ok computed) (validate-extrinsic-hash h e)
+      (declare (ignore computed))
+      (unless ok (push (list :hx "HX mismatch") errors)))
+    (values (null errors) (nreverse errors))))
+
 ;;; ═════════════════════════════════════════════════════════════════
-;;; TIMESLOT NOT IN FUTURE (GP §5.7 clause 2)
+;;; ENVIRONMENTAL VALIDATION — called by import-block (node layer)
 ;;; ═════════════════════════════════════════════════════════════════
+;;; These need external context (wall-clock, parent header bytes).
+;;; They do NOT belong in Υ.
 
 (defun validate-timeslot-not-future (header current-time)
-  "Structural: HT · P ≤ T.
-   No STF owns wall-clock checks. The τ STF owns τ < τ'.
+  "HT · P ≤ T — §5.7 clause 2.
+   Environmental: requires wall-clock time.
    
    Args: header (closure), current-time (UNIX timestamp)
    Returns: (values valid-p message)"
@@ -37,59 +58,14 @@
         (values nil (format nil "HT=~D in future (time ~D > ~D)"
                             ht block-time current-time)))))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; PARENT HASH (GP §5.2)
-;;; ═════════════════════════════════════════════════════════════════
-
 (defun validate-parent-hash (header parent-header-encoded)
-  "Structural: HP ≡ H(E(P(H))).
-   No STF owns this — chain integrity check.
+  "HP ≡ H(E(P(H))) — §5.2.
+   Environmental: requires parent header bytes from state store.
    
    Args: header (closure), parent-header-encoded (byte array)
    Returns: (values valid-p computed-hash)"
   (let ((hp (funcall header :parent-hash))
         (computed (blake2b-256 parent-header-encoded)))
     (values (equalp hp computed) computed)))
-
-;;; ═════════════════════════════════════════════════════════════════
-;;; validate-block — all structural checks
-;;; ═════════════════════════════════════════════════════════════════
-
-(defun validate-block (sigma block &key current-time parent-header-encoded)
-  "Validate block B structurally before Υ(σ, B).
-   
-   All args are closures. No plist dispatch.
-   
-   Checks:
-     1. HX matches extrinsic data        (§5.4-5.6)
-     2. HT not in future                 (§5.7 clause 2)
-     3. HP matches parent header hash    (§5.2)
-   
-   Returns: (values valid-p errors)"
-  (declare (ignore sigma))
-  (let ((h (funcall block :header))
-        (e (funcall block :extrinsic))
-        (errors '()))
-    
-    ;; §5.4-5.6: HX
-    (multiple-value-bind (ok computed) (validate-extrinsic-hash h e)
-      (declare (ignore computed))
-      (unless ok (push (list :hx "HX mismatch") errors)))
-    
-    ;; §5.7 clause 2: HT · P ≤ T
-    (when current-time
-      (multiple-value-bind (ok msg) (validate-timeslot-not-future h current-time)
-        (declare (ignore msg))
-        (unless ok (push (list :ht-future
-                               (format nil "HT=~D in future"
-                                       (funcall h :slot))) errors))))
-    
-    ;; §5.2: HP
-    (when parent-header-encoded
-      (multiple-value-bind (ok computed) (validate-parent-hash h parent-header-encoded)
-        (declare (ignore computed))
-        (unless ok (push (list :hp "HP mismatch") errors))))
-    
-    (values (null errors) (nreverse errors))))
 
 ;;; Exports managed in package.lisp

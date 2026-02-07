@@ -55,25 +55,39 @@
 
 (defun encode-tickets-mark (tickets-mark)
   "Encode Option<TicketsMark> (HW).
-   TODO: pass-through — encode structured tickets, not raw blob."
+   None: [0x00]
+   Some: [0x01] [{id:32, attempt:u8}]* — fixed-size (ET), NO compact prefix."
   (if tickets-mark
-      (concatenate '(vector (unsigned-byte 8)) #(1) tickets-mark)
+      (let ((encoded-tickets
+              (apply #'concatenate '(vector (unsigned-byte 8))
+                     (mapcar (lambda (ticket)
+                               (concatenate '(vector (unsigned-byte 8))
+                                            (encode-hash-32 (getf ticket :id))
+                                            (E1 (getf ticket :attempt))))
+                             tickets-mark))))
+        (concatenate '(vector (unsigned-byte 8))
+                     #(1)
+                     encoded-tickets))
       #(0)))
 
 (defun decode-tickets-mark (bytes offset)
   "Decode Option<TicketsMark> (HW).
-   TODO: pass-through — decode each ticket as {y ∈ H, e ∈ NN} instead of raw blob.
-   Returns: (values tickets-mark-or-nil bytes-consumed)"
+   Fixed-size array of ET tickets (no compact prefix).
+   Each ticket: {id ∈ H(32), attempt ∈ u8} = 33 bytes.
+   Returns: (values list-of-ticket-plists-or-nil bytes-consumed)"
   (let ((tag (aref bytes offset)))
     (cond
       ((= tag 0) (values nil 1))
       ((= tag 1)
-       (multiple-value-bind (num-tickets len-bytes)
-           (decode-compact bytes (1+ offset))
-         (let ((tickets-data (subseq bytes (+ offset 1)
-                                     (+ offset 1 len-bytes (* num-tickets 32)))))
-           (values tickets-data
-                   (+ 1 len-bytes (* num-tickets 32))))))
+       (let* ((ticket-size 33)  ; 32 (hash) + 1 (attempt)
+              (num-tickets (epoch-duration))  ; E from chainspec
+              (data-start (1+ offset))
+              (tickets (loop for i below num-tickets
+                             for toff = (+ data-start (* i ticket-size))
+                             collect (list :id (subseq bytes toff (+ toff 32))
+                                           :attempt (aref bytes (+ toff 32))))))
+         (values tickets
+                 (+ 1 (* num-tickets ticket-size)))))
       (t (error "Invalid option tag for tickets mark: ~A" tag)))))
 
 ;;; -----------------------------------------------------------------

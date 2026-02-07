@@ -43,6 +43,88 @@
         :reported (or reported '())))
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; STATE CODEC — C(3) ↦ E(β)
+;;; ═══════════════════════════════════════════════════════════════
+;;; Binary encoding for state Merklization and test vectors.
+;;; GP: C(3) ↦ E(↕[(h,b,s,↕p) | (h,b,s,p) ∈ βH], EM(βB))
+
+;; -- ReportedWorkPackage = hash(32) + exports_root(32) --
+
+(defun decode-reported-wp (bytes offset)
+  "Decode ReportedWorkPackage. Returns (values plist 64)."
+  (values (list :hash (subseq bytes offset (+ offset 32))
+                :exports-root (subseq bytes (+ offset 32) (+ offset 64)))
+          64))
+
+(defun encode-reported-wp (wp)
+  "Encode ReportedWorkPackage."
+  (concatenate '(vector (unsigned-byte 8))
+               (getf wp :hash)
+               (getf wp :exports-root)))
+
+;; -- BlockInfo = header_hash(32) + beefy_root(32) + state_root(32) + Seq<ReportedWP> --
+
+(defun decode-block-info (bytes offset)
+  "Decode BlockInfo → history-record plist. Returns (values plist consumed)."
+  (let ((start offset))
+    (let ((header-hash (subseq bytes offset (+ offset 32))))
+      (incf offset 32)
+      (let ((beefy-root (subseq bytes offset (+ offset 32))))
+        (incf offset 32)
+        (let ((state-root (subseq bytes offset (+ offset 32))))
+          (incf offset 32)
+          (multiple-value-bind (reported consumed)
+              (decode-sequence bytes #'decode-reported-wp offset)
+            (values (make-history-record
+                     :header-hash header-hash
+                     :beefy-root beefy-root
+                     :state-root state-root
+                     :reported reported)
+                    (+ (- offset start) consumed))))))))
+
+(defun encode-block-info (rec)
+  "Encode BlockInfo from history-record plist."
+  (concatenate '(vector (unsigned-byte 8))
+               (getf rec :header-hash)
+               (getf rec :beefy-root)
+               (getf rec :state-root)
+               (encode-sequence (getf rec :reported) #'encode-reported-wp)))
+
+;; -- MmrPeak = Option<Hash32> --
+
+(defun decode-mmr-peak (bytes offset)
+  "Decode MmrPeak (option). Returns (values hash-or-nil consumed)."
+  (decode-option bytes (lambda (b o) (values (subseq b o (+ o 32)) 32)) offset))
+
+(defun encode-mmr-peak (peak)
+  "Encode MmrPeak (option)."
+  (encode-option peak #'identity))
+
+;; -- RecentBlocks (β) = Seq<BlockInfo> + Seq<MmrPeak> --
+
+(defun decode-state-beta (bytes &optional (offset 0))
+  "Decode β state from binary → make-beta closure.
+   Returns (values beta consumed)."
+  (let ((start offset))
+    (multiple-value-bind (history h-consumed)
+        (decode-sequence bytes #'decode-block-info offset)
+      (incf offset h-consumed)
+      (multiple-value-bind (peaks p-consumed)
+          (decode-sequence bytes #'decode-mmr-peak offset)
+        (incf offset p-consumed)
+        (values (make-beta :history history
+                           :mmr-peaks (coerce peaks 'vector))
+                (- offset start))))))
+
+(defun encode-state-beta (beta)
+  "Encode β state to binary from beta closure.
+   C(3) ↦ E(↕[(h,b,s,↕p)], EM(βB))"
+  (concatenate '(vector (unsigned-byte 8))
+               (encode-sequence (funcall beta :history) #'encode-block-info)
+               (encode-sequence (coerce (funcall beta :mmr-peaks) 'list)
+                                #'encode-mmr-peak)))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; WAVE 1: β† (GP §7.5)
 ;;; ═══════════════════════════════════════════════════════════════
 ;;;

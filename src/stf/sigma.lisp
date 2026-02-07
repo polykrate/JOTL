@@ -58,8 +58,8 @@
    (omega nil)
    (xi nil))
   ;; Derived messages
-  (:epoch (timeslot-epoch tau))
-  (:phase (timeslot-phase tau))
+      (:epoch (timeslot-epoch tau))
+      (:phase (timeslot-phase tau))
   (:epoch-and-phase (timeslot-to-epoch-and-phase tau)))
 
 ;;; ===================================================================
