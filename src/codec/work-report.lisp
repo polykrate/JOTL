@@ -170,12 +170,23 @@
 ;;; WorkExecResult (Enum)
 ;;; ==========================================================================
 ;;;
-;;; Variant 0: Ok(ByteSequence)   - successful execution with output
-;;; Variant 1: Panic              - execution panicked (no payload)
-;;; Variant 2+: Error codes
+;;; WorkExecResult Enum (from jam-types-py WorkExecResult):
+;;;   Variant 0: ok(ByteSequence)      - successful execution with output
+;;;   Variant 1: out_of_gas(Null)      - ran out of gas
+;;;   Variant 2: panic(Null)           - execution panicked
+;;;   Variant 3: bad_exports(Null)     - bad exports
+;;;   Variant 4: output_oversize(Null) - output too large
+;;;   Variant 5: bad_code(Null)        - bad code
+;;;   Variant 6: code_oversize(Null)   - code too large
 
 (defun decode-work-exec-result (bytes offset)
   "Decode WorkExecResult (Enum).
+   
+   Variant 0: ok(ByteSequence)
+   Variant 1: out_of_gas
+   Variant 2: panic
+   Variant 3-6: bad_exports, output_oversize, bad_code, code_oversize
+   
    Returns: (values result-plist bytes-consumed)"
   (let ((pos offset)
         (variant (aref bytes offset)))
@@ -188,10 +199,20 @@
          (let ((blob (subseq bytes pos (+ pos blob-len))))
            (incf pos blob-len)
            (values (list :ok blob) (- pos offset)))))
-      (1 ;; Panic (no payload)
-       (values (list :panic nil) 1))
+      (1 ;; out_of_gas (no payload)
+       (values (list :out-of-gas t) 1))
+      (2 ;; panic (no payload)
+       (values (list :panic t) 1))
+      (3 ;; bad_exports (no payload)
+       (values (list :bad-exports t) 1))
+      (4 ;; output_oversize (no payload)
+       (values (list :output-oversize t) 1))
+      (5 ;; bad_code (no payload)
+       (values (list :bad-code t) 1))
+      (6 ;; code_oversize (no payload)
+       (values (list :code-oversize t) 1))
       (otherwise
-       ;; Other error variants - record the code
+       ;; Unknown variant - record the code
        (values (list :error variant) 1)))))
 
 ;;; ==========================================================================
