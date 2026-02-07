@@ -27,7 +27,8 @@
     ((:file "primitives")     ; u8, u16, u32, compact, option, sequence, result
      (:file "types")          ; hash-32, sig-96, ed25519, bandersnatch, validator
      (:file "header")         ; encode/decode header (GP §5)
-     (:file "extrinsic")))    ; encode/decode extrinsic (GP §4.3) - stubs
+     (:file "extrinsic")      ; encode/decode extrinsic (GP §4.3) - stubs
+     (:file "block")))        ; encode/decode block B ≡ (H, E) - orchestrator
    
    ;; 4. Block - Block structure (GP §4-5)
    (:module "block"

@@ -9,7 +9,8 @@ src/codec/
 ├── primitives.lisp   ✅ Types primitifs
 ├── types.lisp        ✅ Types JAM réutilisables
 ├── header.lisp       ✅ Encoding Header (Gray Paper §5)
-└── extrinsic.lisp    ⏳ Encoding Extrinsic (Gray Paper §4.3)
+├── extrinsic.lisp    ⏳ Encoding Extrinsic (Gray Paper §4.3)
+└── block.lisp        ✅ Encoding Block (Gray Paper §4.2) - Orchestrator
 ```
 
 ---
@@ -166,15 +167,86 @@ EG : Guarantees extrinsic  - Gray Paper §11-12 (work reports)
 
 ---
 
+## 📄 `block.lisp` - Block Encoding (Orchestrator)
+
+**Responsabilité :** Orchestration du header + extrinsic pour le bloc complet (Gray Paper §4.2).
+
+### Structure du Block
+
+```
+B ≡ (H, E)
+
+H : Header (Gray Paper §5)
+E : Extrinsic (Gray Paper §4.3)
+
+Encoding: E(B) = E(H) || E(E)
+```
+
+### Fonctions :
+
+#### Encoding
+- `encode-block(header, extrinsic)` - Encode complet B ≡ (H, E)
+  - Accepte closures ou plists
+  - E(B) = E(H) || E(E)
+
+#### Decoding
+- `decode-block(bytes, offset)` - Decode basique (fixed fields)
+- `decode-block-complete(bytes, offset)` - Decode complet (TODO)
+
+#### Hashing
+- `compute-block-hash(header, extrinsic)` - Hash du bloc
+  - **Note :** Le hash du bloc = hash du header uniquement !
+  - L'extrinsic ne contribue PAS au hash du bloc
+
+#### Closure
+- `make-block-encoded(:header :extrinsic)` - Closure bloc Pure FP
+  - Interface : `:header`, `:extrinsic`, `:encoded`, `:hash`
+  - Delegation vers header et extrinsic
+  - Lazy evaluation pour `:encoded` et `:hash`
+
+#### Helpers
+- `validate-block-structure(block)` - Valide structure
+- `block-size(block)` - Taille en bytes
+
+### Exemple d'utilisation
+
+```lisp
+;; Créer un bloc à partir de closures
+(defparameter *header* 
+  (make-header-encoded :parent-hash #(...) :slot 42 ...))
+
+(defparameter *extrinsic* 
+  (make-extrinsic-encoded :tickets ... :disputes ...))
+
+(defparameter *block* 
+  (make-block-encoded :header *header* :extrinsic *extrinsic*))
+
+;; Accès
+(funcall *block* :header)        ; → header closure
+(funcall *block* :extrinsic)     ; → extrinsic closure
+(funcall *block* :slot)          ; → 42 (delegate to header)
+(funcall *block* :encoded)       ; → byte array (lazy)
+(funcall *block* :hash)          ; → 32-byte hash (lazy)
+
+;; Encoding direct
+(encode-block *header* *extrinsic*)  ; → byte array
+
+;; Hash du bloc
+(compute-block-hash *header* *extrinsic*)  ; → 32-byte hash
+```
+
+---
+
 ## 🔍 Dépendances
 
 ```
 primitives.lisp
     ↓
 types.lisp (utilise primitives)
-    ↓
-header.lisp (utilise types + primitives)
-extrinsic.lisp (utilise types + primitives)
+    ↓ 
+    ├─→ header.lisp (utilise types + primitives)
+    ├─→ extrinsic.lisp (utilise types + primitives)
+    └─→ block.lisp (orchestre header + extrinsic)
 ```
 
 **Ordre de chargement ASDF :**
@@ -182,6 +254,7 @@ extrinsic.lisp (utilise types + primitives)
 2. `types.lisp`
 3. `header.lisp`
 4. `extrinsic.lisp`
+5. `block.lisp` ← Orchestrator final
 
 ---
 
@@ -192,18 +265,20 @@ extrinsic.lisp (utilise types + primitives)
 - **Types** : Types JAM réutilisables (hash, signature, validator)
 - **Header** : Spécifique au header
 - **Extrinsic** : Spécifique à l'extrinsic
+- **Block** : Orchestration header + extrinsic
 
 ### ✅ Réutilisabilité
 Les types dans `types.lisp` sont partagés entre :
 - Header (epoch markers, validators, hashes)
 - Extrinsic (à venir)
+- Block (orchestration)
 - State (à venir)
 
 ### ✅ Évolutivité
 Facile d'ajouter de nouveaux modules :
 - `state.lisp` - State encoding (Gray Paper §6-7)
-- `block.lisp` - Block encoding (B ≡ (H, E))
 - `work.lisp` - Work packages/reports (Gray Paper §11-12)
+- Plus de types dans `types.lisp` au besoin
 
 ### ✅ Maintenabilité
 - Fichiers plus courts (< 300 lignes chacun)
