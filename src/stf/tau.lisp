@@ -43,7 +43,7 @@
   "Extract τ' ≡ HT from header closure."
   (funcall header :slot))
 
-(defun apply-timeslot-transition (tau header)
+(defun transition-tau (tau header)
   "τ STF: τ → τ'
    
    GP §5.7: τ' > τ

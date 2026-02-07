@@ -135,7 +135,7 @@
    #:epoch-phase-to-timeslot
    #:new-epoch-p
    #:timeslot-from-header
-   #:apply-timeslot-transition
+   #:transition-tau
    
    ;; ═══════════════════════════════════════════
    ;; STF — Recent History β (GP §7)
