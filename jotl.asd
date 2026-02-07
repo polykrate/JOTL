@@ -43,14 +43,15 @@
      (:file "extrinsic-hash") ; HX - Extrinsic Hash (GP §5.4-5.6)
      (:file "block")))        ; encode/decode block B ≡ (H, E) - orchestrator
    
-   ;; 4. Block - Block structure (GP §4-5)
-   (:module "block"
-    :pathname "src/block"
-    :serial t
-    :components
-    ((:file "header")         ; H ≡ (HP, HR, HX, ...)
-     (:file "extrinsic")      ; E ≡ (ET, ED, EP, ...)
-     (:file "block")))        ; B ≡ (H, E)
+  ;; 4. Block - Block structure (GP §4-5)
+  (:module "block"
+   :pathname "src/block"
+   :serial t
+   :components
+   ((:file "header")         ; H ≡ (HP, HR, HX, ...)
+    (:file "extrinsic")      ; E ≡ (ET, ED, EP, ...)
+    (:file "block")          ; B ≡ (H, E)
+    (:file "validation")))   ; Block validation functions
    
    ;; 5. Utils - Utilities (Merkle Trie, etc.)
    (:module "utils"

@@ -67,23 +67,35 @@
    #:+ancestor-retention-hours+
    #:compute-ancestor-set
    #:is-ancestor-p
-   #:compute-extrinsic-hash
-   #:parent-function
-   #:compute-parent-hash
-   #:validate-parent-hash
-   #:validate-timeslot
-   #:timeslot-in-past-p
-   #:timeslot-greater-than-parent-p
+  #:compute-extrinsic-hash
+  #:parent-function
+  #:compute-parent-hash
+  #:validate-parent-hash
+  #:validate-timeslot
+  #:timeslot-in-past-p
+  #:timeslot-greater-than-parent-p
+  
+  ;; Block Validation (Gray Paper §5)
+  #:validate-extrinsic-hash
+  #:validate-header
+  #:validate-block
+  #:validate-block-from-binary
    
-   ;; Extrinsic (Gray Paper §4.3)
-   #:make-extrinsic
-   #:extrinsic-tickets
-   #:extrinsic-disputes
-   #:extrinsic-preimages
-   #:extrinsic-assurances
-   #:extrinsic-guarantees
-   
-   ;; Merkle Trie (Gray Paper Appendix D)
+  ;; Extrinsic (Gray Paper §4.3)
+  #:make-extrinsic
+  #:extrinsic-tickets
+  #:extrinsic-disputes
+  #:extrinsic-preimages
+  #:extrinsic-assurances
+  #:extrinsic-guarantees
+  
+  ;; Header & Extrinsic Encoding/Decoding
+  #:encode-header
+  #:decode-header
+  #:encode-extrinsic
+  #:decode-extrinsic
+  
+  ;; Merkle Trie (Gray Paper Appendix D)
    #:trie-bit
    #:trie-branch
    #:trie-leaf
