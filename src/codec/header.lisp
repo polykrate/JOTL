@@ -284,6 +284,32 @@
       (otherwise (error "Unknown header message: ~a" msg)))))
 
 ;;; ==========================================================================
+;;; Header Hash Computation
+;;; ==========================================================================
+
+(defun compute-header-hash-from-decoded (header-plist)
+  "Compute H(E(H)) - hash of encoded header from decoded header plist.
+   
+   Gray Paper §5.2: HP ≡ H(E(P(H)))
+   
+   Args:
+     header-plist: Decoded header as plist (from decode-header)
+   
+   Returns:
+     32-byte Blake2b-256 hash"
+  (let ((encoded (encode-header-unsealed
+                  (getf header-plist :parent-hash)
+                  (getf header-plist :state-root)
+                  (getf header-plist :extrinsic-hash)
+                  (getf header-plist :slot)
+                  (getf header-plist :epoch-mark)
+                  (getf header-plist :tickets-mark)
+                  (getf header-plist :offenders-mark)
+                  (getf header-plist :author-index)
+                  (getf header-plist :entropy-source))))
+    (jam.ffi:blake2b-256 encoded)))
+
+;;; ==========================================================================
 ;;; Header Decoding
 ;;; ==========================================================================
 
@@ -365,6 +391,7 @@
           encode-header-unsealed
           decode-header
           compute-header-hash
+          compute-header-hash-from-decoded
           make-header-encoded
           encode-epoch-marker
           decode-epoch-marker

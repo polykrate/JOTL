@@ -70,6 +70,7 @@
   #:compute-extrinsic-hash
   #:parent-function
   #:compute-parent-hash
+  #:compute-header-hash-from-decoded
   #:validate-parent-hash
   #:validate-timeslot
   #:timeslot-in-past-p
