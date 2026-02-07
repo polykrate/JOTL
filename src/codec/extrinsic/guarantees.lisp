@@ -123,6 +123,7 @@
           (incf pos sig-bytes)
           
           (values (list :report report
+                        :report-raw-bytes (subseq bytes offset (+ offset report-bytes))
                         :slot slot
                         :signatures signatures)
                   (- pos offset)))))))

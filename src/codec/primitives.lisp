@@ -109,115 +109,66 @@
         count 1))
 
 (defun encode-compact (value)
-  "Encode natural number in JAM compact format.
+  "Encode natural number in JAM compact format (Gray Paper C.5).
    
-   JAM compact encoding (NOT SCALE!):
-   Number of leading 1-bits in first byte = number of additional bytes.
-   Value stored big-endian in remaining bits.
+   Formula C.5:
+     E(x) = [0]                                              if x = 0
+     E(x) = [2⁸-2^(8-l) + ⌊x/2^(8l)⌋] ⌢ E_l(x mod 2^(8l)) if ∃l∈N₈: 2^(7l)≤x<2^(7(l+1))
+     E(x) = [2⁸-1] ⌢ E₈(x)                                  otherwise (x < 2⁶⁴)
+   
+   Where E_l is little-endian fixed-length encoding (C.12).
+   
+   Leading 1-bits in first byte = number of additional bytes.
+   Header byte contains high bits of value.
+   Remaining bytes are the LOW part in LITTLE-ENDIAN order.
    
    Args:
-     value: Natural number (usually a length or small integer)
+     value: Natural number (0 to 2^64-1)
    
    Returns:
      Byte array (1-9 bytes)"
   (check-type value (integer 0 *))
   
-  (cond
-    ;; 1 byte: 0xxxxxxx (0-127)
-    ((< value #x80)
-     (make-array 1 :element-type '(unsigned-byte 8)
-                 :initial-contents (list value)))
-    
-    ;; 2 bytes: 10xxxxxx xxxxxxxx (128-16383)
-    ((< value #x4000)
-     (make-array 2 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #x80 (ash value -8))
-                       (logand value #xFF))))
-    
-    ;; 3 bytes: 110xxxxx xxxxxxxx xxxxxxxx (16384-2097151)
-    ((< value #x200000)
-     (make-array 3 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #xC0 (ash value -16))
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 4 bytes: 1110xxxx xxxxxxxx xxxxxxxx xxxxxxxx
-    ((< value #x10000000)
-     (make-array 4 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #xE0 (ash value -24))
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 5 bytes: 11110xxx ...
-    ((< value #x800000000)
-     (make-array 5 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #xF0 (ash value -32))
-                       (logand (ash value -24) #xFF)
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 6 bytes: 111110xx ...
-    ((< value #x40000000000)
-     (make-array 6 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #xF8 (ash value -40))
-                       (logand (ash value -32) #xFF)
-                       (logand (ash value -24) #xFF)
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 7 bytes: 1111110x ...
-    ((< value #x2000000000000)
-     (make-array 7 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list (logior #xFC (ash value -48))
-                       (logand (ash value -40) #xFF)
-                       (logand (ash value -32) #xFF)
-                       (logand (ash value -24) #xFF)
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 8 bytes: 11111110 xxxxxxxx ... (7 data bytes, 56 bits)
-    ((< value #x100000000000000)
-     (make-array 8 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list #xFE
-                       (logand (ash value -48) #xFF)
-                       (logand (ash value -40) #xFF)
-                       (logand (ash value -32) #xFF)
-                       (logand (ash value -24) #xFF)
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))
-    
-    ;; 9 bytes: 11111111 xxxxxxxx ... (8 data bytes, 64 bits)
-    (t
-     (make-array 9 :element-type '(unsigned-byte 8)
-                 :initial-contents
-                 (list #xFF
-                       (logand (ash value -56) #xFF)
-                       (logand (ash value -48) #xFF)
-                       (logand (ash value -40) #xFF)
-                       (logand (ash value -32) #xFF)
-                       (logand (ash value -24) #xFF)
-                       (logand (ash value -16) #xFF)
-                       (logand (ash value -8) #xFF)
-                       (logand value #xFF))))))
+  ;; Find l: the smallest l in {0..7} such that 2^(7l) ≤ value < 2^(7(l+1))
+  ;; Special cases: value=0 → [0], value≥2^56 → 9 bytes with 0xFF header
+  (if (zerop value)
+      (make-array 1 :element-type '(unsigned-byte 8) :initial-contents '(0))
+      (let ((l (loop for ll from 0 to 7
+                     when (and (>= value (expt 2 (* 7 ll)))
+                               (< value (expt 2 (* 7 (1+ ll)))))
+                       return ll)))
+        (if l
+            ;; General case: header byte + l bytes in little-endian
+            ;; header = (2^8 - 2^(8-l)) + ⌊x / 2^(8l)⌋
+            ;; remaining = E_l(x mod 2^(8l)) = little-endian of low 8l bits
+            (let* ((total-bytes (1+ l))
+                   (low-part (mod value (expt 2 (* 8 l))))
+                   (high-part (floor value (expt 2 (* 8 l))))
+                   (header (+ (- 256 (expt 2 (- 8 l))) high-part))
+                   (result (make-array total-bytes :element-type '(unsigned-byte 8))))
+              (setf (aref result 0) header)
+              ;; Write remaining l bytes in LITTLE-ENDIAN (E_l from C.12)
+              (loop for i from 1 to l
+                    do (setf (aref result i) (logand low-part #xFF))
+                       (setf low-part (ash low-part -8)))
+              result)
+            ;; Overflow case: x ≥ 2^56 → [0xFF] ⌢ E₈(x) (8 bytes little-endian)
+            (let ((result (make-array 9 :element-type '(unsigned-byte 8)))
+                  (v value))
+              (setf (aref result 0) #xFF)
+              (loop for i from 1 to 8
+                    do (setf (aref result i) (logand v #xFF))
+                       (setf v (ash v -8)))
+              result)))))
 
 (defun decode-compact (bytes &optional (offset 0))
-  "Decode JAM compact-encoded natural number.
+  "Decode JAM compact-encoded natural number (Gray Paper C.5).
    
-   JAM compact encoding (NOT SCALE!):
-   Number of leading 1-bits in first byte = number of additional bytes.
-   Value stored big-endian in remaining bits.
+   Formula C.5 inverse:
+     First byte determines l (number of leading 1-bits = additional bytes).
+     Header byte high bits → rem = high part of value.
+     Following l bytes → little-endian low part of value.
+     value = low_part + (rem << (8*l))
    
    Args:
      bytes: Byte array containing compact-encoded value
@@ -227,23 +178,20 @@
      (values decoded-value bytes-consumed)"
   (let* ((first-byte (aref bytes offset))
          (l (count-leading-ones first-byte))
-         (total-bytes (1+ l)))
-    (if (= l 8)
-        ;; Special case: first byte = 0xFF, 8 data bytes following
-        (let ((value 0))
-          (loop for i from 1 to 8
-                do (setf value (logior (ash value 8)
-                                       (aref bytes (+ offset i)))))
-          (values value 9))
-        ;; General case: l leading 1s + separator 0, remaining bits + l more bytes
-        (let* ((data-bits (- 7 l))
-               (mask (1- (ash 1 data-bits)))
-               (value (logand first-byte mask)))
-          ;; Read remaining bytes in big-endian order
-          (loop for i from 1 to l
-                do (setf value (logior (ash value 8)
-                                       (aref bytes (+ offset i)))))
-          (values value total-bytes)))))
+         (total-bytes (1+ l))
+         ;; Unified formula — works for all l ∈ {0..8}
+         ;; l=8 (0xFF): data-bits=0, mask=0, rem=0 → pure 8-byte LE
+         (data-bits (max 0 (- 7 l)))
+         (mask (1- (ash 1 data-bits)))
+         (rem (logand first-byte mask))
+         (low-part 0))
+    ;; Read l remaining bytes as LITTLE-ENDIAN (E_l from C.12)
+    (loop for i from 1 to l
+          do (setf low-part (logior low-part
+                                    (ash (aref bytes (+ offset i))
+                                         (* 8 (1- i))))))
+    (values (+ low-part (ash rem (* 8 l)))
+            total-bytes)))
 
 ;;; ==========================================================================
 ;;; Sequence Encoding (with compact length prefix)

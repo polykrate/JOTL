@@ -166,6 +166,16 @@
                             :exports exports)
                       (- pos offset)))))))))
 
+(defun encode-refine-load (load)
+  "Encode RefineLoad (all compact-encoded fields).
+   Returns: byte array"
+  (concatenate '(vector (unsigned-byte 8))
+               (encode-compact (getf load :gas-used))
+               (encode-compact (getf load :imports))
+               (encode-compact (getf load :extrinsic-count))
+               (encode-compact (getf load :extrinsic-size))
+               (encode-compact (getf load :exports))))
+
 ;;; ==========================================================================
 ;;; WorkExecResult (Enum)
 ;;; ==========================================================================
@@ -215,6 +225,34 @@
        ;; Unknown variant - record the code
        (values (list :error variant) 1)))))
 
+(defun encode-work-exec-result (result)
+  "Encode WorkExecResult (Enum).
+   
+   Gray Paper C.34:
+     O(o) = (0, ↕o) if o ∈ B  [ok with byte sequence]
+     O(o) = 1 if o = ∞        [out_of_gas]
+     O(o) = 2 if o = ☇        [panic]
+     O(o) = 3 if o = ⊚        [bad_exports]
+     O(o) = 4 if o = ⊖        [output_oversize]
+     O(o) = 5 if o = BAD      [bad_code]
+     O(o) = 6 if o = BIG      [code_oversize]
+   
+   Returns: byte array"
+  (cond
+    ((getf result :ok)
+     (let ((blob (getf result :ok)))
+       (concatenate '(vector (unsigned-byte 8))
+                    (encode-u8 0)
+                    (encode-compact (length blob))
+                    blob)))
+    ((getf result :out-of-gas)    (encode-u8 1))
+    ((getf result :panic)         (encode-u8 2))
+    ((getf result :bad-exports)   (encode-u8 3))
+    ((getf result :output-oversize) (encode-u8 4))
+    ((getf result :bad-code)      (encode-u8 5))
+    ((getf result :code-oversize) (encode-u8 6))
+    (t (error "Unknown WorkExecResult: ~a" result))))
+
 ;;; ==========================================================================
 ;;; WorkResult
 ;;; ==========================================================================
@@ -260,6 +298,17 @@
                               :result exec-result
                               :refine-load refine-load)
                         (- pos offset))))))))))
+
+(defun encode-work-result (result)
+  "Encode WorkResult.
+   Returns: byte array"
+  (concatenate '(vector (unsigned-byte 8))
+               (encode-u32 (getf result :service-id))
+               (getf result :code-hash)
+               (getf result :payload-hash)
+               (encode-u64 (getf result :accumulate-gas))
+               (encode-work-exec-result (getf result :result))
+               (encode-refine-load (getf result :refine-load))))
 
 ;;; ==========================================================================
 ;;; Complete WorkReport Encoding/Decoding
@@ -360,8 +409,8 @@
                                      (concatenate '(vector (unsigned-byte 8))
                                                   (getf item :work-package-hash)
                                                   (getf item :segment-tree-root))))
-                  ;; TODO: encode-work-result for full results encoding
-                  (encode-compact (length (or (getf report :results) '())))))))
+                  (encode-sequence (or (getf report :results) '())
+                                   #'encode-work-result)))))
 
 ;;; ==========================================================================
 ;;; Exports
@@ -370,7 +419,7 @@
 (export '(decode-work-package-spec encode-work-package-spec
           decode-refine-context encode-refine-context
           decode-segment-root-lookup-item
-          decode-refine-load
-          decode-work-exec-result
-          decode-work-result
+          decode-refine-load encode-refine-load
+          decode-work-exec-result encode-work-exec-result
+          decode-work-result encode-work-result
           decode-work-report encode-work-report))
