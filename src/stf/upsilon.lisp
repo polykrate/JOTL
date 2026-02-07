@@ -79,7 +79,7 @@
          ;; ═══════════════════════════════════════════
          (tau-prime     (transition-tau tau h))
          (eta-prime     (transition-eta h tau eta))
-         (psi-prime     (transition-psi e-d psi))
+         (psi-prime     (transition-psi e-d psi tau kappa lambda-prev))
          (rho-dagger    (transition-rho-dagger e-d rho))
          (beta-dagger   (transition-beta-dagger h beta))
          ;; ═══════════════════════════════════════════
@@ -137,36 +137,17 @@
 ;;; Each returns prior value (identity). Implement one by one.
 
 ;; transition-eta → stf/eta.lisp
-
-(defun transition-psi (disputes psi)
-  "GP §4.11 — Judgments. TODO: §10"
-  (declare (ignore disputes)) psi)
-
-(defun transition-rho-dagger (disputes rho)
-  "GP §4.12 — Core assignments after disputes. TODO: §10"
-  (declare (ignore disputes)) rho)
-
+;; transition-psi → stf/psi.lisp
+;; transition-rho-dagger, transition-rho-ddagger, transition-rho → stf/rho.lisp
 ;; transition-beta-dagger → stf/beta.lisp
 
 (defun transition-kappa (header tau kappa gamma)
-  "GP §4.9 — Validator keys at epoch boundary. TODO: §6"
+  "GP §4.9 — Validator keys at epoch boundary. STUB: §6"
   (declare (ignore header tau gamma)) kappa)
 
 (defun transition-lambda (header tau lambda-prev kappa)
-  "GP §4.10 — Archived keys. TODO: §6"
+  "GP §4.10 — Archived keys. STUB: §6"
   (declare (ignore header tau kappa)) lambda-prev)
-
-(defun transition-rho-ddagger (assurances rho-dagger)
-  "GP §4.13 — Core assignments after assurances. TODO: §11"
-  (declare (ignore assurances)) rho-dagger)
-
-(defun compute-ready-reports (assurances rho-dagger)
-  "GP §4.15 — Ready reports. TODO: §11"
-  (declare (ignore assurances rho-dagger)) nil)
-
-(defun transition-rho (guarantees rho-ddagger kappa tau-prime)
-  "GP §4.14 — Register guarantees. TODO: §11-12"
-  (declare (ignore guarantees kappa tau-prime)) rho-ddagger)
 
 (defun transition-gamma (header tau tickets gamma iota eta-prime kappa-prime psi-prime)
   "GP §4.7 — Safrole. TODO: §6"

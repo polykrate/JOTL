@@ -173,6 +173,25 @@
    #:encode-state-eta #:decode-state-eta
    
    ;; ═══════════════════════════════════════════
+   ;; STF — Judgments ψ (GP §10)
+   ;; ═══════════════════════════════════════════
+   #:transition-psi
+   #:transition-rho-dagger
+   #:classify-verdict
+   #:compute-offenders-mark
+   #:super-majority
+   #:disputes-error #:disputes-error-code
+   #:encode-state-psi #:decode-state-psi
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Core Assignments ρ (GP §10-12)
+   ;; ═══════════════════════════════════════════
+   #:transition-rho-dagger
+   #:transition-rho-ddagger
+   #:compute-ready-reports
+   #:transition-rho
+   
+   ;; ═══════════════════════════════════════════
    ;; STF — Υ(σ,B)→σ' (GP §4.1)
    ;; ═══════════════════════════════════════════
    #:transition-state

@@ -74,6 +74,8 @@
      (:file "tau")
      (:file "beta")
      (:file "eta")
+     (:file "psi")
+     (:file "rho")
      (:file "upsilon")))))
 
 ;;;; Tests are run via scripts/ — see tests/README.md
