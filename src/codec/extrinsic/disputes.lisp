@@ -53,7 +53,10 @@
 (defun encode-verdict (verdict)
   "Encode a verdict (target: H, age: u32, votes: [...]).
    
-   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])"
+   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])
+   Gray Paper §10.2: Verdicts must have exactly ⌊2V/3⌋ + 1 votes (supermajority)
+   
+   NOTE: Votes have NO compact prefix! They're directly concatenated."
   (let ((target (getf verdict :target))
         (age (getf verdict :age))
         (votes (getf verdict :votes)))
@@ -63,33 +66,49 @@
                           (vector (coerce target '(simple-array (unsigned-byte 8) (*)))))))
       (assert (= (length target-bytes) 32) ()
               "Verdict target must be 32 bytes, got: ~a" (length target-bytes))
+      
+      ;; Validate vote count matches chainspec supermajority
+      (let ((expected-votes (1+ (floor (* 2 (num-validators)) 3))))
+        (assert (= (length votes) expected-votes) ()
+                "Verdict must have exactly ~a votes (⌊2×~a/3⌋+1), got: ~a"
+                expected-votes (num-validators) (length votes)))
+      
+      ;; Encode: target (32) + age (u32) + votes (NO compact prefix!)
       (let ((encoded-votes (mapcar #'encode-vote votes)))
         (concatenate '(vector (unsigned-byte 8))
                      target-bytes
                      (encode-u32 age)
-                     (encode-compact (length votes))
                      (apply #'concatenate '(vector (unsigned-byte 8)) encoded-votes))))))
 
 (defun decode-verdict (bytes offset)
   "Decode a verdict.
    
-   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])"
+   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])
+   Gray Paper §10.2: Verdicts contain exactly ⌊2V/3⌋ + 1 votes (supermajority)
+   
+   NOTE: Votes have NO compact prefix! The count is derived from chainspec.
+   
+   Returns: (values verdict-plist bytes-consumed)"
   (let* ((target (subseq bytes offset (+ offset 32)))
          (age (decode-u32 bytes (+ offset 32)))
-         (pos (+ offset 36)))
-    (multiple-value-bind (num-votes bytes-consumed-len)
-        (decode-compact bytes pos)
-      (incf pos bytes-consumed-len)
-      (let ((votes '()))
-        (dotimes (i num-votes)
-          (multiple-value-bind (vote vote-size)
-              (decode-vote bytes pos)
-            (push vote votes)
-            (incf pos vote-size)))
-        (values (list :target target
-                      :age age
-                      :votes (nreverse votes))
-                (- pos offset))))))
+         (pos (+ offset 36))
+         ;; Calculate number of votes from chainspec
+         ;; num_votes = ⌊2 × num_validators / 3⌋ + 1
+         (num-votes (1+ (floor (* 2 (num-validators)) 3)))
+         (votes '()))
+    
+    ;; Read exactly num-votes votes (no compact prefix)
+    ;; Each vote is: bool (1) + E2(index) (2) + signature (64) = 67 bytes
+    (dotimes (i num-votes)
+      (multiple-value-bind (vote vote-size)
+          (decode-vote bytes pos)
+        (push vote votes)
+        (incf pos vote-size)))
+    
+    (values (list :target target
+                  :age age
+                  :votes (nreverse votes))
+            (- pos offset))))
 
 ;;; ==========================================================================
 ;;; Culprit Encoding/Decoding
