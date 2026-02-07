@@ -10,7 +10,9 @@
 ;;;
 ;;; Disputes ≡ (verdicts: [Verdict], culprits: [Culprit], faults: [Fault])
 ;;;
-;;; Verdict ≡ (target: H, age: u16, votes: [(vote: bool, index: u16, signature: [u8; 64])])
+;;; Gray Paper C.21: ED((v, c, f)) = E(↕[(r, E4(a), [(v, E2(i), s) | ...]) | ...], ↕c, ↕f)
+;;;
+;;; Verdict ≡ (target: H, age: u32, votes: [(vote: bool, index: u16, signature: [u8; 64])])
 ;;; Culprit ≡ (target: H, key: H, signature: [u8; 64])
 ;;; Fault   ≡ (target: H, vote: bool, key: H, signature: [u8; 64])
 
@@ -49,7 +51,9 @@
 ;;; ==========================================================================
 
 (defun encode-verdict (verdict)
-  "Encode a verdict (target: H, age: u16, votes: [...])."
+  "Encode a verdict (target: H, age: u32, votes: [...]).
+   
+   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])"
   (let ((target (getf verdict :target))
         (age (getf verdict :age))
         (votes (getf verdict :votes)))
@@ -62,15 +66,17 @@
       (let ((encoded-votes (mapcar #'encode-vote votes)))
         (concatenate '(vector (unsigned-byte 8))
                      target-bytes
-                     (encode-u16 age)
+                     (encode-u32 age)
                      (encode-compact (length votes))
                      (apply #'concatenate '(vector (unsigned-byte 8)) encoded-votes))))))
 
 (defun decode-verdict (bytes offset)
-  "Decode a verdict."
+  "Decode a verdict.
+   
+   Gray Paper C.21: (r, E4(a), [(v, E2(i), s) | ...])"
   (let* ((target (subseq bytes offset (+ offset 32)))
-         (age (decode-u16 bytes (+ offset 32)))
-         (pos (+ offset 34)))
+         (age (decode-u32 bytes (+ offset 32)))
+         (pos (+ offset 36)))
     (multiple-value-bind (num-votes bytes-consumed-len)
         (decode-compact bytes pos)
       (incf pos bytes-consumed-len)

@@ -7,17 +7,18 @@
 ;;; Assurances Extrinsic (EA)
 ;;; ==========================================================================
 ;;; Gray Paper §11: Availability assurances
+;;; Gray Paper C.19: EA(EA) = E(↕[(a, f, E2(v), s) | (a, f, v, s) ← EA])
 ;;;
 ;;; Assurance ≡ (anchor: H, bitfield: [u8], validator_index: u16, signature: [u8; 64])
 ;;;
 ;;; where:
-;;;   anchor          : Hash (32 bytes) - work package hash
-;;;   bitfield        : Bitfield (variable length, compact-prefixed)
-;;;   validator_index : u16 - validator who made the assurance
-;;;   signature       : Ed25519 signature (64 bytes)
+;;;   a (anchor)      : Hash (32 bytes) - work package hash
+;;;   f (bitfield)    : Bitfield (variable length, RAW bytes - NOT compact-prefixed!)
+;;;   E2(v) (validator_index) : u16 - validator who made the assurance
+;;;   s (signature)   : Ed25519 signature (64 bytes)
 ;;;
 ;;; EA is a sequence of assurances, compact-length prefixed:
-;;; E(EA) = E(↕[E(assurance) | assurance ← EA])
+;;; E(EA) = E(↕[(a, f, E2(v), s) | assurance ← EA])
 
 (defun encode-assurance (assurance)
   "Encode a single assurance (anchor, bitfield, validator_index, signature).
@@ -58,10 +59,10 @@
           (assert (= (length sig-bytes) 64) ()
                   "Signature must be 64 bytes (Ed25519), got: ~a" (length sig-bytes))
           
-          ;; Encode: anchor (32) + compact(bitfield-length) + bitfield + validator-index (u16) + signature (64)
+          ;; Encode: anchor (32) + bitfield (RAW, no compact!) + validator-index (u16) + signature (64)
+          ;; Gray Paper C.19: (a, f, E2(v), s)
           (concatenate '(vector (unsigned-byte 8))
                        anchor-bytes
-                       (encode-compact (length bitfield-bytes))
                        bitfield-bytes
                        (encode-u16 validator-index)
                        sig-bytes))))))
@@ -69,23 +70,27 @@
 (defun decode-assurance (bytes offset)
   "Decode a single assurance from bytes.
    
+   Gray Paper C.19: (a, f, E2(v), s)
+   Bitfield size: ⌈num-cores / 8⌉ bytes (from chainspec)
+   
    Returns: (values assurance-plist bytes-consumed)"
   (let* ((anchor (subseq bytes offset (+ offset 32)))
-         (pos (+ offset 32)))
-    (multiple-value-bind (bitfield-length bytes-consumed-len)
-        (decode-compact bytes pos)
-      (incf pos bytes-consumed-len)
-      (let ((bitfield (subseq bytes pos (+ pos bitfield-length))))
-        (incf pos bitfield-length)
-        (let ((validator-index (decode-u16 bytes pos)))
-          (incf pos 2)
-          (let ((signature (subseq bytes pos (+ pos 64))))
-            (incf pos 64)
-            (values (list :anchor anchor
-                          :bitfield bitfield
-                          :validator-index validator-index
-                          :signature signature)
-                    (- pos offset))))))))
+         (pos (+ offset 32))
+         ;; Calculate bitfield length from chainspec
+         ;; bitfield_length = ⌈num-cores / 8⌉
+         (bitfield-length (ceiling (num-cores) 8)))
+    
+    (let ((bitfield (subseq bytes pos (+ pos bitfield-length))))
+      (incf pos bitfield-length)
+      (let ((validator-index (decode-u16 bytes pos)))
+        (incf pos 2)
+        (let ((signature (subseq bytes pos (+ pos 64))))
+          (incf pos 64)
+          (values (list :anchor anchor
+                        :bitfield bitfield
+                        :validator-index validator-index
+                        :signature signature)
+                  (- pos offset)))))))
 
 (defun encode-assurances-extrinsic (assurances)
   "Encode assurances extrinsic (EA).

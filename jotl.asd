@@ -40,6 +40,7 @@
        (:file "guarantees")   ; EG - Guarantees extrinsic (stub)
        (:file "extrinsic")))  ; Orchestrator E ≡ (ET, ED, EP, EA, EG)
      
+     (:file "extrinsic-hash") ; HX - Extrinsic Hash (GP §5.4-5.6)
      (:file "block")))        ; encode/decode block B ≡ (H, E) - orchestrator
    
    ;; 4. Block - Block structure (GP §4-5)

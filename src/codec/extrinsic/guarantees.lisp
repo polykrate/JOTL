@@ -30,19 +30,38 @@
       (error "Guarantees encoding not yet fully implemented (too complex). Got ~a guarantees." 
              (length guarantees))))
 
+(defun decode-guarantee-stub (bytes offset)
+  "Decode a single guarantee - STUB VERSION.
+   
+   ⏳ This is a PARTIAL implementation that skips the guarantee data.
+   We read the compact length of the encoded guarantee and skip that many bytes.
+   
+   Returns: (values guarantee-stub bytes-consumed)"
+  (multiple-value-bind (guarantee-size bytes-consumed-len)
+      (decode-compact bytes offset)
+    (incf offset bytes-consumed-len)
+    ;; Skip the guarantee data
+    (values (list :stub t :size guarantee-size)
+            (+ bytes-consumed-len guarantee-size))))
+
 (defun decode-guarantees-extrinsic (bytes offset)
   "Decode guarantees extrinsic (EG) - work reports.
    
-   ⏳ PARTIAL STUB: Reads compact length, expects 0 (empty).
+   ⏳ PARTIAL STUB: Reads guarantees but doesn't fully parse them.
    TODO: Implement full structure from Gray Paper §11-12
    
    Returns: (values guarantees bytes-consumed)"
   (multiple-value-bind (num-guarantees bytes-consumed-len)
       (decode-compact bytes offset)
-    (unless (zerop num-guarantees)
-      (error "Guarantees decoding not yet fully implemented (too complex). Found ~a guarantees in data."
-             num-guarantees))
-    (values '() bytes-consumed-len)))
+    (let ((guarantees '())
+          (pos (+ offset bytes-consumed-len)))
+      (dotimes (i num-guarantees)
+        (multiple-value-bind (guarantee guarantee-size)
+            (decode-guarantee-stub bytes pos)
+          (push guarantee guarantees)
+          (incf pos guarantee-size)))
+      (values (nreverse guarantees)
+              (- pos offset)))))
 
 ;;; ==========================================================================
 ;;; Exports
