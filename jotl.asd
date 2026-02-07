@@ -1,7 +1,9 @@
 ;;;; jotl.asd — ASDF System Definition for JOTL v3
 ;;;;
 ;;;; Architecture:
+;;;;   core/   — Macros + protocol constants
 ;;;;   codec/  — JAM encoding primitives + protocol types (GP Appendix C)
+;;;;   utils/  — Merkle trie, MMR
 ;;;;   block/  — Block data structures B=(H,E) + encode/decode/hash/validation
 ;;;;   stf/    — State σ + state transition Υ(σ,B)→σ'
 
@@ -9,7 +11,7 @@
   :description "JAM (Join-Accumulate Machine) implementation in Pure Functional Common Lisp"
   :author "Polycrate"
   :license "MIT"
-  :version "3.1.0"
+  :version "3.2.0"
   :serial t
   :depends-on (#:alexandria
                #:jam-crypto)
@@ -17,17 +19,15 @@
   (;; 1. Package
    (:file "package")
    
-   ;; 2. Core — Protocol constants (GP §3-4)
+   ;; 2. Core — Macros + Protocol constants (GP §3-4)
    (:module "core"
     :pathname "src/core"
     :serial t
     :components
-    ((:file "constants")))
+    ((:file "macros")
+     (:file "constants")))
    
    ;; 3. Codec — JAM encoding primitives + protocol types (GP Appendix C)
-   ;;    Two clearly separated domains:
-   ;;      primitives = HOW to encode (El, compact, sequence, option, result)
-   ;;      types      = WHAT to encode (Hash, Key, Signature, Validator, Index)
    (:module "codec"
     :pathname "src/codec"
     :serial t
@@ -44,7 +44,6 @@
      (:file "mmr")))
    
    ;; 5. Block — Data structures B=(H,E) + encode/decode + hash + validation
-   ;;    Pure data — not mutable, not an STF.
    (:module "block"
     :pathname "src/block"
     :serial t

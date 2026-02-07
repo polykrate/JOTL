@@ -57,5 +57,4 @@
           (incf pos preimage-size)))
       (values (nreverse preimages) (- pos offset)))))
 
-(export '(encode-preimage decode-preimage
-          encode-preimages-extrinsic decode-preimages-extrinsic))
+;;; Exports managed in package.lisp

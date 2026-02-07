@@ -173,13 +173,4 @@
   "Compute HX from an extrinsic closure."
   (compute-extrinsic-hash (funcall extrinsic-closure :as-plist)))
 
-(export '(;; Encoding/Decoding
-          encode-extrinsic decode-extrinsic
-          ;; Closure
-          make-extrinsic
-          ;; Accessors
-          extrinsic-tickets extrinsic-disputes extrinsic-preimages
-          extrinsic-assurances extrinsic-guarantees
-          ;; HX
-          encode-guarantee-summary compute-guarantee-summaries
-          compute-extrinsic-hash compute-extrinsic-hash-from-closure))
+;;; Exports managed in package.lisp

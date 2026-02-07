@@ -328,25 +328,4 @@
   "Checks if h1 is an ancestor of h2."
   (equalp (funcall h1 :hash) (funcall h2 :parent-hash)))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; EXPORTS
-;;; ═════════════════════════════════════════════════════════════════
-
-(export '(;; Encoding/Decoding
-          encode-header encode-header-unsealed decode-header
-          encode-epoch-marker decode-epoch-marker
-          encode-tickets-mark decode-tickets-mark
-          encode-offenders decode-offenders
-          ;; Hashing
-          compute-header-hash compute-header-hash-from-plist
-          compute-header-hash-from-decoded
-          ;; Closure
-          make-header
-          ;; Accessors
-          header-parent-hash header-state-root header-extrinsic-hash
-          header-slot header-epoch-mark header-tickets-mark
-          header-author-index header-entropy-source header-offenders-mark
-          header-seal header-hash header-is-genesis-p
-          ;; Ancestors
-          parent-function compute-parent-hash
-          +ancestor-retention-hours+ compute-ancestor-set is-ancestor-p))
+;;; Exports managed in package.lisp (single source of truth)

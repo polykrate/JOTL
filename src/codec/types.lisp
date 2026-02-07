@@ -221,32 +221,4 @@
    Returns: (values u16 bytes-consumed)"
   (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
 
-;;; ==========================================================================
-;;; Exports
-;;; ==========================================================================
-
-(export '(;; Hashes
-          encode-hash-32
-          decode-hash-32
-          
-          ;; Keys
-          encode-ed25519-key
-          decode-ed25519-key
-          encode-bandersnatch-key
-          decode-bandersnatch-key
-          
-          ;; Signatures
-          encode-signature-96
-          decode-signature-96
-          
-          ;; Validators
-          encode-validator
-          decode-validator
-          encode-validator-sequence
-          decode-validator-sequence
-          
-          ;; Indices
-          encode-service-account-index
-          decode-service-account-index
-          encode-validator-index
-          decode-validator-index))
+;;; Exports managed in package.lisp

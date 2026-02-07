@@ -1,4 +1,6 @@
-;;;; package.lisp — Package definition for JOTL
+;;;; package.lisp — Single source of truth for JOTL exports
+;;;;
+;;;; ALL exports are declared here. No (export ...) in source files.
 
 (defpackage #:jotl
   (:use #:cl #:alexandria)
@@ -9,6 +11,11 @@
                 #:bytes-to-hex-string)
   (:documentation "JAM On The Lisp — Pure Functional Programming")
   (:export
+   ;; ═══════════════════════════════════════════
+   ;; Core — Macros
+   ;; ═══════════════════════════════════════════
+   #:define-value-object
+   
    ;; ═══════════════════════════════════════════
    ;; Core — Constants
    ;; ═══════════════════════════════════════════
@@ -28,6 +35,8 @@
    #:max-tickets-per-extrinsic
    #:rotation-period
    #:num-ec-pieces-per-segment
+   #:+zero-hash+
+   #:+mmr-peak-prefix+
    
    ;; ═══════════════════════════════════════════
    ;; Codec — Primitives (GP Appendix C)
@@ -51,6 +60,22 @@
    #:encode-validator-sequence #:decode-validator-sequence
    #:encode-service-account-index #:decode-service-account-index
    #:encode-validator-index #:decode-validator-index
+   
+   ;; ═══════════════════════════════════════════
+   ;; Utils — Merkle Trie
+   ;; ═══════════════════════════════════════════
+   #:trie-bit #:trie-branch #:trie-leaf
+   #:merkle-root #:compute-state-root #:pad-key-to-32
+   
+   ;; ═══════════════════════════════════════════
+   ;; Utils — MMR (GP Appendix E)
+   ;; ═══════════════════════════════════════════
+   #:mmr-merge
+   #:mmr-super-peak
+   #:mmr-append
+   #:mmr-carry
+   #:mmr-leaf-count
+   #:mmr-from-leaves
    
    ;; ═══════════════════════════════════════════
    ;; Block — Header (GP §5)
@@ -113,25 +138,25 @@
    #:apply-timeslot-transition
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Υ(σ,B)→σ' (GP §4.1)
+   ;; STF — Recent History β (GP §7)
    ;; ═══════════════════════════════════════════
-   #:transition-state
-   #:apply-block
-   #:import-block
-   
-   ;; Recent History β (GP §7)
+   #:+history-size+
    #:make-beta
    #:make-history-record
    #:beta-history
    #:beta-mmr-peaks
    #:transition-beta-dagger
    #:transition-beta
+   #:transition-beta-with-root
+   #:transition-beta-from-inputs
+   #:bounded-append
    
    ;; ═══════════════════════════════════════════
-   ;; Utils
+   ;; STF — Υ(σ,B)→σ' (GP §4.1)
    ;; ═══════════════════════════════════════════
-   #:trie-bit #:trie-branch #:trie-leaf
-   #:merkle-root #:compute-state-root #:pad-key-to-32
+   #:transition-state
+   #:apply-block
+   #:import-block
    
    ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)

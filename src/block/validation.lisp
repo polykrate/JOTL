@@ -93,7 +93,4 @@
     
     (values (null errors) (nreverse errors))))
 
-(export '(validate-extrinsic-hash
-          validate-timeslot-not-future
-          validate-parent-hash
-          validate-block))
+;;; Exports managed in package.lisp

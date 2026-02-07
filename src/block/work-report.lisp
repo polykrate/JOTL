@@ -255,10 +255,4 @@
                   (encode-sequence (or (getf report :results) '())
                                    #'encode-work-result)))))
 
-(export '(decode-work-package-spec encode-work-package-spec
-          decode-refine-context encode-refine-context
-          decode-segment-root-lookup-item
-          decode-refine-load encode-refine-load
-          decode-work-exec-result encode-work-exec-result
-          decode-work-result encode-work-result
-          decode-work-report encode-work-report))
+;;; Exports managed in package.lisp

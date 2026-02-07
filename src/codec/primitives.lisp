@@ -283,16 +283,4 @@
        (:ok  (concatenate '(vector (unsigned-byte 8)) #(0) (funcall ok-encoder (cdr value))))
        (:err (concatenate '(vector (unsigned-byte 8)) #(1) (funcall err-encoder (cdr value))))))))
 
-;;; ==========================================================================
-;;; Exports
-;;; ==========================================================================
-
-(export '(encode-fixed-le decode-fixed-le
-          E1 E2 E4 E8
-          encode-u8 encode-u16 encode-u32 encode-u64
-          decode-u8 decode-u16 decode-u32 decode-u64
-          count-leading-ones
-          encode-compact decode-compact
-          encode-sequence decode-sequence
-          encode-option decode-option
-          encode-result))
+;;; Exports managed in package.lisp

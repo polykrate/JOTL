@@ -86,7 +86,4 @@
    Returns: (values guarantees bytes-consumed)"
   (decode-sequence bytes #'decode-guarantee offset))
 
-(export '(encode-guarantee-signature decode-guarantee-signature
-          encode-guarantee-signatures decode-guarantee-signatures
-          encode-guarantee decode-guarantee
-          encode-guarantees-extrinsic decode-guarantees-extrinsic))
+;;; Exports managed in package.lisp

@@ -77,5 +77,4 @@
           (incf pos assurance-size)))
       (values (nreverse assurances) (- pos offset)))))
 
-(export '(encode-assurance decode-assurance
-          encode-assurances-extrinsic decode-assurances-extrinsic))
+;;; Exports managed in package.lisp

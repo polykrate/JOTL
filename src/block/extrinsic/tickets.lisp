@@ -56,5 +56,4 @@
           (incf pos ticket-size)))
       (values (nreverse tickets) (- pos offset)))))
 
-(export '(encode-ticket decode-ticket
-          encode-tickets-extrinsic decode-tickets-extrinsic))
+;;; Exports managed in package.lisp

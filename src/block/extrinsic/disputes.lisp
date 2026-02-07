@@ -204,8 +204,4 @@
                 (values (list :verdicts verdicts :culprits culprits :faults faults)
                         (- pos offset))))))))))
 
-(export '(encode-vote decode-vote
-          encode-verdict decode-verdict
-          encode-culprit decode-culprit
-          encode-fault decode-fault
-          encode-disputes-extrinsic decode-disputes-extrinsic))
+;;; Exports managed in package.lisp

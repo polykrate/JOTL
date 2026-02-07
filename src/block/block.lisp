@@ -133,15 +133,4 @@
 ;;; S: Accumulated work-reports | R: Ready work-reports
 ;;; T: Ticketed condition | U: Audit condition
 
-(export '(;; Closure
-          make-block
-          ;; Accessors
-          block-header block-extrinsic
-          block-tickets block-disputes block-preimages
-          block-assurances block-guarantees block-slot
-          ;; Encoding/Decoding
-          encode-block decode-block
-          ;; Hashing
-          compute-block-hash
-          ;; Helpers
-          validate-block-structure block-size))
+;;; Exports managed in package.lisp
