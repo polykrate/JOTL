@@ -1,0 +1,68 @@
+[package]
+name = "jam-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Crypto FFI for JAM Lisp client"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["ring"]
+ring = []
+
+[dependencies]
+# Blake2b hashing
+blake2 = "0.10"
+
+# Keccak-256 (legacy Ethereum-style, for MMR - GP Appendix E)
+sha3 = "0.10"
+
+# Ed25519 signatures  
+ed25519-dalek = { version = "2", features = ["hazmat"] }
+
+# Bandersnatch VRF (davxy's ark-vrf)
+# Supports: IETF VRF, Pedersen VRF, Ring VRF on Bandersnatch curve
+ark-vrf = { version = "0.1", features = ["bandersnatch", "ring", "parallel"] }
+
+# BLS12-381 for validator keys (GP 6.8-6.11)
+# Note: Already transitive via ark-vrf, but Rust requires explicit declaration to `use`
+ark-bls12-381 = "0.5"
+ark-ec = "0.5"
+ark-ff = "0.5"
+
+# Use ark-serialize v0.5 (same as ark-vrf uses)
+ark-serialize = "0.5"
+ark-std = "0.5"
+serde_json = "1.0.145"
+
+# Erasure coding (GP Appendix H) - using Parity's official implementation
+reed-solomon-novelpoly = "2.0"
+reed-solomon-simd = "3.1.0"
+
+# PolkaVM - RISC-V virtual machine for JAM PVM (GP Section 14)
+# Note: Must use 0.29 for compatibility with jam-program-blob-common
+polkavm = "0.29"
+
+# Logging
+log = "0.4"
+
+# JAM PVM Common - for parsing JAM blob format (used by test vectors)
+# NOTE: polkajam repo is private, so we use crates.io versions
+# Test vectors may use dev versions - compatibility issues possible
+jam-pvm-common = { version = "0.1", default-features = false }
+jam-pvm-builder = "0.1"
+jam-program-blob-common = { version = "0.1", features = ["polkavm"] }
+jam-types = "0.1"
+parity-scale-codec = "3"
+jam-codec = "0.1"
+
+[dev-dependencies]
+hex = "0.4"
+
+[profile.release]
+lto = true
+opt-level = 3
+
+[profile.dev]
+opt-level = 1  # Faster dev builds for arkworks

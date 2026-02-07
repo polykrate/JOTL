@@ -1,25 +1,35 @@
-# Common Lisp
+# Compiled Lisp files
 *.fasl
 *.fas
 *.lib
-*.dx64fsl
+*.x86f
 *.lx64fsl
-*.dx32fsl
-*.lx32fsl
-*.FASL
-*.fasl~
-*.lisp~
+*.dx64fsl
 
-# Cache
+# SBCL cache
 .cache/
-*.cache
+~/.cache/common-lisp/
 
-# VS Code
-.vscode/alive/
-
-# Test vectors (external repo)
-jamtestvectors/
+# Emacs
+*~
+\#*\#
+.#*
 
 # Temporary test files
 test-*.lisp
-.vscode/alive/
+test-*.sh
+test-*.c
+test-ffi-raw
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+target/
+
+# Quicklisp
+quicklisp/
+
+# OS
+.DS_Store
+Thumbs.db
