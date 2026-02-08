@@ -111,28 +111,19 @@
                                       :kappa kappa)
             (let* (;; ═══════════════════════════════════════════════
                    ;; WAVE 3 — depends on Wave 2 results (parallel)
-                   ;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
-                   ;; (4.16) accumulate < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
+                   ;; (4.14) ρ'  ≺ (EG, ρ‡, κ, τ')
+                   ;; (4.16) accumulate ≺ (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
                    ;; ═══════════════════════════════════════════════
-                   ;; known-packages derived from β history (GP §11)
-                   (known-packages (collect-known-package-hashes beta)))
-          (multiple-value-bind (rho-prime reported reporters
-                                cores-stats-prime services-stats-prime rho-error)
-              (transition-rho e-g rho-ddagger
-                              :tau-prime tau-prime
-                              :kappa kappa
-                              :lambda-prev lambda-prev
-                              :eta eta-prime
-                              :offenders (when psi-prime
-                                           (getf psi-prime :offenders))
-                              :recent-blocks beta
-                              :auth-pools alpha-prev
-                              :accounts delta
-                              :known-packages known-packages
-                              :cores-statistics nil   ;; TODO: from π when implemented
-                              :services-statistics nil) ;; TODO: from π when implemented
-            (declare (ignore rho-error reported reporters
-                             cores-stats-prime services-stats-prime))
+                   (rho-prime (transition-rho e-g rho-ddagger
+                                :tau-prime tau-prime
+                                :kappa kappa
+                                :lambda-prev lambda-prev
+                                :eta eta-prime
+                                :offenders (when psi-prime
+                                             (getf psi-prime :offenders))
+                                :recent-blocks beta
+                                :auth-pools alpha-prev
+                                :accounts delta)))
           (multiple-value-bind (omega-prime xi-prime delta-ddagger
                                 chi-prime iota-prime phi-prime
                                 theta-prime s-reports)
@@ -168,7 +159,7 @@
                :psi     psi-prime
                :pi*     pi-prime
                :omega   omega-prime
-               :xi      xi-prime)))))))))))
+               :xi      xi-prime))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; SUB-STF LOCATIONS — one file per component

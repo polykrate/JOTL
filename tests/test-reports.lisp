@@ -2,14 +2,15 @@
 ;;;; Full validation: transition-rho against jamtestvectors/stf/reports
 ;;;;
 ;;;; Tests per vector:
-;;;;   1. Parse pre_state (avail_assignments, curr_validators, prev_validators,
-;;;;      entropy, offenders, recent_blocks, auth_pools, accounts,
-;;;;      cores_statistics, services_statistics)
-;;;;   2. Parse input (guarantees, slot, known_packages)
-;;;;   3. Execute transition-rho(EG, ρ‡, ...)
-;;;;   4. Compare output: ok → reported + reporters | err → error code
-;;;;   5. Compare post_state: avail_assignments, cores_statistics, services_statistics
-;;;;   6. Codec roundtrip for avail_assignments
+;;;;   1. Parse pre_state (avail_assignments, validators, entropy,
+;;;;      offenders, recent_blocks, auth_pools, accounts, statistics)
+;;;;   2. Parse input (guarantees, slot)
+;;;;   3. Execute transition-rho(EG, ρ‡, ...) → ρ' | guarantee-error
+;;;;   4. On success: call compute-output-packages-and-reporters,
+;;;;      update-cores-statistics, update-services-statistics separately
+;;;;   5. Compare output: ok → reported + reporters | err → error code
+;;;;   6. Compare post_state: avail_assignments, cores/services statistics
+;;;;   7. Codec roundtrip for avail_assignments
 ;;;;
 ;;;; 84 vectors total: 42 tiny + 42 full
 ;;;; Green 🟢 = expected OK, Red 🔴 = expected error
@@ -341,8 +342,8 @@
          (guarantees (reports-json-guarantees
                       (cdr (assoc :guarantees input-json))))
          (tau-prime (cdr (assoc :slot input-json)))
-         (known-packages (mapcar #'hex-to-bytes
-                                 (or (cdr (assoc :known--packages input-json)) '())))
+         ;; known-packages is now computed internally by transition-rho
+         ;; from recent-blocks via collect-known-package-hashes
          ;; ── Parse pre-state ──
          (pre-assignments (reports-json-assignments
                            (or (cdr (assoc :avail--assignments pre-json))
@@ -402,71 +403,62 @@
                      (:full +full-chainspec+)
                      (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
-          (multiple-value-bind (rho-prime reported reporters
-                                cores-stats-prime services-stats-prime err)
-              (transition-rho guarantees pre-assignments
-                             :tau-prime tau-prime
-                             :kappa pre-validators
-                             :lambda-prev prev-validators
-                             :eta entropy
-                             :offenders offenders
-                             :recent-blocks recent-blocks
-                             :auth-pools auth-pools
-                             :accounts accounts
-                             :known-packages known-packages
-                             :cores-statistics pre-cores-stats
-                             :services-statistics pre-services-stats)
-            (if err
-                ;; transition-rho returned error via 6th value
-                (if expected-err
-                    (let* ((got-code (guarantee-error-code-to-string
-                                      (guarantee-error-code err)))
-                           (want-code (reports-normalize-error expected-err)))
-                      (if (string= got-code want-code)
-                          (format t "  ✅ ~A (err: ~A)~%" fname got-code)
-                          (format t "  ❌ ~A — error mismatch: got ~A, want ~A~%"
-                                  fname got-code want-code)))
-                    (format t "  ❌ ~A — unexpected error: ~A~%" fname
-                            (guarantee-error-code err)))
-                ;; Success path
-                (if expected-ok
-                    (let* (;; Compare ρ' vs expected post-state assignments
-                           (assign-ok (compare-assignments-rho
-                                        (format nil "~A/ρ'" fname)
-                                        rho-prime post-assignments))
-                           ;; Compare reported packages
-                           (reported-ok (compare-reported-packages
-                                          (format nil "~A/reported" fname)
-                                          reported expected-reported))
-                           ;; Compare reporters
-                           (reporters-ok (compare-reporters
-                                           (format nil "~A/reporters" fname)
-                                           reporters expected-reporters))
-                           ;; Compare cores statistics
-                           (cs-ok (compare-cores-statistics
-                                    (format nil "~A/cores-stats" fname)
-                                    cores-stats-prime post-cores-stats))
-                           ;; Compare services statistics
-                           (ss-ok (compare-services-statistics
-                                    (format nil "~A/services-stats" fname)
-                                    services-stats-prime post-services-stats))
-                           ;; Codec roundtrip on result
-                           (codec-ok (test-rho-prime-codec-roundtrip
-                                       rho-prime fname)))
-                      (if (and assign-ok reported-ok reporters-ok
-                               cs-ok ss-ok codec-ok)
-                          (format t "  ✅ ~A~%" fname)
-                          (format t "  ❌ ~A —~A~A~A~A~A~A~%" fname
-                                  (if assign-ok "" " ρ'-mismatch")
-                                  (if reported-ok "" " reported-mismatch")
-                                  (if reporters-ok "" " reporters-mismatch")
-                                  (if cs-ok "" " cores-stats-mismatch")
-                                  (if ss-ok "" " services-stats-mismatch")
-                                  (if codec-ok "" " codec-fail"))))
-                    ;; Expected error but got OK
-                    (format t "  ❌ ~A — expected error '~A' but got OK~%"
-                            fname expected-err))))
-        ;; Direct error (not returned via values)
+          ;; transition-rho returns single value ρ' or signals guarantee-error
+          (let ((rho-prime (transition-rho guarantees pre-assignments
+                                          :tau-prime tau-prime
+                                          :kappa pre-validators
+                                          :lambda-prev prev-validators
+                                          :eta entropy
+                                          :offenders offenders
+                                          :recent-blocks recent-blocks
+                                          :auth-pools auth-pools
+                                          :accounts accounts)))
+            ;; ── Success path: all EG valid, ρ' computed ──
+            (if expected-ok
+                (multiple-value-bind (reported reporters)
+                    (compute-output-packages-and-reporters
+                     guarantees pre-validators prev-validators tau-prime)
+                  (let* ((cores-stats-prime (update-cores-statistics
+                                             pre-cores-stats guarantees))
+                         (services-stats-prime (update-services-statistics
+                                                pre-services-stats guarantees))
+                         ;; Compare ρ' vs expected post-state assignments
+                         (assign-ok (compare-assignments-rho
+                                      (format nil "~A/ρ'" fname)
+                                      rho-prime post-assignments))
+                         ;; Compare reported packages
+                         (reported-ok (compare-reported-packages
+                                        (format nil "~A/reported" fname)
+                                        reported expected-reported))
+                         ;; Compare reporters
+                         (reporters-ok (compare-reporters
+                                         (format nil "~A/reporters" fname)
+                                         reporters expected-reporters))
+                         ;; Compare cores statistics
+                         (cs-ok (compare-cores-statistics
+                                  (format nil "~A/cores-stats" fname)
+                                  cores-stats-prime post-cores-stats))
+                         ;; Compare services statistics
+                         (ss-ok (compare-services-statistics
+                                  (format nil "~A/services-stats" fname)
+                                  services-stats-prime post-services-stats))
+                         ;; Codec roundtrip on result
+                         (codec-ok (test-rho-prime-codec-roundtrip
+                                     rho-prime fname)))
+                    (if (and assign-ok reported-ok reporters-ok
+                             cs-ok ss-ok codec-ok)
+                        (format t "  ✅ ~A~%" fname)
+                        (format t "  ❌ ~A —~A~A~A~A~A~A~%" fname
+                                (if assign-ok "" " ρ'-mismatch")
+                                (if reported-ok "" " reported-mismatch")
+                                (if reporters-ok "" " reporters-mismatch")
+                                (if cs-ok "" " cores-stats-mismatch")
+                                (if ss-ok "" " services-stats-mismatch")
+                                (if codec-ok "" " codec-fail")))))
+                ;; Expected error but got OK
+                (format t "  ❌ ~A — expected error '~A' but got OK~%"
+                        fname expected-err)))
+        ;; ── Error path: guarantee-error signaled ──
         (guarantee-error (e)
           (if expected-err
               (let* ((got-code (guarantee-error-code-to-string

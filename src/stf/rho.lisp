@@ -959,96 +959,84 @@
 (defun transition-rho (guarantees rho-ddagger
                        &key tau-prime kappa lambda-prev eta
                             offenders recent-blocks auth-pools
-                            accounts known-packages
-                            cores-statistics services-statistics)
+                            accounts)
   "GP §11-12 — (4.14) ρ' ≺ (EG, ρ‡, κ, τ')
-   Validates EG, registers guaranteed work-reports, computes outputs.
+   Validates EG, registers guaranteed work-reports into ρ'.
+   All-or-nothing: signals guarantee-error if any guarantee is invalid.
+
+   The valid guarantees are implicitly encoded in ρ' (filled slots vs ρ‡).
+   Downstream transitions derive their own outputs from EG directly:
+     β' (4.17) computes reported packages from EG
+     π' (4.20) computes reporters and statistics from EG
    
    Args:
-     guarantees     — EG (list of guarantee plists)
-     rho-ddagger    — ρ‡ (list of C Option assignments)
-     tau-prime      — τ' = H_T (block timeslot)
-     kappa          — κ (current validators)
-     lambda-prev    — λ (previous validators)
-     eta            — η (4 entropy hashes)
-     offenders      — ψ_O (list of banned Ed25519 keys)
-     recent-blocks  — β (plist :history :mmr)
-     auth-pools     — α (list of C lists of authorizer hashes)
-     accounts       — δ (list of {:id :service} plists)
-     known-packages — set of already-seen work-package hashes
-     cores-statistics — current cores statistics
-     services-statistics — current services statistics
+     guarantees    — EG (list of guarantee plists)
+     rho-ddagger   — ρ‡ (list of C Option assignments)
+     tau-prime     — τ' = H_T (block timeslot)
+     kappa         — κ (current validators)
+     lambda-prev   — λ (previous validators)
+     eta           — η (4 entropy hashes)
+     offenders     — ψ_O (list of banned Ed25519 keys)
+     recent-blocks — β (closure, :history :mmr-peaks)
+     auth-pools    — α (list of C lists of authorizer hashes)
+     accounts      — δ (list of {:id :service} plists)
    
-   Returns: (values ρ' reported reporters cores-stats' services-stats' [error])"
+   Returns: ρ' (list of C Option assignments)
+   Signals: guarantee-error on validation failure"
+  ;; All-or-nothing: guarantee-error propagates to caller on failure.
   (let ((*current-tau-prime* tau-prime))
-    (handler-case
-        (progn
-          ;; Return immediately if no guarantees
-          (when (null guarantees)
-            (return-from transition-rho
-              (values rho-ddagger nil nil
-                      cores-statistics services-statistics nil)))
-          ;; ── Phase 1: EG-level structural checks ───────────────
-          (validate-guarantees-sorted-unique guarantees)
-          ;; ── Phase 2: Per-guarantee validation ─────────────────
-          (let ((seen-hashes '())
-                (rho-prime (copy-list rho-ddagger)))
-            (dolist (g guarantees)
-              (let* ((report (getf g :report))
-                     (guarantee-slot (getf g :slot))
-                     (signatures (getf g :signatures))
-                     (core-index (getf report :core-index))
-                     (report-bytes (encode-work-report report))
-                     (report-hash (blake2b-256 report-bytes))
-                     ;; Compute assignments for this guarantee
-                     (core-assignments
-                       (assignments-for-guarantee
-                        tau-prime guarantee-slot eta kappa lambda-prev offenders)))
-                ;; -- Basic report checks --
-                (validate-guarantee-core-index report)
-                (validate-guarantee-results-present report)
-                (validate-guarantee-core-not-engaged core-index rho-ddagger)
-                (validate-guarantee-slot-age guarantee-slot tau-prime)
-                ;; -- Signature checks --
-                (validate-guarantee-sufficient-signatures signatures)
-                (validate-guarantee-signatures-sorted-unique signatures)
-                (dolist (sig signatures)
-                  (validate-guarantee-validator-index sig)
-                  (validate-guarantee-not-banned sig kappa offenders)
-                  (validate-guarantee-core-assignment sig core-index core-assignments)
-                  (validate-guarantee-signature
-                   sig report-hash kappa guarantee-slot eta lambda-prev offenders))
-                ;; -- Content checks --
-                (validate-guarantee-anchor report recent-blocks)
-                (validate-guarantee-lookup-anchor report tau-prime recent-blocks)
-                (validate-guarantee-service-ids report accounts)
-                (validate-guarantee-code-hashes report accounts)
-                (validate-guarantee-authorization report auth-pools)
-                (validate-guarantee-gas report)
-                (validate-guarantee-item-gas report accounts)
-                (validate-guarantee-dependencies-count report)
-                (validate-guarantee-output-size report)
-                (validate-guarantee-not-duplicate report known-packages seen-hashes)
-                (validate-guarantee-dependencies report recent-blocks guarantees)
-                (validate-guarantee-segment-root-lookup report recent-blocks guarantees)
-                ;; -- All checks passed: register guarantee --
-                (push (ensure-bytes (getf (getf report :package-spec) :hash))
-                      seen-hashes)
-                (setf (nth core-index rho-prime)
-                      (list :report report :timeout tau-prime))))
-            ;; ── Phase 3: Compute outputs ────────────────────────
-            (multiple-value-bind (reported reporters)
-                (compute-output-packages-and-reporters
-                 guarantees kappa lambda-prev tau-prime)
-              (let ((cores-prime (update-cores-statistics
-                                  cores-statistics guarantees))
-                    (services-prime (update-services-statistics
-                                     services-statistics guarantees)))
-                (values rho-prime reported reporters
-                        cores-prime services-prime nil)))))
-      ;; ── Error path ─────────────────────────────────────────
-      (guarantee-error (e)
-        (values rho-ddagger nil nil
-                cores-statistics services-statistics e)))))
+    ;; No guarantees → ρ' = ρ‡
+    (when (null guarantees)
+      (return-from transition-rho rho-ddagger))
+    ;; ── Phase 1: EG-level structural checks ───────────────
+    (validate-guarantees-sorted-unique guarantees)
+    ;; ── Phase 2: Per-guarantee validation + registration ──
+    (let ((seen-hashes '())
+          (known-packages (collect-known-package-hashes recent-blocks))
+          (rho-prime (copy-list rho-ddagger)))
+      (dolist (g guarantees)
+        (let* ((report (getf g :report))
+               (guarantee-slot (getf g :slot))
+               (signatures (getf g :signatures))
+               (core-index (getf report :core-index))
+               (report-bytes (encode-work-report report))
+               (report-hash (blake2b-256 report-bytes))
+               ;; Compute assignments for this guarantee
+               (core-assignments
+                 (assignments-for-guarantee
+                  tau-prime guarantee-slot eta kappa lambda-prev offenders)))
+          ;; -- Basic report checks --
+          (validate-guarantee-core-index report)
+          (validate-guarantee-results-present report)
+          (validate-guarantee-core-not-engaged core-index rho-ddagger)
+          (validate-guarantee-slot-age guarantee-slot tau-prime)
+          ;; -- Signature checks --
+          (validate-guarantee-sufficient-signatures signatures)
+          (validate-guarantee-signatures-sorted-unique signatures)
+          (dolist (sig signatures)
+            (validate-guarantee-validator-index sig)
+            (validate-guarantee-not-banned sig kappa offenders)
+            (validate-guarantee-core-assignment sig core-index core-assignments)
+            (validate-guarantee-signature
+             sig report-hash kappa guarantee-slot eta lambda-prev offenders))
+          ;; -- Content checks --
+          (validate-guarantee-anchor report recent-blocks)
+          (validate-guarantee-lookup-anchor report tau-prime recent-blocks)
+          (validate-guarantee-service-ids report accounts)
+          (validate-guarantee-code-hashes report accounts)
+          (validate-guarantee-authorization report auth-pools)
+          (validate-guarantee-gas report)
+          (validate-guarantee-item-gas report accounts)
+          (validate-guarantee-dependencies-count report)
+          (validate-guarantee-output-size report)
+          (validate-guarantee-not-duplicate report known-packages seen-hashes)
+          (validate-guarantee-dependencies report recent-blocks guarantees)
+          (validate-guarantee-segment-root-lookup report recent-blocks guarantees)
+          ;; -- All checks passed: register guarantee --
+          (push (ensure-bytes (getf (getf report :package-spec) :hash))
+                seen-hashes)
+          (setf (nth core-index rho-prime)
+                (list :report report :timeout tau-prime))))
+      rho-prime)))
 
 ;;; Exports managed in package.lisp
