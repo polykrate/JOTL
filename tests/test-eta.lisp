@@ -4,6 +4,10 @@
 ;;;; η is extracted from the safrole test state (not a standalone STF vector).
 ;;;; Tests: JSON comparison (byte-by-byte) + codec roundtrip.
 ;;;;
+;;;; ALL cases verified (zero skips):
+;;;;   - Success: run transition-eta, compare η' to post_state
+;;;;   - Error:   verify η' = η (block rejected → no state change)
+;;;;
 ;;;; Test vectors: tests/jamtestvectors/stf/safrole/{tiny,full}/
 
 (in-package #:jotl)
@@ -71,7 +75,9 @@
 
 (defun run-eta-test (json-path chain-name)
   "Run a single η test from a safrole JSON test vector.
-   Returns: :pass | :fail | :skip"
+   Returns: :pass | :fail
+   - Success vectors: run transition-eta, compare η' to post_state
+   - Error vectors:   verify η' = η (block rejected → state unchanged)"
   (let* ((data (load-json json-path))
          (fname (file-namestring json-path))
          ;; Pre-state
@@ -85,30 +91,41 @@
          ;; Post-state
          (post-state (cdr (assoc :post--state data)))
          (eta-expected (extract-eta-from-json post-state))
-         ;; Check if output is error — skip those (η undefined on invalid input)
+         ;; Output: success or error?
          (output (cdr (assoc :output data)))
-         (is-error (assoc :err output)))
-    ;; Skip error test cases
-    (when is-error
-      (format t "  ⊘ ~A (skip: ~A)~%" fname (cdr is-error))
-      (return-from run-eta-test :skip))
-    ;; Run
+         (is-error (assoc :err output))
+         (err-code (when is-error (cdr is-error))))
     (with-chain chain-name
       (handler-case
-          (let* ((header (make-eta-test-header slot entropy))
-                 (eta-prime (transition-eta header tau-pre eta-pre))
-                 (stf-ok (compare-eta fname eta-prime eta-expected))
-                 (codec-ok (test-eta-codec-roundtrip eta-prime fname)))
-            (cond
-              ((and stf-ok codec-ok)
-               (format t "  ✅ ~A~%" fname)
-               :pass)
-              (t
-               (format t "  ❌ ~A — ~A~%" fname
-                       (cond ((not stf-ok) "η content mismatch")
-                             ((not codec-ok) "codec roundtrip failed")
-                             (t "unknown")))
-               :fail)))
+          (if is-error
+              ;; ── Error case: block rejected → η must be unchanged ──
+              (let* ((unchanged-ok (compare-eta fname eta-expected eta-pre))
+                     (codec-ok (test-eta-codec-roundtrip eta-pre fname)))
+                (cond
+                  ((and unchanged-ok codec-ok)
+                   (format t "  ✅ ~A (err: ~A → η unchanged)~%" fname err-code)
+                   :pass)
+                  (t
+                   (format t "  ❌ ~A (err: ~A) — ~A~%" fname err-code
+                           (cond ((not unchanged-ok) "η should be unchanged but differs!")
+                                 ((not codec-ok) "codec roundtrip failed")
+                                 (t "unknown")))
+                   :fail)))
+              ;; ── Success case: run transition-eta, compare η' ──
+              (let* ((header (make-eta-test-header slot entropy))
+                     (eta-prime (transition-eta header tau-pre eta-pre))
+                     (stf-ok (compare-eta fname eta-prime eta-expected))
+                     (codec-ok (test-eta-codec-roundtrip eta-prime fname)))
+                (cond
+                  ((and stf-ok codec-ok)
+                   (format t "  ✅ ~A~%" fname)
+                   :pass)
+                  (t
+                   (format t "  ❌ ~A — ~A~%" fname
+                           (cond ((not stf-ok) "η content mismatch")
+                                 ((not codec-ok) "codec roundtrip failed")
+                                 (t "unknown")))
+                   :fail))))
         (error (e)
           (format t "  💥 ~A — ~A~%" fname e)
           :fail)))))
@@ -118,10 +135,13 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun run-all-eta-tests ()
-  "Run η tests against all safrole test vectors (tiny + full)."
+  "Run η tests against all safrole test vectors (tiny + full).
+   ALL cases are verified (zero skips):
+   - Success: transition-eta + compare
+   - Error: verify η unchanged"
   (let ((base-dir (merge-pathnames "tests/jamtestvectors/stf/safrole/"
                                     (asdf:system-source-directory :jotl)))
-        (total 0) (passed 0) (skipped 0))
+        (total 0) (passed 0) (failed 0))
     (dolist (spec '((:tiny "tiny") (:full "full")))
       (let* ((chain-name (first spec))
              (dir-name (second spec))
@@ -134,12 +154,12 @@
           (incf total)
           (case (run-eta-test (namestring json-path) chain-name)
             (:pass (incf passed))
-            (:skip (incf skipped))))))
+            (:fail (incf failed))))))
     (format t "~%")
-    (if (= passed (- total skipped))
-        (format t "  ✅ η: ~D/~D passed (~D skipped)~%" passed total skipped)
-        (format t "  ❌ η: ~D/~D passed (~D skipped)~%" passed total skipped))
-    (= passed (- total skipped))))
+    (if (zerop failed)
+        (format t "  ✅ η: ~D/~D passed~%" passed total)
+        (format t "  ❌ η: ~D/~D passed (~D failed)~%" passed total failed))
+    (zerop failed)))
 
 ;;; Entry point
 (unless (run-all-eta-tests)

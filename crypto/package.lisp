@@ -26,11 +26,21 @@
    
    ;; Bandersnatch VRF (GP Appendix G)
    #:bandersnatch-vrf-output-hash
+   #:bandersnatch-verify-vrf
    #:bandersnatch-verify-ring-vrf
    #:bandersnatch-verify-ring-vrf-with-output
+   #:bandersnatch-compute-ring-commitment
+   #:ticket-vrf-input
    #:load-bandersnatch-srs
    #:*bandersnatch-srs*
    #:*bandersnatch-srs-path*
+   ;; GP notation helpers
+   #:Y                     ;; Y(s) ≡ VRF output hash
+   #:H #:HK                ;; H = blake2b, HK = keccak
+   ;; Signing contexts (GP §6.18-6.20)
+   #:+jam-entropy+         ;; XE = $jam_entropy
+   #:+jam-ticket-seal+     ;; XT = $jam_ticket_seal
+   #:+jam-fallback-seal+   ;; XF = $jam_fallback_seal
    
    ;; Deterministic Shuffle (GP Appendix F)
    #:deterministic-shuffle

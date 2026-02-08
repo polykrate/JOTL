@@ -2,43 +2,32 @@
 
 ## Test Suites
 
-| File | STF | Vectors | Exhaustif ? |
-|------|------|---------|------------|
-| `test-block-roundtrip.lisp` | Codec | `codec/{tiny,full}/*.{bin,json}` + `trace-vectors/` | bin⇄json⇄roundtrip |
-| `test-eta.lisp` | η (Entropy) §7 | `stf/safrole/{tiny,full}/*.json` | JSON byte-by-byte + codec roundtrip |
-| `test-beta.lisp` | β (History) §7 | `stf/history/{tiny,full}/*.{bin,json}` | bin⇄json + STF + encode roundtrip |
-| `test-psi.lisp` | ψ (Disputes) §10 | `stf/disputes/{tiny,full}/*.json` | JSON deep content + codec roundtrip |
-| `test-utils.lisp` | — | — | Shared helpers |
+| File | STF | GP § | Vectors | Exhaustif ? |
+|------|------|------|---------|------------|
+| `test-block-roundtrip.lisp` | Codec | App. C | `codec/{tiny,full}/*.{bin,json}` + `trace-vectors/` | bin⇄json⇄roundtrip |
+| `test-eta.lisp` | η (Entropy) | §6.21-23 | `stf/safrole/{tiny,full}/*.json` (42) | JSON byte-by-byte + codec roundtrip + error cases |
+| `test-beta.lisp` | β (History) | §7.5 | `stf/history/{tiny,full}/*.json` (8) | bin⇄json + STF + encode roundtrip |
+| `test-psi.lisp` | ψ (Disputes) | §10 | `stf/disputes/{tiny,full}/*.json` (56) | JSON deep content + codec roundtrip |
+| `test-safrole.lisp` | γ (Safrole) | §6 | `stf/safrole/{tiny,full}/*.json` (42) | All 10 state segments + marks + codec roundtrip + Ring VRF |
+| `test-utils.lisp` | — | — | — | Shared helpers |
 
-## Scores
+## Scores — 190/190 ✅
 
 ```
-η:  30/42 passed (12 skipped — safrole error cases)
-β:   8/8  passed
-ψ:  56/56 passed (28 tiny + 28 full)
+η:  42/42  ✅  (includes error cases: η unchanged on bad blocks)
+β:   8/8   ✅  (4 tiny + 4 full)
+ψ:  56/56  ✅  (28 tiny + 28 full)
+γ:  42/42  ✅  (21 tiny + 21 full, Ring VRF verified)
+─────────────
+   148/148  ✅  + block codec roundtrips
 ```
-
-### η skips (12)
-
-All 12 are safrole validation errors (block rejected → σ'=σ):
-
-| Error | VRF? | Count |
-|-------|------|-------|
-| `bad_slot` | ❌ | 2 |
-| `bad_ticket_attempt` | ❌ | 2 |
-| `duplicate_ticket` | ❌ | 2 |
-| `bad_ticket_order` | ❌ | 2 |
-| `bad_ticket_proof` | ✅ | 2 |
-| `unexpected_ticket` | ❌ | 2 |
-
-Only `bad_ticket_proof` is VRF-related. These will be covered when safrole STF is implemented.
 
 ## Running
 
 ```bash
 cd /path/to/JOTL
 
-# All tests
+# All STF tests
 sbcl --noinform --non-interactive \
   --eval '(require :asdf)' \
   --eval '(push (truename ".") asdf:*central-registry*)' \
@@ -46,7 +35,8 @@ sbcl --noinform --non-interactive \
   --eval '(ql:quickload :cl-json :silent t)' \
   --eval '(load "tests/test-eta.lisp")' \
   --eval '(load "tests/test-beta.lisp")' \
-  --eval '(load "tests/test-psi.lisp")'
+  --eval '(load "tests/test-psi.lisp")' \
+  --eval '(load "tests/test-safrole.lisp")'
 ```
 
 ## Architecture
@@ -63,6 +53,17 @@ import-block(bytes, env)        ← node layer (future, impure)
               │
               ├── WAVE 1: τ', η', β†, κ', λ', ψ'/v
               ├── WAVE 2: ρ†, γ', ρ‡, R*
-              ├── WAVE 3: ρ', (ω',ξ',δ‡,χ',ι',ϕ',θ',S)
+              ├── WAVE 3: ρ', accumulate(ω',ξ',δ‡,χ',ι',ϕ',θ',S)
               └── WAVE 4: β', δ', α', π'  →  σ'
 ```
+
+## What's Next
+
+| STF | GP § | Vectors | Status |
+|-----|------|---------|--------|
+| ρ‡ (assurances) | §11 | 20 | 🟡 stub |
+| ρ' (guarantees) | §11-12 | 84 | 🟡 stub |
+| accumulate | §8 | 60 | 🔴 needs PVM |
+| δ' (preimages) | §7 | 16 | 🟡 stub |
+| α' (authorizations) | §13 | 6 | 🟡 stub |
+| π' (statistics) | §15 | 6 | 🟡 stub |

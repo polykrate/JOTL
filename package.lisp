@@ -64,8 +64,13 @@
    #:encode-ed25519-key #:decode-ed25519-key
    #:encode-bandersnatch-key #:decode-bandersnatch-key
    #:encode-signature-96 #:decode-signature-96
+   ;; Block epoch mark validators (64B: bandersnatch + ed25519)
    #:encode-validator #:decode-validator
    #:encode-validator-sequence #:decode-validator-sequence
+   ;; Full state validators (336B: ed25519 + bandersnatch + bls + metadata)
+   #:encode-full-validator #:decode-full-validator
+   #:encode-full-validator-sequence #:decode-full-validator-sequence
+   ;; Other types
    #:encode-service-account-index #:decode-service-account-index
    #:encode-validator-index #:decode-validator-index
    
@@ -186,6 +191,49 @@
    #:validator-ed25519-key #:build-valid-key-set
    ;; Codecs
    #:encode-state-psi #:decode-state-psi
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Validator Keys κ (GP §6.15)
+   ;; ═══════════════════════════════════════════
+   #:transition-kappa
+   #:encode-state-kappa #:decode-state-kappa
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Archived Keys λ (GP §6.16)
+   ;; ═══════════════════════════════════════════
+   #:transition-lambda
+   #:encode-state-lambda #:decode-state-lambda
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Enqueued Keys ι (GP §8)
+   ;; ═══════════════════════════════════════════
+   #:encode-state-iota #:decode-state-iota
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Safrole γ (GP §6)
+   ;; ═══════════════════════════════════════════
+   #:make-gamma
+   #:gamma-pending-keys #:gamma-ring-commitment
+   #:gamma-sealing #:gamma-accumulator
+   #:transition-gamma
+   #:filter-offenders #:+null-validator-key+
+   #:outside-in-sequencer          ;; Z  (GP 6.25)
+   #:fallback-key-sequence         ;; F  (GP 6.26)
+   #:closing-offset                ;; Y  (GP §6)
+   #:compute-epoch-mark            ;; HE (GP 6.27)
+   #:compute-winning-tickets-mark  ;; HW (GP 6.28)
+   ;; Ticket processing (GP 6.29-6.35)
+   #:process-ticket-extrinsic
+   #:validate-ticket-count #:validate-ticket-proof
+   #:extract-new-tickets #:ticket-id<
+   #:validate-new-tickets-sorted #:validate-new-tickets-no-duplicates
+   #:compute-accumulator-prime #:validate-tickets-included
+   #:safrole-error #:safrole-error-code #:safrole-error-detail
+   #:validate-seal #:validate-seal-tickets #:validate-seal-fallback
+   #:validate-entropy-source #:seal-key-index
+   #:encode-state-gamma #:decode-state-gamma
+   #:encode-gamma-sealing #:decode-gamma-sealing
+   #:encode-state-ticket #:decode-state-ticket
    
    ;; ═══════════════════════════════════════════
    ;; STF — Core Assignments ρ (GP §10-12)

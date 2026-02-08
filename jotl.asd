@@ -66,6 +66,8 @@
      (:file "validation")))
    
    ;; 6. STF — State + Transitions (GP §4-13)
+   ;;    One file per state component (Greek letter).
+   ;;    Created incrementally as needed.
    (:module "stf"
     :pathname "src/stf"
     :serial t
@@ -76,6 +78,10 @@
      (:file "eta")
      (:file "psi")
      (:file "rho")
+     (:file "kappa")
+     (:file "lambda")
+     (:file "iota")
+     (:file "gamma")
      (:file "upsilon")))))
 
 ;;;; Tests are run via scripts/ — see tests/README.md

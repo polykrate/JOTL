@@ -47,7 +47,7 @@
 (defun transition-state (sigma block)
   "Υ-inner: σ → σ' — Pure state transition.
    
-   GP §4.2.1 dependency graph (5 waves).
+   GP §4.2.1 dependency graph (4 waves).
    Block is a closure from decode-block or make-block."
   (let* ((h (funcall block :header))
          (e (funcall block :extrinsic))
@@ -149,46 +149,45 @@
                :xi      xi-prime))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; SUB-STF STUBS — GP §4.2.1 equations
+;;; SUB-STF LOCATIONS — one file per component
 ;;; ═════════════════════════════════════════════════════════════════
-;;; Each returns prior value (identity). Implement one by one.
-
-;; transition-eta → stf/eta.lisp
-;; transition-psi → stf/psi.lisp
-;; transition-rho-dagger, transition-rho-ddagger, transition-rho → stf/rho.lisp
-;; transition-beta-dagger → stf/beta.lisp
-
-(defun transition-kappa (header tau kappa gamma)
-  "GP §4.9 — Validator keys at epoch boundary. STUB: §6"
-  (declare (ignore header tau gamma)) kappa)
-
-(defun transition-lambda (header tau lambda-prev kappa)
-  "GP §4.10 — Archived keys. STUB: §6"
-  (declare (ignore header tau kappa)) lambda-prev)
-
-(defun transition-gamma (header tau tickets gamma iota eta-prime kappa-prime psi-prime)
-  "GP §4.7 — Safrole. TODO: §6"
-  (declare (ignore header tau tickets iota eta-prime kappa-prime psi-prime)) gamma)
+;;; Implemented (own files, tested):
+;;;   transition-tau          → stf/tau.lisp    (§5.7, §6.1-6.2)   ✓ 42/42
+;;;   transition-eta          → stf/eta.lisp    (§6.21-6.23)       ✓ 42/42
+;;;   transition-beta-dagger  → stf/beta.lisp   (§7.5)             ✓  8/8
+;;;   transition-psi          → stf/psi.lisp    (§10)              ✓ 56/56
+;;;   transition-rho-dagger   → stf/rho.lisp    (§10.15)           ✓ (via ψ)
+;;;   transition-kappa        → stf/kappa.lisp  (§6.15)            ✓ (via γ)
+;;;   transition-lambda       → stf/lambda.lisp (§6.16)            ✓ (via γ)
+;;;   transition-gamma        → stf/gamma.lisp  (§6)               ✓ 42/42
+;;;
+;;; Stubs (here, will be moved when implemented):
+;;;   transition-rho-ddagger  → stf/rho.lisp     (§11, stub)      vectors: 20
+;;;   compute-ready-reports   → stf/rho.lisp     (§11, stub)      vectors: 20
+;;;   transition-rho          → stf/rho.lisp     (§11-12, stub)   vectors: 84
+;;;   transition-accumulate   → stf/accumulate   (§8, stub/PVM)   vectors: 60
+;;;   transition-beta (final) → stf/beta.lisp    (§7.7-7.8, stub)
+;;;   transition-delta        → stf/delta.lisp   (§7, stub)       vectors: 16
+;;;   transition-alpha        → stf/alpha.lisp   (§13, stub)      vectors:  6
+;;;   transition-pi           → stf/pi.lisp      (§15, stub)      vectors:  6
 
 (defun transition-accumulate (r-star omega xi delta chi iota phi tau tau-prime)
-  "GP §4.16 — Accumulation. TODO: §8 + PVM
+  "GP §4.16 — Accumulation. STUB: §8 + PVM
    Returns: (values ω' ξ' δ‡ χ' ι' ϕ' θ' S)"
   (declare (ignore r-star tau tau-prime))
   (values omega xi delta chi iota phi nil nil))
 
-;; transition-beta → stf/beta.lisp
-
 (defun transition-delta (preimages delta-ddagger tau-prime)
-  "GP §4.18 — Services: fold preimages. TODO: §7"
+  "GP §4.18 — Services: fold preimages. STUB: §7"
   (declare (ignore preimages tau-prime)) delta-ddagger)
 
 (defun transition-alpha (header guarantees phi-prime alpha)
-  "GP §4.19 — Core authorizations. TODO: §13"
+  "GP §4.19 — Core authorizations. STUB: §13"
   (declare (ignore header guarantees phi-prime)) alpha)
 
 (defun transition-pi (guarantees preimages assurances tickets
                       tau kappa-prime pi-prev header s-reports)
-  "GP §4.20 — Validator statistics. TODO: §15"
+  "GP §4.20 — Validator statistics. STUB: §15"
   (declare (ignore guarantees preimages assurances tickets
                    tau kappa-prime header s-reports))
   pi-prev)

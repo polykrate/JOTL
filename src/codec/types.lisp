@@ -183,6 +183,68 @@
     (values (nreverse validators) (- pos offset))))
 
 ;;; ==========================================================================
+;;; Full Validator Key K (for state: κ, λ, ι, γP)
+;;; ==========================================================================
+;;; K ≡ B336 — GP (6.8)
+;;;
+;;; Binary layout per GP (6.9)-(6.12):
+;;;   (6.9)  kb  ∈ Ĥ     Bandersnatch public key    k[0..32]
+;;;   (6.10) ke  ∈ H̄     Ed25519 public key          k[32..64]
+;;;   (6.11) kl  ∈ B^BLS  BLS public key              k[64..208]
+;;;   (6.12) km  ∈ B128   Metadata                    k[208..336]
+;;;
+;;; Total: 336 bytes per validator
+;;;
+;;; NOTE: Block epoch marks use a REDUCED format (kb, ke) = 64 bytes.
+;;;       State uses the FULL format K = 336 bytes.
+
+(defun encode-full-validator (validator)
+  "Encode a full state validator K ≡ B336.
+   GP (6.9)-(6.12): kb(32) || ke(32) || kl(144) || km(128) = 336 bytes.
+   Args: validator plist with :bandersnatch :ed25519 :bls :metadata"
+  (let ((bn (getf validator :bandersnatch))
+        (ed (getf validator :ed25519))
+        (bl (getf validator :bls))
+        (mt (getf validator :metadata)))
+    (concatenate '(vector (unsigned-byte 8))
+                 ;; (6.9) kb: k[0..32]
+                 (encode-bandersnatch-key bn)
+                 ;; (6.10) ke: k[32..64]
+                 (encode-ed25519-key ed)
+                 ;; (6.11) kl: k[64..208]
+                 (if bl bl (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0))
+                 ;; (6.12) km: k[208..336]
+                 (if mt mt (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0)))))
+
+(defun decode-full-validator (bytes offset)
+  "Decode a full state validator K ≡ B336.
+   GP (6.9)-(6.12): kb(32) || ke(32) || kl(144) || km(128).
+   Returns: (values plist 336)"
+  (values
+   (list :bandersnatch (subseq bytes offset (+ offset 32))          ;; (6.9) kb
+         :ed25519      (subseq bytes (+ offset 32) (+ offset 64))   ;; (6.10) ke
+         :bls          (subseq bytes (+ offset 64) (+ offset 208))  ;; (6.11) kl
+         :metadata     (subseq bytes (+ offset 208) (+ offset 336)));; (6.12) km
+   336))
+
+(defun encode-full-validator-sequence (validators)
+  "Encode a fixed-size sequence of full validators (V × 336 bytes, no length prefix)."
+  (apply #'concatenate '(vector (unsigned-byte 8))
+         (mapcar #'encode-full-validator validators)))
+
+(defun decode-full-validator-sequence (bytes &optional (offset 0) (count (num-validators)))
+  "Decode a fixed-size sequence of V full validators.
+   Returns: (values list-of-validators bytes-consumed)"
+  (let ((validators '())
+        (pos offset))
+    (dotimes (i count)
+      (multiple-value-bind (validator size)
+          (decode-full-validator bytes pos)
+        (push validator validators)
+        (incf pos size)))
+    (values (nreverse validators) (- pos offset))))
+
+;;; ==========================================================================
 ;;; Service Account Index (NS)
 ;;; ==========================================================================
 ;;; NS ≡ N232 - Service account index (u32)
