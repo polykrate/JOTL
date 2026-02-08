@@ -40,7 +40,16 @@
   (:gamma-k pending-keys)
   (:gamma-z ring-commitment)
   (:gamma-s sealing)
-  (:gamma-a accumulator))
+  (:gamma-a accumulator)
+  ;; Memoized encoding
+  (:encoded :memo
+    (concatenate '(vector (unsigned-byte 8))
+                 (encode-full-validator-sequence pending-keys)
+                 (if ring-commitment
+                     ring-commitment
+                     (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0))
+                 (encode-gamma-sealing sealing)
+                 (encode-sequence accumulator #'encode-state-ticket))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE TICKET CODEC — T = (id: H, attempt: u8) = 33 bytes
@@ -117,21 +126,8 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun encode-state-gamma (gamma)
-  "C(4) ↦ E(γ) — Encode full safrole state.
-   gamma is a closure (make-gamma) or plist."
-  (let ((gk (if (functionp gamma) (funcall gamma :gamma-k) (getf gamma :pending-keys)))
-        (gz (if (functionp gamma) (funcall gamma :gamma-z) (getf gamma :ring-commitment)))
-        (gs (if (functionp gamma) (funcall gamma :gamma-s) (getf gamma :sealing)))
-        (ga (if (functionp gamma) (funcall gamma :gamma-a) (getf gamma :accumulator))))
-    (concatenate '(vector (unsigned-byte 8))
-                 ;; γk: V × 336 bytes
-                 (encode-full-validator-sequence gk)
-                 ;; γz: ring commitment (BLS key size)
-                 (if gz gz (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0))
-                 ;; γs: discriminant + data
-                 (encode-gamma-sealing gs)
-                 ;; γa: compact-prefixed sequence of tickets
-                 (encode-sequence ga #'encode-state-ticket))))
+  "C(4) ↦ E(γ) — uses gamma closure's memoized encoding."
+  (funcall gamma :encoded))
 
 (defun decode-state-gamma (bytes &optional (offset 0))
   "Decode γ from state binary.

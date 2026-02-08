@@ -21,7 +21,11 @@
 (define-value-object beta
   ((history '()) (mmr-peaks #()))
   (:length (length history))
-  (:full-p (>= (length history) +history-size+)))
+  (:full-p (>= (length history) +history-size+))
+  (:encoded :memo
+    (concatenate '(vector (unsigned-byte 8))
+                 (encode-sequence history #'encode-block-info)
+                 (encode-sequence (coerce mmr-peaks 'list) #'encode-mmr-peak))))
 
 ;;; History records are plists (leaf value objects, not closures).
 
@@ -113,12 +117,9 @@
                 (- offset start))))))
 
 (defun encode-state-beta (beta)
-  "Encode β state to binary from beta closure.
+  "Encode β state to binary — uses beta closure's memoized encoding.
    C(3) ↦ E(↕[(h,b,s,↕p)], EM(βB))"
-  (concatenate '(vector (unsigned-byte 8))
-               (encode-sequence (funcall beta :history) #'encode-block-info)
-               (encode-sequence (coerce (funcall beta :mmr-peaks) 'list)
-                                #'encode-mmr-peak)))
+  (funcall beta :encoded))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; WAVE 1: β† (GP §7.5)
