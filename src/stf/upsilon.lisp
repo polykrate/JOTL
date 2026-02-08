@@ -114,7 +114,25 @@
                    ;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
                    ;; (4.16) accumulate < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
                    ;; ═══════════════════════════════════════════════
-                   (rho-prime (transition-rho e-g rho-ddagger kappa tau-prime)))
+                   ;; known-packages derived from β history (GP §11)
+                   (known-packages (collect-known-package-hashes beta)))
+          (multiple-value-bind (rho-prime reported reporters
+                                cores-stats-prime services-stats-prime rho-error)
+              (transition-rho e-g rho-ddagger
+                              :tau-prime tau-prime
+                              :kappa kappa
+                              :lambda-prev lambda-prev
+                              :eta eta-prime
+                              :offenders (when psi-prime
+                                           (getf psi-prime :offenders))
+                              :recent-blocks beta
+                              :auth-pools alpha-prev
+                              :accounts delta
+                              :known-packages known-packages
+                              :cores-statistics nil   ;; TODO: from π when implemented
+                              :services-statistics nil) ;; TODO: from π when implemented
+            (declare (ignore rho-error reported reporters
+                             cores-stats-prime services-stats-prime))
           (multiple-value-bind (omega-prime xi-prime delta-ddagger
                                 chi-prime iota-prime phi-prime
                                 theta-prime s-reports)
@@ -150,7 +168,7 @@
                :psi     psi-prime
                :pi*     pi-prime
                :omega   omega-prime
-               :xi      xi-prime))))))))))
+               :xi      xi-prime)))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; SUB-STF LOCATIONS — one file per component
@@ -168,8 +186,9 @@
 ;;;   transition-rho-ddagger  → stf/rho.lisp     (§11)             ✓ 20/20
 ;;;   compute-ready-reports   → stf/rho.lisp     (§11)             ✓ (via ρ‡)
 ;;;
+;;;   transition-rho          → stf/rho.lisp     (§11-12)          ✓ 84/84
+;;;
 ;;; Stubs (here, will be moved when implemented):
-;;;   transition-rho          → stf/rho.lisp     (§11-12, stub)   vectors: 84
 ;;;   transition-accumulate   → stf/accumulate   (§8, stub/PVM)   vectors: 60
 ;;;   transition-beta (final) → stf/beta.lisp    (§7.7-7.8, stub)
 ;;;   transition-delta        → stf/delta.lisp   (§7, stub)       vectors: 16

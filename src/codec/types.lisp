@@ -283,4 +283,16 @@
    Returns: (values u16 bytes-consumed)"
   (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
 
+;;; ==========================================================================
+;;; Byte Vector Comparison
+;;; ==========================================================================
+
+(defun bytes< (a b)
+  "Lexicographic comparison of two byte vectors.
+   Returns T if A is lexicographically less than B."
+  (loop for i from 0 below (min (length a) (length b))
+        do (cond ((< (aref a i) (aref b i)) (return t))
+                 ((> (aref a i) (aref b i)) (return nil)))
+        finally (return (< (length a) (length b)))))
+
 ;;; Exports managed in package.lisp

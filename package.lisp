@@ -8,7 +8,8 @@
                 #:blake2b-256
                 #:keccak-256
                 #:hex-string-to-bytes
-                #:bytes-to-hex-string)
+                #:bytes-to-hex-string
+                #:compute-core-assignments)
   (:documentation "JAM On The Lisp — Pure Functional Programming")
   (:export
    ;; ═══════════════════════════════════════════
@@ -88,6 +89,7 @@
    ;; ═══════════════════════════════════════════
    ;; Codec — Types
    ;; ═══════════════════════════════════════════
+   #:bytes<
    #:encode-hash-32 #:decode-hash-32
    #:encode-ed25519-key #:decode-ed25519-key
    #:encode-bandersnatch-key #:decode-bandersnatch-key
@@ -278,6 +280,37 @@
    #:report-stale-p
    ;; Guarantees (§11-12)
    #:transition-rho
+   #:guarantee-error #:guarantee-error-code #:guarantee-error-detail
+   #:guarantee-signing-payload
+   #:guarantor-assignments #:guarantor-assignments-star
+   #:assignments-for-guarantee
+   #:phi-filter
+   #:validate-guarantees-sorted-unique
+   #:validate-guarantee-core-index
+   #:validate-guarantee-results-present
+   #:validate-guarantee-slot-age
+   #:validate-guarantee-sufficient-signatures
+   #:validate-guarantee-signatures-sorted-unique
+   #:validate-guarantee-validator-index
+   #:validate-guarantee-not-banned
+   #:validate-guarantee-core-assignment
+   #:validate-guarantee-signature
+   #:validate-guarantee-core-not-engaged
+   #:validate-guarantee-anchor
+   #:validate-guarantee-lookup-anchor
+   #:validate-guarantee-service-ids
+   #:validate-guarantee-code-hashes
+   #:validate-guarantee-authorization
+   #:validate-guarantee-gas
+   #:validate-guarantee-item-gas
+   #:validate-guarantee-dependencies-count
+   #:validate-guarantee-output-size
+   #:validate-guarantee-not-duplicate
+   #:validate-guarantee-dependencies
+   #:validate-guarantee-segment-root-lookup
+   #:compute-output-packages-and-reporters
+   #:update-cores-statistics #:update-services-statistics
+   #:compute-core-assignments
    
    ;; ═══════════════════════════════════════════
    ;; STF — Υ(σ,B)→σ' (GP §4.1)
