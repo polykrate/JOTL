@@ -51,7 +51,7 @@
   (mapcar #'reports-json-guarantee guarantees-json))
 
 (defun reports-json-recent-blocks (rb-json)
-  "Parse JSON recent_blocks → plist (:history :mmr).
+  "Parse JSON recent_blocks → beta closure.
    History records: (:header-hash :state-root :beefy-root :reported)."
   (let* ((history-json (cdr (assoc :history rb-json)))
          (mmr-json (cdr (assoc :mmr rb-json)))
@@ -79,7 +79,7 @@
                               nil
                               (hex-to-bytes p)))
                         (or peaks-json '()))))
-    (list :history history :mmr (list :peaks peaks))))
+    (make-beta :history history :mmr-peaks peaks)))
 
 (defun reports-json-auth-pools (pools-json)
   "Parse JSON auth_pools → list of C lists of byte-vector hashes."
@@ -267,16 +267,14 @@
 ;;; CODEC ROUNDTRIP
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun test-rho-prime-codec-roundtrip (assignments label)
-  "Verify encode/decode roundtrip for ρ' (avail_assignments)."
+(defun test-rho-prime-codec-roundtrip (rho label)
+  "Verify encode/decode roundtrip for ρ' (rho closure)."
   (handler-case
-      (let* ((encoded (encode-state-rho assignments))
-             (decoded (multiple-value-bind (result consumed)
-                          (decode-state-rho encoded)
-                        (declare (ignore consumed))
-                        result)))
+      (let* ((encoded (encode-state-rho rho))
+             (decoded (decode-state-rho encoded)))
         (if (compare-assignments-rho (format nil "~A/roundtrip" label)
-                                     decoded assignments)
+                                     (funcall decoded :assignments)
+                                     (funcall rho :assignments))
             t
             (progn
               (format t "    ✗ ~A: ρ' codec roundtrip mismatch~%" label)
@@ -345,9 +343,10 @@
          ;; known-packages is now computed internally by transition-rho
          ;; from recent-blocks via collect-known-package-hashes
          ;; ── Parse pre-state ──
-         (pre-assignments (reports-json-assignments
-                           (or (cdr (assoc :avail--assignments pre-json))
-                               (cdr (assoc :avail-assignments pre-json)))))
+         (pre-rho (make-rho :assignments
+                   (reports-json-assignments
+                    (or (cdr (assoc :avail--assignments pre-json))
+                        (cdr (assoc :avail-assignments pre-json))))))
          (pre-validators (json-validators
                           (or (cdr (assoc :curr--validators pre-json))
                               (cdr (assoc :curr-validators pre-json)))))
@@ -403,8 +402,8 @@
                      (:full +full-chainspec+)
                      (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
-          ;; transition-rho returns single value ρ' or signals guarantee-error
-          (let ((rho-prime (transition-rho guarantees pre-assignments
+          ;; transition-rho returns rho closure or signals guarantee-error
+          (let ((rho-prime (transition-rho guarantees pre-rho
                                           :tau-prime tau-prime
                                           :kappa pre-validators
                                           :lambda-prev prev-validators
@@ -425,7 +424,8 @@
                          ;; Compare ρ' vs expected post-state assignments
                          (assign-ok (compare-assignments-rho
                                       (format nil "~A/ρ'" fname)
-                                      rho-prime post-assignments))
+                                      (funcall rho-prime :assignments)
+                                      post-assignments))
                          ;; Compare reported packages
                          (reported-ok (compare-reported-packages
                                         (format nil "~A/reported" fname)

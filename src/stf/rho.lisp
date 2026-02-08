@@ -20,7 +20,10 @@
 
 (define-value-object rho
   ((assignments '()))
-  (:core-count (length assignments)))
+  (:core-count (length assignments))
+  (:encoded :memo
+    (apply #'concatenate '(vector (unsigned-byte 8))
+           (mapcar #'encode-rho-assignment assignments))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; CODECS — State key C(10)
@@ -56,16 +59,15 @@
               (values (list :report report :timeout timeout)
                       (- pos offset))))))))
 
-(defun encode-state-rho (assignments)
-  "Encode ρ to state binary — fixed-size array of C Option assignments.
-   Args: assignments — list of C items (nil or plist with :report :timeout)
+(defun encode-state-rho (rho)
+  "Encode ρ to state binary — uses rho closure's memoized encoding.
+   Args: rho — rho closure
    Returns: byte array"
-  (apply #'concatenate '(vector (unsigned-byte 8))
-         (mapcar #'encode-rho-assignment assignments)))
+  (funcall rho :encoded))
 
 (defun decode-state-rho (bytes &optional (offset 0))
   "Decode ρ from state binary — reads exactly num-cores Option assignments.
-   Returns: (values assignments-list total-bytes-consumed)"
+   Returns: (values rho-closure total-bytes-consumed)"
   (let ((assignments '())
         (pos offset)
         (c (num-cores)))
@@ -74,7 +76,7 @@
           (decode-rho-assignment bytes pos)
         (push assignment assignments)
         (incf pos size)))
-    (values (nreverse assignments) (- pos offset))))
+    (values (make-rho :assignments (nreverse assignments)) (- pos offset))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; HELPERS
@@ -98,25 +100,27 @@
    Good verdicts (t = ⌊2V/3⌋+1) do NOT clear assignments.
 
    Args: v-list — list of (target . positive-count) from (10.12)
-         rho — list of core assignments (nil or plist with :report :timeout)
-   Returns: ρ† (same structure, with invalidated cores set to nil)"
-  (if (null v-list)
-      rho
-      ;; Threshold: ⌊2V/3⌋+1 — verdicts with t below this are bad/wonky
-      (let ((threshold (1+ (floor (* 2 (num-validators)) 3))))
-        ;; Collect targets with t < threshold (bad or wonky, not good)
-        (let ((invalidated-targets
-                (loop for (target . pos-count) in v-list
-                      when (< pos-count threshold)
-                      collect target)))
-          (if (null invalidated-targets)
-              rho
-              (mapcar (lambda (assignment)
-                        (let ((h (assignment-report-hash assignment)))
-                          (if (and h (member-hash h invalidated-targets))
-                              nil
-                              assignment)))
-                      rho))))))
+         rho — rho closure
+   Returns: ρ† rho closure (with invalidated cores set to nil)"
+  (let ((assignments (funcall rho :assignments)))
+    (if (null v-list)
+        rho
+        ;; Threshold: ⌊2V/3⌋+1 — verdicts with t below this are bad/wonky
+        (let ((threshold (1+ (floor (* 2 (num-validators)) 3))))
+          ;; Collect targets with t < threshold (bad or wonky, not good)
+          (let ((invalidated-targets
+                  (loop for (target . pos-count) in v-list
+                        when (< pos-count threshold)
+                        collect target)))
+            (if (null invalidated-targets)
+                rho
+                (make-rho :assignments
+                  (mapcar (lambda (assignment)
+                            (let ((h (assignment-report-hash assignment)))
+                              (if (and h (member-hash h invalidated-targets))
+                                  nil
+                                  assignment)))
+                          assignments))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; WAVE 2: ρ‡, R* — ASSURANCES (GP §11)
@@ -295,53 +299,54 @@
    
    Args:
      assurances   — EA (list of assurance plists)
-     rho-dagger   — ρ† (list of C Option assignments)
+     rho-dagger   — ρ† rho closure
      tau-prime    — τ' = H_T (block timeslot)
      parent-hash  — H_P (parent header hash)
      kappa        — κ (current validators)
    
-   Returns: (values ρ‡ R* [error])
-     ρ‡ — assignments with available/stale cores cleared (11.17)
+   Returns: (values ρ‡-closure R* [error])
+     ρ‡ — rho closure with available/stale cores cleared (11.17)
      R* — available work-reports (11.16)
      error — assurance-error if validation failed (ρ‡=ρ†, R*=nil)"
-  (handler-case
-      (progn
-        ;; ── Validate EA (11.10-11.15) ───────────────────────
-        ;; Per-assurance checks first (detect invalid data early),
-        ;; then ordering check (structural invariant).
-        (dolist (a assurances)
-          (validate-assurance-anchor a parent-hash)       ;; (11.11)
-          (validate-assurance-validator-index a))          ;; (11.10)
-        (validate-assurances-sorted-unique assurances)    ;; (11.12)
-        (dolist (a assurances)
-          (validate-assurance-cores-engaged a rho-dagger)  ;; (11.15)
-          (validate-assurance-signature a kappa parent-hash)) ;; (11.13)
-        ;; ── (11.16) R: count votes, find available cores ────
-        (let* ((c (num-cores))
-               (votes (count-core-votes assurances c))
-               (threshold (super-majority))  ;; > ⅔V ≡ ≥ ⌊2V/3⌋+1
-               ;; ── (11.17) Build ρ‡ and R* in one pass ─────
-               (reported '())
-               (new-assignments
-                 (loop for ci below c
-                       for assignment in rho-dagger
-                       collect
-                       (cond
-                         ;; No assignment → stays nil
-                         ((null assignment) nil)
-                         ;; (11.16) Supermajority → available → R* + clear
-                         ((>= (aref votes ci) threshold)
-                          (push (getf assignment :report) reported)
-                          nil)
-                         ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
-                         ((report-stale-p (getf assignment :timeout) tau-prime)
-                          nil)
-                         ;; Otherwise → keep
-                         (t assignment)))))
-          (values new-assignments (nreverse reported))))
-    ;; ── Error path ─────────────────────────────────────────
-    (assurance-error (e)
-      (values rho-dagger nil e))))
+  (let ((assignments (funcall rho-dagger :assignments)))
+    (handler-case
+        (progn
+          ;; ── Validate EA (11.10-11.15) ───────────────────────
+          ;; Per-assurance checks first (detect invalid data early),
+          ;; then ordering check (structural invariant).
+          (dolist (a assurances)
+            (validate-assurance-anchor a parent-hash)       ;; (11.11)
+            (validate-assurance-validator-index a))          ;; (11.10)
+          (validate-assurances-sorted-unique assurances)    ;; (11.12)
+          (dolist (a assurances)
+            (validate-assurance-cores-engaged a assignments)  ;; (11.15)
+            (validate-assurance-signature a kappa parent-hash)) ;; (11.13)
+          ;; ── (11.16) R: count votes, find available cores ────
+          (let* ((c (num-cores))
+                 (votes (count-core-votes assurances c))
+                 (threshold (super-majority))  ;; > ⅔V ≡ ≥ ⌊2V/3⌋+1
+                 ;; ── (11.17) Build ρ‡ and R* in one pass ─────
+                 (reported '())
+                 (new-assignments
+                   (loop for ci below c
+                         for assignment in assignments
+                         collect
+                         (cond
+                           ;; No assignment → stays nil
+                           ((null assignment) nil)
+                           ;; (11.16) Supermajority → available → R* + clear
+                           ((>= (aref votes ci) threshold)
+                            (push (getf assignment :report) reported)
+                            nil)
+                           ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
+                           ((report-stale-p (getf assignment :timeout) tau-prime)
+                            nil)
+                           ;; Otherwise → keep
+                           (t assignment)))))
+            (values (make-rho :assignments new-assignments) (nreverse reported))))
+      ;; ── Error path ─────────────────────────────────────────
+      (assurance-error (e)
+        (values rho-dagger nil e)))))
 
 (defun compute-ready-reports (assurances rho-dagger
                               &key tau-prime parent-hash kappa)
@@ -631,7 +636,7 @@
          (anchor (ensure-bytes (getf ctx :anchor)))
          (state-root (ensure-bytes (getf ctx :state-root)))
          (beefy-root (ensure-bytes (getf ctx :beefy-root)))
-         (history (getf recent-blocks :history))
+         (history (funcall recent-blocks :history))
          ;; Find the anchor in history
          (record (find-if (lambda (rec)
                             (equalp (ensure-bytes (getf rec :header-hash)) anchor))
@@ -650,7 +655,7 @@
   (let* ((ctx (getf report :context))
          (lookup-anchor (ensure-bytes (getf ctx :lookup-anchor)))
          (lookup-anchor-slot (getf ctx :lookup-anchor-slot))
-         (history (getf recent-blocks :history)))
+         (history (funcall recent-blocks :history)))
     ;; lookup-anchor must exist in recent history
     (when (and lookup-anchor-slot
                (> lookup-anchor-slot 0)
@@ -750,7 +755,7 @@
 (defun collect-known-package-hashes (recent-blocks)
   "Collect all work-package hashes from recent blocks history reported entries."
   (let ((hashes '()))
-    (dolist (record (getf recent-blocks :history))
+    (dolist (record (funcall recent-blocks :history))
       (dolist (rp (getf record :reported))
         (push (ensure-bytes (getf rp :hash)) hashes)))
     hashes))
@@ -806,7 +811,7 @@
                                     "exports_root mismatch in EG")))))
         (unless found
           ;; Search in recent history
-          (dolist (record (getf recent-blocks :history))
+          (dolist (record (funcall recent-blocks :history))
             (dolist (rp (getf record :reported))
               (when (equalp wp-hash (ensure-bytes (getf rp :hash)))
                 (if (equalp expected-root
@@ -971,20 +976,21 @@
    
    Args:
      guarantees    — EG (list of guarantee plists)
-     rho-ddagger   — ρ‡ (list of C Option assignments)
+     rho-ddagger   — ρ‡ rho closure
      tau-prime     — τ' = H_T (block timeslot)
      kappa         — κ (current validators)
      lambda-prev   — λ (previous validators)
      eta           — η (4 entropy hashes)
      offenders     — ψ_O (list of banned Ed25519 keys)
-     recent-blocks — β (closure, :history :mmr-peaks)
+     recent-blocks — β closure (:history :mmr-peaks)
      auth-pools    — α (list of C lists of authorizer hashes)
      accounts      — δ (list of {:id :service} plists)
    
-   Returns: ρ' (list of C Option assignments)
+   Returns: ρ' rho closure
    Signals: guarantee-error on validation failure"
   ;; All-or-nothing: guarantee-error propagates to caller on failure.
-  (let ((*current-tau-prime* tau-prime))
+  (let* ((*current-tau-prime* tau-prime)
+         (assignments (funcall rho-ddagger :assignments)))
     ;; No guarantees → ρ' = ρ‡
     (when (null guarantees)
       (return-from transition-rho rho-ddagger))
@@ -993,7 +999,7 @@
     ;; ── Phase 2: Per-guarantee validation + registration ──
     (let ((seen-hashes '())
           (known-packages (collect-known-package-hashes recent-blocks))
-          (rho-prime (copy-list rho-ddagger)))
+          (rho-prime (copy-list assignments)))
       (dolist (g guarantees)
         (let* ((report (getf g :report))
                (guarantee-slot (getf g :slot))
@@ -1008,7 +1014,7 @@
           ;; -- Basic report checks --
           (validate-guarantee-core-index report)
           (validate-guarantee-results-present report)
-          (validate-guarantee-core-not-engaged core-index rho-ddagger)
+          (validate-guarantee-core-not-engaged core-index assignments)
           (validate-guarantee-slot-age guarantee-slot tau-prime)
           ;; -- Signature checks --
           (validate-guarantee-sufficient-signatures signatures)
@@ -1037,6 +1043,6 @@
                 seen-hashes)
           (setf (nth core-index rho-prime)
                 (list :report report :timeout tau-prime))))
-      rho-prime)))
+      (make-rho :assignments rho-prime))))
 
 ;;; Exports managed in package.lisp

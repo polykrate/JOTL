@@ -106,17 +106,15 @@
 ;;; CODEC ROUNDTRIP
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun test-rho-codec-roundtrip (assignments label)
-  "Verify encode/decode roundtrip for ρ (avail_assignments).
+(defun test-rho-codec-roundtrip (rho label)
+  "Verify encode/decode roundtrip for ρ (rho closure).
    Returns T if roundtrip matches."
   (handler-case
-      (let* ((encoded (encode-state-rho assignments))
-             (decoded (multiple-value-bind (result consumed)
-                          (decode-state-rho encoded)
-                        (declare (ignore consumed))
-                        result)))
+      (let* ((encoded (encode-state-rho rho))
+             (decoded (decode-state-rho encoded)))
         (if (compare-assignments (format nil "~A/roundtrip" label)
-                                 decoded assignments)
+                                 (funcall decoded :assignments)
+                                 (funcall rho :assignments))
             t
             (progn
               (format t "    ✗ ~A: ρ codec roundtrip mismatch~%" label)
@@ -162,9 +160,10 @@
          (tau-prime (cdr (assoc :slot input-json)))
          (parent-hash (hex-to-bytes (cdr (assoc :parent input-json))))
          ;; ── Parse pre-state ──
-         (pre-assignments (assurance-json-assignments
-                           (or (cdr (assoc :avail--assignments pre-json))
-                               (cdr (assoc :avail-assignments pre-json)))))
+         (pre-rho (make-rho :assignments
+                   (assurance-json-assignments
+                    (or (cdr (assoc :avail--assignments pre-json))
+                        (cdr (assoc :avail-assignments pre-json))))))
          (pre-validators (json-validators
                           (or (cdr (assoc :curr--validators pre-json))
                               (cdr (assoc :curr-validators pre-json)))))
@@ -189,7 +188,7 @@
                      (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
           (multiple-value-bind (rho-ddagger r-star err)
-              (transition-rho-ddagger assurances pre-assignments
+              (transition-rho-ddagger assurances pre-rho
                                      :tau-prime tau-prime
                                      :parent-hash parent-hash
                                      :kappa pre-validators)
@@ -204,7 +203,8 @@
                     (let* (;; Compare ρ‡ vs expected post-state assignments
                            (assign-ok (compare-assignments
                                         (format nil "~A/ρ‡" fname)
-                                        rho-ddagger post-assignments))
+                                        (funcall rho-ddagger :assignments)
+                                        post-assignments))
                            ;; Compare R* (reported) vs expected output
                            (report-ok (compare-reported
                                         (format nil "~A/R*" fname)

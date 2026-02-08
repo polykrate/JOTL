@@ -63,7 +63,7 @@
          (kappa        (funcall sigma :kappa))
          (lambda-prev  (funcall sigma :lambda))
          (gamma-prev   (funcall sigma :gamma))
-         (rho          (funcall sigma :rho))
+         (rho          (or (funcall sigma :rho) (make-rho)))
          (psi          (funcall sigma :psi))
          (beta         (funcall sigma :beta))
          (alpha-prev   (funcall sigma :alpha))
