@@ -1,17 +1,16 @@
 ;;;; jotl.asd — ASDF System Definition for JOTL v3
 ;;;;
 ;;;; Architecture:
-;;;;   core/   — Macros + protocol constants
-;;;;   codec/  — JAM encoding primitives + protocol types (GP Appendix C)
-;;;;   utils/  — Merkle trie, MMR
+;;;;   lib/    — Macros, constants, codecs, Merkle trie, MMR, display
 ;;;;   block/  — Block data structures B=(H,E) + encode/decode/hash/validation
-;;;;   stf/    — State σ + state transition Υ(σ,B)→σ'
+;;;;   state/  — State σ: one file per component (Greek letter)
+;;;;   src/    — Υ(σ,B)→σ' orchestrator (upsilon.lisp)
 
 (asdf:defsystem #:jotl
   :description "JAM (Join-Accumulate Machine) implementation in Pure Functional Common Lisp"
   :author "Polycrate"
   :license "MIT"
-  :version "3.2.0"
+  :version "4.0.0"
   :serial t
   :depends-on (#:alexandria
                #:jam-crypto)
@@ -19,33 +18,21 @@
   (;; 1. Package
    (:file "package")
    
-   ;; 2. Core — Macros + Protocol constants (GP §3-4)
-   (:module "core"
-    :pathname "src/core"
+   ;; 2. Lib — Macros, constants, codecs, utils
+   (:module "lib"
+    :pathname "src/lib"
     :serial t
     :components
     ((:file "macros")
-     (:file "constants")))
-   
-   ;; 3. Codec — JAM encoding primitives + protocol types (GP Appendix C)
-   (:module "codec"
-    :pathname "src/codec"
-    :serial t
-    :components
-    ((:file "primitives")
+     (:file "constants")
+     (:file "primitives")
      (:file "types")
-     (:file "state-keys")))
-   
-   ;; 4. Utils
-   (:module "utils"
-    :pathname "src/utils"
-    :serial t
-    :components
-    ((:file "merkle-trie")
+     (:file "state-keys")
+     (:file "merkle-trie")
      (:file "mmr")
      (:file "display")))
    
-   ;; 5. Block — Data structures B=(H,E) + encode/decode + hash + validation
+   ;; 3. Block — Data structures B=(H,E) + encode/decode + hash + validation
    (:module "block"
     :pathname "src/block"
     :serial t
@@ -65,27 +52,31 @@
      (:file "block")
      (:file "validation")))
    
-   ;; 6. STF — State + Transitions (GP §4-13)
-   ;;    One file per state component (Greek letter).
-   ;;    Created incrementally as needed.
-   (:module "stf"
-    :pathname "src/stf"
+   ;; 4. State — One file per GP state component (GP I.4.2)
+   (:module "state"
+    :pathname "src/state"
     :serial t
     :components
-    ((:file "sigma")
-     (:file "tau")
-     (:file "beta")
-     (:file "eta")
-     (:file "psi")
-     (:file "rho")
-     (:file "kappa")
-     (:file "lambda")
-     (:file "iota")
-     (:file "gamma")
-     (:file "alpha")
-     (:file "accumulate")
-     (:file "pi")
-     (:file "delta")
-     (:file "upsilon")))))
+    ((:file "sigma")      ;; σ  — overall state
+     (:file "tau")        ;; τ  — timeslot
+     (:file "beta")       ;; β  — recent history
+     (:file "eta")        ;; η  — entropy
+     (:file "psi")        ;; ψ  — judgments
+     (:file "rho")        ;; ρ  — core assignments
+     (:file "kappa")      ;; κ  — current validators
+     (:file "lambda")     ;; λ  — archived validators
+     (:file "iota")       ;; ι  — enqueued validators
+     (:file "gamma")      ;; γ  — safrole
+     (:file "alpha")      ;; α  — core authorizations
+     (:file "phi")        ;; ϕ  — authorization queue
+     (:file "delta")      ;; δ  — services
+     (:file "pi")         ;; π  — validator statistics
+     (:file "chi")        ;; χ  — privileged service IDs
+     (:file "omega")      ;; ω  — accumulation queue
+     (:file "xi")         ;; ξ  — accumulation history
+     (:file "theta")))    ;; θ  — accumulation outputs
+   
+   ;; 5. Υ — Top-level STF orchestrator
+   (:file "upsilon" :pathname "src/upsilon")))
 
 ;;;; Tests are run via scripts/ — see tests/README.md

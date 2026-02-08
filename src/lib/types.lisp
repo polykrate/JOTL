@@ -284,6 +284,19 @@
   (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
 
 ;;; ==========================================================================
+;;; Authorization Pool Encoder (shared by α and ϕ)
+;;; ==========================================================================
+
+(defun encode-auth-pools (pools)
+  "Encode core authorization pools.
+   pools = list of C lists of 32-byte authorizer hashes."
+  (if (null pools)
+      (encode-compact 0)
+      (encode-sequence pools
+                       (lambda (core-auths)
+                         (encode-sequence core-auths #'encode-hash-32)))))
+
+;;; ==========================================================================
 ;;; Byte Vector Comparison
 ;;; ==========================================================================
 

@@ -2,7 +2,7 @@
 
 (in-package :cl-user)
 
-(format t "~%Loading JOTL v3...~%")
+(format t "~%Loading JOTL v4...~%")
 
 ;; 1. Load crypto FFI
 (format t "  Loading crypto FFI...~%")

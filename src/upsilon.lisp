@@ -1,7 +1,7 @@
-;;;; stf/upsilon.lisp — Υ(σ, B) → σ'
+;;;; upsilon.lisp — Υ(σ, B) → σ'
 ;;;; Gray Paper §4.1 & §4.2.1
 ;;;;
-;;;; TOP-LEVEL STF — orchestrates all sub-STFs.
+;;;; TOP-LEVEL STF ORCHESTRATOR — composes all state transitions.
 ;;;; Pure function: (sigma, block) → sigma'.
 ;;;;
 ;;;; Call hierarchy:
@@ -174,23 +174,34 @@
                :xi      xi-prime))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; SUB-STF LOCATIONS — one file per component
+;;; SUB-ORCHESTRATOR — transition-accumulate (GP §4.16)
 ;;; ═════════════════════════════════════════════════════════════════
-;;; Implemented (own files, tested):
-;;;   transition-tau          → stf/tau.lisp         (§5.7, §6.1-6.2) ✓ 42/42
-;;;   transition-eta          → stf/eta.lisp         (§6.21-6.23)     ✓ 42/42
-;;;   transition-beta-dagger  → stf/beta.lisp        (§7.5)           ✓  8/8
-;;;   transition-psi          → stf/psi.lisp         (§10)            ✓ 56/56
-;;;   transition-rho-dagger   → stf/rho.lisp         (§10.15)         ✓ (via ψ)
-;;;   transition-kappa        → stf/kappa.lisp       (§6.15)          ✓ (via γ)
-;;;   transition-lambda       → stf/lambda.lisp      (§6.16)          ✓ (via γ)
-;;;   transition-gamma        → stf/gamma.lisp       (§6)             ✓ 42/42
-;;;   transition-rho-ddagger  → stf/rho.lisp         (§11)            ✓ 20/20
-;;;   transition-rho          → stf/rho.lisp         (§11-12)         ✓ 84/84
+;;; Produces ω', ξ', δ‡, χ', ι', ϕ', θ', S from R* and prior state.
+;;; This is a sub-orchestrator (like Υ itself), not a state component.
+
+(defun transition-accumulate (r-star omega xi delta chi iota phi tau tau-prime)
+  "GP §4.16 — Accumulation. STUB: §8 + PVM
+   Returns: (values ω' ξ' δ‡ χ' ι' ϕ' θ' S)"
+  (declare (ignore r-star tau tau-prime))
+  (values omega xi delta chi iota phi nil nil))
+
+;;; ═════════════════════════════════════════════════════════════════
+;;; SUB-STF LOCATIONS — one file per state component
+;;; ═════════════════════════════════════════════════════════════════
+;;; Implemented (tested):
+;;;   transition-tau          → state/tau.lisp        (§6.1-6.2)  ✓ 42/42
+;;;   transition-eta          → state/eta.lisp        (§6.21-6.23)✓ 42/42
+;;;   transition-beta-dagger  → state/beta.lisp       (§7.5)      ✓  8/8
+;;;   transition-psi          → state/psi.lisp        (§10)       ✓ 56/56
+;;;   transition-rho-dagger   → state/rho.lisp        (§10.15)    ✓ (via ψ)
+;;;   transition-kappa        → state/kappa.lisp      (§6.15)     ✓ (via γ)
+;;;   transition-lambda       → state/lambda.lisp     (§6.16)     ✓ (via γ)
+;;;   transition-gamma        → state/gamma.lisp      (§6)        ✓ 42/42
+;;;   transition-rho-ddagger  → state/rho.lisp        (§11)       ✓ 20/20
+;;;   transition-rho          → state/rho.lisp        (§11-12)    ✓ 84/84
 ;;;
-;;; Stubs (own files):
-;;;   transition-accumulate   → stf/accumulate.lisp  (§8, stub/PVM)  vectors: 60
-;;;   transition-delta        → stf/delta.lisp       (§7, stub)      vectors: 16
-;;;   transition-alpha        → stf/alpha.lisp       (§13, stub)     vectors:  6
-;;;   transition-pi           → stf/pi.lisp          (§15, stub)     vectors:  6
-;;;   transition-beta (final) → stf/beta.lisp        (§7.7-7.8, stub)
+;;; Stubs:
+;;;   transition-delta        → state/delta.lisp      (§7)        vectors: 16
+;;;   transition-alpha        → state/alpha.lisp      (§13)       vectors:  6
+;;;   transition-pi           → state/pi.lisp         (§15)       vectors:  6
+;;;   transition-beta (final) → state/beta.lisp       (§7.7-7.8)

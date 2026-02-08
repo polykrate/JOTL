@@ -13,12 +13,12 @@
   (:documentation "JAM On The Lisp — Pure Functional Programming")
   (:export
    ;; ═══════════════════════════════════════════
-   ;; Core — Macros
+   ;; Lib — Macros
    ;; ═══════════════════════════════════════════
    #:define-value-object
    
    ;; ═══════════════════════════════════════════
-   ;; Core — Constants
+   ;; Lib — Constants
    ;; ═══════════════════════════════════════════
    #:*chain*
    #:chain
@@ -67,7 +67,7 @@
    #:+ctx-invalid+       ;; X⊥ — invalid judgement
    
    ;; ═══════════════════════════════════════════
-   ;; Codec — Primitives (GP Appendix C)
+   ;; Lib — Codec Primitives (GP Appendix C)
    ;; ═══════════════════════════════════════════
    #:encode-fixed-le #:decode-fixed-le
    #:E1 #:E2 #:E4 #:E8
@@ -79,7 +79,7 @@
    #:ensure-bytes
    
    ;; ═══════════════════════════════════════════
-   ;; Codec — State Keys (GP Appendix D)
+   ;; Lib — State Keys (GP Appendix D)
    ;; ═══════════════════════════════════════════
    #:state-key #:service-key #:state-key-for-segment
    #:+C1+ #:+C2+ #:+C3+ #:+C4+ #:+C5+ #:+C6+ #:+C7+ #:+C8+
@@ -87,9 +87,10 @@
    #:+state-key-names+
    
    ;; ═══════════════════════════════════════════
-   ;; Codec — Types
+   ;; Lib — Codec Types
    ;; ═══════════════════════════════════════════
    #:bytes<
+   #:encode-auth-pools
    #:encode-hash-32 #:decode-hash-32
    #:encode-ed25519-key #:decode-ed25519-key
    #:encode-bandersnatch-key #:decode-bandersnatch-key
@@ -105,13 +106,15 @@
    #:encode-validator-index #:decode-validator-index
    
    ;; ═══════════════════════════════════════════
-   ;; Utils — Merkle Trie
+   ;; Lib — Merkle Trie + State Merklization
    ;; ═══════════════════════════════════════════
    #:trie-bit #:trie-branch #:trie-leaf
    #:merkle-root #:compute-state-root #:pad-key-to-32
+   #:+sigma-segment-keys+
+   #:merklize-state #:validate-state-root
    
    ;; ═══════════════════════════════════════════
-   ;; Utils — MMR (GP Appendix E)
+   ;; Lib — MMR (GP Appendix E)
    ;; ═══════════════════════════════════════════
    #:mmr-merge
    #:mmr-super-peak
@@ -157,9 +160,11 @@
    ;; Environmental (called by import-block / node layer):
    #:validate-timeslot-not-future
    #:validate-parent-hash
+   ;; Post-transition:
+   #:validate-header-post-transition
    
    ;; ═══════════════════════════════════════════
-   ;; STF — State σ (GP §4.4)
+   ;; State — σ overall (GP §4.4)
    ;; ═══════════════════════════════════════════
    #:make-state #:make-genesis-state
    #:state-tau #:state-kappa #:state-lambda #:state-iota
@@ -168,7 +173,7 @@
    #:state-psi #:state-pi #:state-omega #:state-xi #:state-theta
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Timeslot τ (GP §6.1-6.2)
+   ;; State — τ Timeslot (GP §6.1-6.2)
    ;; ═══════════════════════════════════════════
    #:make-tau-state
    #:tau-state-value
@@ -181,7 +186,7 @@
    #:encode-state-tau #:decode-state-tau
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Recent History β (GP §7)
+   ;; State — β Recent History (GP §7)
    ;; ═══════════════════════════════════════════
    #:+history-size+
    #:make-beta
@@ -199,7 +204,7 @@
    #:encode-mmr-peak #:decode-mmr-peak
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Entropy η (GP §6.21-6.23)
+   ;; State — η Entropy (GP §6.21-6.23)
    ;; ═══════════════════════════════════════════
    #:make-eta
    #:eta-eta-0 #:eta-eta-1 #:eta-eta-2 #:eta-eta-3
@@ -207,7 +212,7 @@
    #:encode-state-eta #:decode-state-eta
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Judgments ψ (GP §10)
+   ;; State — ψ Judgments (GP §10)
    ;; ═══════════════════════════════════════════
    #:make-psi
    #:psi-good #:psi-bad #:psi-wonky #:psi-offenders
@@ -224,7 +229,7 @@
    #:encode-state-psi #:decode-state-psi
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Validator Keys κ (GP §6.15)
+   ;; State — κ Current Validators (GP §6.15)
    ;; ═══════════════════════════════════════════
    #:make-kappa
    #:kappa-validators
@@ -232,7 +237,7 @@
    #:encode-state-kappa #:decode-state-kappa
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Archived Keys λ (GP §6.16)
+   ;; State — λ Archived Validators (GP §6.16)
    ;; ═══════════════════════════════════════════
    #:make-lambda-state
    #:lambda-state-validators
@@ -240,14 +245,14 @@
    #:encode-state-lambda #:decode-state-lambda
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Enqueued Keys ι (GP §8)
+   ;; State — ι Enqueued Validators (GP §6.7)
    ;; ═══════════════════════════════════════════
    #:make-iota
    #:iota-validators
    #:encode-state-iota #:decode-state-iota
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Safrole γ (GP §6)
+   ;; State — γ Safrole (GP §6)
    ;; ═══════════════════════════════════════════
    #:make-gamma
    #:gamma-pending-keys #:gamma-ring-commitment
@@ -276,7 +281,7 @@
    #:encode-state-ticket #:decode-state-ticket
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Core Assignments ρ (GP §10-12)
+   ;; State — ρ Core Assignments (GP §10-12)
    ;; ═══════════════════════════════════════════
    #:make-rho
    #:encode-state-rho #:decode-state-rho
@@ -328,54 +333,59 @@
    #:compute-core-assignments
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Core Authorizations α & Queue ϕ (GP §13)
+   ;; State — α Core Authorizations (GP §8.1, §13)
    ;; ═══════════════════════════════════════════
    #:make-alpha #:alpha-pools
    #:encode-state-alpha
-   #:make-phi #:phi-pools
-   #:encode-state-phi
    #:transition-alpha
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Accumulation χ/ω/ξ/θ (GP §8)
+   ;; State — ϕ Authorization Queue (GP §13.3)
    ;; ═══════════════════════════════════════════
-   #:make-chi #:chi-manager #:chi-assign #:chi-designate #:chi-empower
-   #:encode-state-chi
-   #:make-omega #:omega-reports
-   #:encode-state-omega
-   #:make-xi #:xi-accumulations
-   #:encode-state-xi
-   #:make-theta #:theta-queue
-   #:encode-state-theta
-   #:transition-accumulate
+   #:make-phi #:phi-pools
+   #:encode-state-phi
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Validator Statistics π (GP §15)
+   ;; State — δ Services (GP §7, §9)
+   ;; ═══════════════════════════════════════════
+   #:transition-delta
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — π Validator Statistics (GP §13.1)
    ;; ═══════════════════════════════════════════
    #:make-pi-segment #:pi-segment-stats
    #:encode-state-pi
    #:transition-pi
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Services δ (GP §7)
+   ;; State — χ Privileged Services (GP §9.9)
    ;; ═══════════════════════════════════════════
-   #:transition-delta
+   #:make-chi #:chi-manager #:chi-assign #:chi-designate #:chi-empower
+   #:encode-state-chi
    
    ;; ═══════════════════════════════════════════
-   ;; Utils — State Merklization (GP Appendix D)
+   ;; State — ω Accumulation Queue (GP §12.3)
    ;; ═══════════════════════════════════════════
-   #:+sigma-segment-keys+
-   #:merklize-state #:validate-state-root
+   #:make-omega #:omega-reports
+   #:encode-state-omega
    
    ;; ═══════════════════════════════════════════
-   ;; Block — Post-transition Validation
+   ;; State — ξ Accumulation History (GP §12.1)
    ;; ═══════════════════════════════════════════
-   #:validate-header-post-transition
+   #:make-xi #:xi-accumulations
+   #:encode-state-xi
    
    ;; ═══════════════════════════════════════════
-   ;; STF — Υ(σ,B)→σ' (GP §4.1)
+   ;; State — θ Accumulation Outputs (GP §7.4, §12.25)
+   ;; ═══════════════════════════════════════════
+   #:make-theta #:theta-queue
+   #:encode-state-theta
+   
+   ;; ═══════════════════════════════════════════
+   ;; Υ — Orchestrator (GP §4.1)
    ;; ═══════════════════════════════════════════
    #:transition-state
+   #:transition-accumulate
    #:apply-block
    
    ;; ═══════════════════════════════════════════
