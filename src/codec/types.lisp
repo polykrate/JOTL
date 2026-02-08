@@ -212,9 +212,9 @@
                  ;; (6.10) ke: k[32..64]
                  (encode-ed25519-key ed)
                  ;; (6.11) kl: k[64..208]
-                 (if bl bl (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0))
+                 (if bl bl (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0))
                  ;; (6.12) km: k[208..336]
-                 (if mt mt (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0)))))
+                 (if mt mt (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0)))))
 
 (defun decode-full-validator (bytes offset)
   "Decode a full state validator K ≡ B336.

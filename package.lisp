@@ -35,8 +35,35 @@
    #:max-tickets-per-extrinsic
    #:rotation-period
    #:num-ec-pieces-per-segment
-   #:+zero-hash+
-   #:+mmr-peak-prefix+
+   ;; Protocol constants (GP I.4.4)
+   #:+zero-hash+ #:+mmr-peak-prefix+
+   #:+history-size+ #:+availability-timeout+
+   #:+max-work-items+ #:+max-dependencies+
+   #:+max-lookup-anchor-age+ #:+max-auth-pool+ #:+auth-queue-size+
+   #:+min-service-index+ #:+max-work-package-extrinsics+
+   #:+accumulation-gas+ #:+is-authorized-gas+
+   #:+min-balance+ #:+min-balance-per-item+ #:+min-balance-per-octet+
+   #:+audit-tranche-period+ #:+audit-bias-factor+
+   #:+max-is-authorized-code+ #:+max-service-code+
+   #:+erasure-piece-size+ #:+segment-size+
+   #:+max-imports+ #:+max-exports+
+   #:+max-unbounded-blob-size+ #:+transfer-memo-size+
+   #:+pvm-address-alignment+ #:+pvm-init-data-size+
+   #:+pvm-page-size+ #:+pvm-init-zone-size+
+   ;; Validator key sizes (GP §6.9-6.12)
+   #:+bandersnatch-key-size+ #:+ed25519-key-size+
+   #:+bls-key-size+ #:+metadata-size+ #:+validator-key-size+
+   ;; Context strings X (GP I.4.5) — all 10
+   #:+ctx-available+     ;; XA — assurances
+   #:+ctx-beefy+         ;; XB — BEEFY commitment
+   #:+ctx-entropy+       ;; XE — entropy VRF
+   #:+ctx-fallback-seal+ ;; XF — fallback seal
+   #:+ctx-guarantee+     ;; XG — guarantees
+   #:+ctx-announce+      ;; XI — audit announcement
+   #:+ctx-ticket-seal+   ;; XT — ticket seal / regular seal
+   #:+ctx-audit+         ;; XU — audit selection entropy
+   #:+ctx-valid+         ;; X⊤ — valid judgement
+   #:+ctx-invalid+       ;; X⊥ — invalid judgement
    
    ;; ═══════════════════════════════════════════
    ;; Codec — Primitives (GP Appendix C)
@@ -48,6 +75,7 @@
    #:encode-compact #:decode-compact
    #:encode-sequence #:decode-sequence
    #:encode-option #:decode-option
+   #:ensure-bytes
    
    ;; ═══════════════════════════════════════════
    ;; Codec — State Keys (GP Appendix D)
@@ -233,9 +261,22 @@
    ;; ═══════════════════════════════════════════
    ;; STF — Core Assignments ρ (GP §10-12)
    ;; ═══════════════════════════════════════════
+   #:make-rho
+   #:encode-state-rho #:decode-state-rho
+   #:encode-rho-assignment #:decode-rho-assignment
+   #:assignment-report-hash
    #:transition-rho-dagger
+   ;; Assurances (§11)
    #:transition-rho-ddagger
    #:compute-ready-reports
+   #:assurance-error #:assurance-error-code #:assurance-error-detail
+   #:assurance-signing-payload
+   #:bitfield-core-set-p #:bitfield-flagged-cores #:count-core-votes
+   #:validate-assurances-sorted-unique
+   #:validate-assurance-anchor #:validate-assurance-validator-index
+   #:validate-assurance-cores-engaged #:validate-assurance-signature
+   #:report-stale-p
+   ;; Guarantees (§11-12)
    #:transition-rho
    
    ;; ═══════════════════════════════════════════

@@ -283,4 +283,17 @@
        (:ok  (concatenate '(vector (unsigned-byte 8)) #(0) (funcall ok-encoder (cdr value))))
        (:err (concatenate '(vector (unsigned-byte 8)) #(1) (funcall err-encoder (cdr value))))))))
 
+;;; ==========================================================================
+;;; Byte Coercion
+;;; ==========================================================================
+
+(defun ensure-bytes (value)
+  "Coerce VALUE to a (simple-array (unsigned-byte 8) (*)).
+   Accepts: byte arrays (passthrough), hex strings (via FFI), other vectors (coerce).
+   This factorizes the etypecase pattern used across codec/block/stf code."
+  (etypecase value
+    ((simple-array (unsigned-byte 8) (*)) value)
+    (string (jam.ffi:hex-string-to-bytes value))
+    (vector (coerce value '(simple-array (unsigned-byte 8) (*))))))
+
 ;;; Exports managed in package.lisp

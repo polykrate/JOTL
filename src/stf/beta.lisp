@@ -7,16 +7,12 @@
 ;;;;
 ;;;; Two transitions (GP §4.2.1 dependency graph):
 ;;;;   β†  = transition-beta-dagger(H, β)          WAVE 1  (§7.5)
-;;;;   β'  = transition-beta(H, EG, β†, θ')        WAVE 5  (§7.7-7.8)
+;;;;   β'  = transition-beta(H, EG, β†, θ')        WAVE 4  (§7.7-7.8)
 
 (in-package #:jotl)
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; CONSTANTS
-;;; ═══════════════════════════════════════════════════════════════
-
-(defconstant +history-size+ 8
-  "H — maximum recent blocks retained in β (GP §7).")
+;;; +history-size+ (H) is defined in core/constants.lisp
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; DATA — β closure (via macro)

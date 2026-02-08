@@ -126,8 +126,8 @@
     (concatenate '(vector (unsigned-byte 8))
                  ;; γk: V × 336 bytes
                  (encode-full-validator-sequence gk)
-                 ;; γz: 144 bytes
-                 (if gz gz (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0))
+                 ;; γz: ring commitment (BLS key size)
+                 (if gz gz (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0))
                  ;; γs: discriminant + data
                  (encode-gamma-sealing gs)
                  ;; γa: compact-prefixed sequence of tickets
@@ -213,7 +213,7 @@
     ;; (6.15) HS ∈ V̂○(XT ⌢ η'₃ ⌢ ie)
     (let* ((attempt  (getf ticket :attempt))
            (vrf-input (concatenate '(vector (unsigned-byte 8))
-                                   jam.ffi:+jam-ticket-seal+
+                                   +ctx-ticket-seal+
                                    eta-3-prime
                                    (vector attempt)))
            (valid-p  (jam.ffi:bandersnatch-verify-ring-vrf
@@ -235,7 +235,7 @@
          (seal-key   (nth author-idx keys))
          ;; (6.16) VRF input = XF ⌢ η'₃
          (vrf-input  (concatenate '(vector (unsigned-byte 8))
-                                  jam.ffi:+jam-fallback-seal+
+                                  +ctx-fallback-seal+
                                   eta-3-prime)))
     (unless seal-key
       (error 'safrole-error :code :bad-seal
@@ -363,9 +363,9 @@
 ;;; TODO: verify exact GP definition — using E - R for now.
 
 (defun closing-offset ()
-  "Y — GP §6: Slot offset within epoch where the ticket contest closes.
+  "Y — GP §6.5-6.7: Slot offset within epoch where ticket-submission ends.
    After this offset, no more tickets can be submitted.
-   Returns: contest-duration (P in the GP).
+   Returns: contest-duration (Y in the GP, NOT P which is slot-period).
    Tiny: 10, Full: 500."
   (contest-duration))
 
@@ -380,10 +380,10 @@
 
 (defparameter +null-validator-key+
   (list :bandersnatch (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
-        :ed25519      (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
-        :bls          (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0)
-        :metadata     (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))
-  "K = [0,0,...] — null validator key (336 zero bytes). GP (6.14).")
+        :ed25519      (make-array +ed25519-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+        :bls          (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+        :metadata     (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0))
+  "K = [0,0,...] — null validator key (+validator-key-size+ zero bytes). GP (6.14).")
 
 (defun filter-offenders (validators offenders)
   "Φ(k) — GP (6.14): Zero out validators whose ke ∈ ψ'O.
@@ -616,6 +616,7 @@
 
 (defun transition-gamma (header tau tickets gamma iota eta-prime kappa-prime psi-prime)
   "GP §6 — Safrole state transition.
+   γ' ≺ (H, τ, E_T, γ, ι, η', κ', ψ')
 
    Implemented:
      (6.13) Key rotation at epoch boundary: γ'P, γ'Z
@@ -627,12 +628,12 @@
      (6.28) Winning tickets marker HW (compute-winning-tickets-mark)
      (6.29-6.35) Ticket validation + accumulation γ'A
 
-   Args: header (closure), tau (prior timeslot),
+   Args: header (H, block header closure), tau (τ, prior timeslot),
          tickets (ET list), gamma (γ closure),
          iota (ι list), eta-prime (η' list),
          kappa-prime (κ' list), psi-prime (ψ' plist)
    Returns: γ'"
-  (let* ((tau-prime (funcall header :slot))
+  (let* ((tau-prime (funcall header :slot))  ;; τ' = HT
          ;; Current γ components
          (gamma-p (funcall gamma :pending-keys))
          (gamma-z (funcall gamma :ring-commitment))

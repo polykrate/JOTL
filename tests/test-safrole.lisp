@@ -413,7 +413,7 @@
          ;; psi-prime as plist (offenders provided by test vector)
          (psi-prime     (list :good nil :bad nil :wonky nil
                               :offenders offenders))
-         ;; ── Wave 2: γ' ──
+         ;; ── Wave 2: γ' ≺ (H, τ, ET, γ, ι, η', κ', ψ') ──
          (gamma-prime   (transition-gamma header tau tickets gamma
                                           iota eta-prime kappa-prime psi-prime))
          ;; ── Output markers ──

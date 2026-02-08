@@ -88,9 +88,7 @@
 
    Args: target (H, 32 bytes), vote (boolean)
    Returns: byte array"
-  (let ((prefix (if vote
-                    (map '(vector (unsigned-byte 8)) #'char-code "jam_valid")
-                    (map '(vector (unsigned-byte 8)) #'char-code "jam_invalid"))))
+  (let ((prefix (if vote +ctx-valid+ +ctx-invalid+)))
     (concatenate '(vector (unsigned-byte 8)) prefix target)))
 
 (defun guarantee-signing-context (target)
@@ -99,8 +97,7 @@
 
    Args: target (H, 32 bytes)
    Returns: byte array"
-  (let ((prefix (map '(vector (unsigned-byte 8)) #'char-code "jam_guarantee")))
-    (concatenate '(vector (unsigned-byte 8)) prefix target)))
+  (concatenate '(vector (unsigned-byte 8)) +ctx-guarantee+ target))
 
 (defun validator-ed25519-key (index age tau kappa lambda-prev)
   "(10.3) Get Ed25519 key for validator at INDEX.
@@ -500,7 +497,7 @@
 (defun encode-state-psi (psi)
   "Encode ψ to state binary.
    Returns: byte array"
-  ;; STUB — TODO: encode 4 sorted sequences of 32-byte hashes
+  ;; C(5): 4 sorted sequences of 32-byte hashes
   (let ((good      (getf psi :good))
         (bad       (getf psi :bad))
         (wonky     (getf psi :wonky))

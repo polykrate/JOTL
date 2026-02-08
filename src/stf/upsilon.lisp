@@ -102,15 +102,19 @@
                ;; (4.15) R*  < (EA, ρ†)
                ;; ═══════════════════════════════════════════════
                (gamma-prime (transition-gamma h tau e-t gamma-prev
-                                              iota eta-prime kappa-prime psi-prime))
-               (rho-ddagger (transition-rho-ddagger e-a rho-dagger))
-               (r-star      (compute-ready-reports e-a rho-dagger))
-               ;; ═══════════════════════════════════════════════
-               ;; WAVE 3 — depends on Wave 2 results (parallel)
-               ;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
-               ;; (4.16) accumulate < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
-               ;; ═══════════════════════════════════════════════
-               (rho-prime   (transition-rho e-g rho-ddagger kappa tau-prime)))
+                                              iota eta-prime kappa-prime psi-prime)))
+          ;; ρ‡ returns (values ρ‡ R* [error]) per §11
+          (multiple-value-bind (rho-ddagger r-star)
+              (transition-rho-ddagger e-a rho-dagger
+                                      :tau-prime tau-prime
+                                      :parent-hash (funcall h :parent-hash)
+                                      :kappa kappa)
+            (let* (;; ═══════════════════════════════════════════════
+                   ;; WAVE 3 — depends on Wave 2 results (parallel)
+                   ;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
+                   ;; (4.16) accumulate < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
+                   ;; ═══════════════════════════════════════════════
+                   (rho-prime (transition-rho e-g rho-ddagger kappa tau-prime)))
           (multiple-value-bind (omega-prime xi-prime delta-ddagger
                                 chi-prime iota-prime phi-prime
                                 theta-prime s-reports)
@@ -146,7 +150,7 @@
                :psi     psi-prime
                :pi*     pi-prime
                :omega   omega-prime
-               :xi      xi-prime))))))))
+               :xi      xi-prime))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; SUB-STF LOCATIONS — one file per component
@@ -161,9 +165,10 @@
 ;;;   transition-lambda       → stf/lambda.lisp (§6.16)            ✓ (via γ)
 ;;;   transition-gamma        → stf/gamma.lisp  (§6)               ✓ 42/42
 ;;;
+;;;   transition-rho-ddagger  → stf/rho.lisp     (§11)             ✓ 20/20
+;;;   compute-ready-reports   → stf/rho.lisp     (§11)             ✓ (via ρ‡)
+;;;
 ;;; Stubs (here, will be moved when implemented):
-;;;   transition-rho-ddagger  → stf/rho.lisp     (§11, stub)      vectors: 20
-;;;   compute-ready-reports   → stf/rho.lisp     (§11, stub)      vectors: 20
 ;;;   transition-rho          → stf/rho.lisp     (§11-12, stub)   vectors: 84
 ;;;   transition-accumulate   → stf/accumulate   (§8, stub/PVM)   vectors: 60
 ;;;   transition-beta (final) → stf/beta.lisp    (§7.7-7.8, stub)
