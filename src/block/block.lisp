@@ -29,8 +29,8 @@
   (:timeslot   (funcall header :slot))
   (:parent-hash (funcall header :parent-hash))
   (:state-root (funcall header :state-root))
-  ;; Hash (block hash = header hash)
-  (:hash       (funcall header :hash))
+  ;; Hash (block hash = header hash) — memoized
+  (:hash :memo (funcall header :hash))
   ;; Memoized encoding
   (:encoded :memo
    (concatenate '(vector (unsigned-byte 8))

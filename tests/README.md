@@ -1,86 +1,68 @@
 # JOTL Tests
 
-## Test Files
+## Test Suites
 
-| File | What | Vectors |
-|------|------|---------|
-| `test-block-roundtrip.lisp` | **Main test suite** — 3 parts | |
-| | Part 1: Block decode↔encode + JSON cross-validation | `codec/{tiny,full}/block.{bin,json}` |
-| | Part 2: HX trace verification (authoritative) | `trace-vectors/extrinsic_hash/*.json` |
-| | Part 3: Individual codec roundtrips (24 vectors) | `codec/{tiny,full}/*.{bin,json}` |
-| `test-beta.lisp` | β (Recent History) STF — §7 | `stf/history/{tiny,full}/*.json` |
-| `test-eta.lisp` | η (Entropy) STF — §7 | `stf/safrole/{tiny,full}/*.json` |
-| `test-hx-trace.lisp` | HX encode-from-JSON helpers (used by roundtrip) | `trace-vectors/` |
-| `test-utils.lisp` | Shared helpers: `hex-to-bytes`, `bytes=`, `load-json`, `load-bin` | — |
+| File | STF | Vectors | Exhaustif ? |
+|------|------|---------|------------|
+| `test-block-roundtrip.lisp` | Codec | `codec/{tiny,full}/*.{bin,json}` + `trace-vectors/` | bin⇄json⇄roundtrip |
+| `test-eta.lisp` | η (Entropy) §7 | `stf/safrole/{tiny,full}/*.json` | JSON byte-by-byte + codec roundtrip |
+| `test-beta.lisp` | β (History) §7 | `stf/history/{tiny,full}/*.{bin,json}` | bin⇄json + STF + encode roundtrip |
+| `test-psi.lisp` | ψ (Disputes) §10 | `stf/disputes/{tiny,full}/*.json` | JSON deep content + codec roundtrip |
+| `test-utils.lisp` | — | — | Shared helpers |
+
+## Scores
+
+```
+η:  30/42 passed (12 skipped — safrole error cases)
+β:   8/8  passed
+ψ:  56/56 passed (28 tiny + 28 full)
+```
+
+### η skips (12)
+
+All 12 are safrole validation errors (block rejected → σ'=σ):
+
+| Error | VRF? | Count |
+|-------|------|-------|
+| `bad_slot` | ❌ | 2 |
+| `bad_ticket_attempt` | ❌ | 2 |
+| `duplicate_ticket` | ❌ | 2 |
+| `bad_ticket_order` | ❌ | 2 |
+| `bad_ticket_proof` | ✅ | 2 |
+| `unexpected_ticket` | ❌ | 2 |
+
+Only `bad_ticket_proof` is VRF-related. These will be covered when safrole STF is implemented.
 
 ## Running
 
 ```bash
-cd /home/polycrate/Projets/JOTL
+cd /path/to/JOTL
 
-# Full codec + block suite
+# All tests
 sbcl --noinform --non-interactive \
+  --eval '(require :asdf)' \
   --eval '(push (truename ".") asdf:*central-registry*)' \
   --eval '(asdf:load-system :jotl)' \
   --eval '(ql:quickload :cl-json :silent t)' \
-  --eval '(load "tests/test-block-roundtrip.lisp")'
-
-# STF tests
-sbcl --noinform --non-interactive \
-  --eval '(push (truename ".") asdf:*central-registry*)' \
-  --eval '(asdf:load-system :jotl)' \
-  --eval '(ql:quickload :cl-json :silent t)' \
-  --eval '(load "tests/test-beta.lisp")'
-
-sbcl --noinform --non-interactive \
-  --eval '(push (truename ".") asdf:*central-registry*)' \
-  --eval '(asdf:load-system :jotl)' \
-  --eval '(ql:quickload :cl-json :silent t)' \
-  --eval '(load "tests/test-eta.lisp")'
+  --eval '(load "tests/test-eta.lisp")' \
+  --eval '(load "tests/test-beta.lisp")' \
+  --eval '(load "tests/test-psi.lisp")'
 ```
-
-## Test Vectors
-
-### `jamtestvectors/codec/` — Structural encoding/decoding
-- `block.{bin,json}` — full block (header + extrinsic)
-- `header_0` — epoch_mark=Some, tickets_mark=None, offenders=1
-- `header_1` — epoch_mark=None, tickets_mark=Some, offenders=0
-- `tickets_extrinsic`, `preimages_extrinsic`, `assurances_extrinsic`, `disputes_extrinsic`, `guarantees_extrinsic`
-- `extrinsic` — full extrinsic (all 5 components)
-- `work_report`, `work_result_0`, `work_result_1`, `refine_context`
-
-**Note:** Codec vectors are syntactically correct only. The HX in the header is a placeholder — semantic correctness is tested via STF and trace vectors.
-
-### `jamtestvectors/stf/` — State transition functions
-- `history/` — β (Recent History) — 4 vectors per spec
-- `safrole/` — η (Entropy) extracted from safrole vectors
-
-### `trace-vectors/extrinsic_hash/` — Real block traces
-- `tickets.json` — block with 1 ticket
-- `preimages_guarantees_assurances.json` — block with mixed extrinsics
-
-These have **correct HX values** (unlike codec vectors).
 
 ## Architecture
 
 ```
-import-block(bytes, env)      ← node layer (future, impure)
-  ├── decode-block(bytes)      codec
-  ├── validate env checks      wall-clock (HT·P ≤ T), parent hash (HP)
-  └── apply-block(σ, B)       Υ(σ, B) → σ'  (stf/upsilon.lisp) — PURE
+import-block(bytes, env)        ← node layer (future, impure)
+  ├── decode-block(bytes)        codec
+  ├── validate env checks        wall-clock, parent hash
+  └── apply-block(σ, B)         Υ(σ, B) → σ'  — PURE
         │
-        ├── validate-block(B)      intrinsic: HX only (block/validation.lisp)
+        ├── validate-block(B)        intrinsic: HX only
         │
-        └── transition-state(σ, B)  sub-STFs in wave order
-              ├── WAVE 1: τ', η', ψ', ρ†, β†
-              ├── WAVE 2: κ', λ', ρ‡, R*
-              ├── WAVE 3: ρ', γ'
-              ├── WAVE 4: accumulate → ω', ξ', δ‡, χ', ι', ϕ', θ', S
-              └── WAVE 5: β', δ', α', π'  →  make-state → σ'
+        └── transition-state(σ, B)   GP §4.2.1 — 4 waves
+              │
+              ├── WAVE 1: τ', η', β†, κ', λ', ψ'/v
+              ├── WAVE 2: ρ†, γ', ρ‡, R*
+              ├── WAVE 3: ρ', (ω',ξ',δ‡,χ',ι',ϕ',θ',S)
+              └── WAVE 4: β', δ', α', π'  →  σ'
 ```
-
-**Key separation:**
-- `σ` = data (closure) — `sigma.lisp` — passive container, calls nothing
-- `B` = data (closure) — `block.lisp` — passive container
-- `Υ` = `apply-block(σ, B) → σ'` — `upsilon.lisp` — pure computation
-- `import-block` = node API — not yet implemented — owns I/O and env context

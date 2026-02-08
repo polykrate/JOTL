@@ -12,28 +12,26 @@
 ;;; WAVE 1: ρ† — ASSIGNMENTS AFTER DISPUTES (GP §10)
 ;;; ═════════════════════════════════════════════════════════════════
 
-(defun transition-rho-dagger (disputes rho)
-  "GP §10 — Invalidate availability assignments for bad verdicts.
-   ρ† = ρ with entries nullified where work-report matches a bad verdict.
+(defun transition-rho-dagger (v-list rho)
+  "(10.15) ρ†[c] = ∅ if (H(ρ[c]r), t) ∈ v, t < ⌊⅔V⌋ ; ρ[c] otherwise
+   Clear cores whose work-report was judged invalid (bad) or uncertain (wonky).
+   Good verdicts (t = ⌊2V/3⌋+1) do NOT clear assignments.
 
-   Args: disputes (plist), rho (list of assignment-or-nil)
-   Returns: ρ†"
-  (let* ((verdicts (getf disputes :verdicts))
-         ;; Find bad verdict targets
-         (bad-targets
-           (loop for v in verdicts
-                 when (eq (classify-verdict v) :bad)
-                 collect (getf v :target))))
-    (if (null bad-targets)
-        rho ;; No bad verdicts, ρ unchanged
-        ;; STUB — TODO: for each ρ entry, if its work-report hash
-        ;; matches a bad verdict target, set to nil
+   Args: v-list — list of (target . positive-count) from (10.12)
+         rho — vector/list of core assignments (nil or plist with :report-hash)
+   Returns: ρ† (same structure, with invalidated cores set to nil)"
+  ;; Collect targets with t < ⌊2V/3⌋ (bad or wonky, not good)
+  (let ((invalidated-targets
+          (loop for (target . pos-count) in v-list
+                when (< pos-count (floor (* 2 (num-validators)) 3))
+                collect target)))
+    (if (null invalidated-targets)
+        rho
         (mapcar (lambda (assignment)
                   (if (and assignment
-                           (let ((report-hash
-                                   ;; STUB — TODO: extract work-report hash from assignment
-                                   (getf assignment :report-hash)))
-                             (member-hash report-hash bad-targets)))
+                           (let ((report-hash (getf assignment :report-hash)))
+                             (and report-hash
+                                  (member-hash report-hash invalidated-targets))))
                       nil
                       assignment))
                 rho))))

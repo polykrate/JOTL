@@ -176,11 +176,15 @@
    ;; STF — Judgments ψ (GP §10)
    ;; ═══════════════════════════════════════════
    #:transition-psi
-   #:transition-rho-dagger
    #:classify-verdict
    #:compute-offenders-mark
    #:super-majority
-   #:disputes-error #:disputes-error-code
+   #:disputes-error #:disputes-error-code #:disputes-error-detail
+   ;; Helpers (used by psi + rho)
+   #:hash< #:sorted-unique-p #:member-hash
+   #:judgment-signing-context #:guarantee-signing-context
+   #:validator-ed25519-key #:build-valid-key-set
+   ;; Codecs
    #:encode-state-psi #:decode-state-psi
    
    ;; ═══════════════════════════════════════════

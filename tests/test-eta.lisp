@@ -1,9 +1,8 @@
 ;;;; tests/test-eta.lisp — η (Entropy) STF tests
-;;;; Validates transition-eta against safrole test vectors (JSON only).
+;;;; Validates transition-eta against safrole test vectors.
 ;;;;
-;;;; The safrole test vectors contain η as part of their state.
-;;;; We extract η, τ, slot, and entropy to test transition-eta in isolation.
-;;;; Binary roundtrip of the full safrole state is deferred to safrole STF tests.
+;;;; η is extracted from the safrole test state (not a standalone STF vector).
+;;;; Tests: JSON comparison (byte-by-byte) + codec roundtrip.
 ;;;;
 ;;;; Test vectors: tests/jamtestvectors/stf/safrole/{tiny,full}/
 
@@ -35,7 +34,27 @@
       (otherwise (error "Test header stub: ~a" msg)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; CODEC — η state value encoding roundtrip
+;;; COMPARISON — deep content comparison
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun compare-eta (label actual expected)
+  "Compare two η (list of 4 hashes) byte-by-byte. Returns T if all match."
+  (let ((ok t))
+    (unless (= (length actual) (length expected))
+      (format t "    ✗ ~A: η length ~D ≠ ~D~%" label (length actual) (length expected))
+      (return-from compare-eta nil))
+    (loop for i from 0 below (length actual)
+          for a = (nth i actual) for e = (nth i expected)
+          unless (bytes= a e)
+            do (format t "    ✗ ~A: η[~D]~%      got:  ~A~%      want: ~A~%"
+                       label i
+                       (jam.ffi:bytes-to-hex-string a)
+                       (jam.ffi:bytes-to-hex-string e))
+               (setf ok nil))
+    ok))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; CODEC ROUNDTRIP — encode/decode η state
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun test-eta-codec-roundtrip (eta label)
@@ -44,10 +63,7 @@
          (decoded (decode-state-eta encoded)))
     (assert (= (length encoded) 128) ()
             "~A: encode-state-eta should produce 128 bytes, got ~A" label (length encoded))
-    (loop for i from 0 below 4
-          do (assert (bytes= (nth i eta) (nth i decoded)) ()
-                     "~A: η[~A] roundtrip mismatch" label i))
-    (format t "  ✓ η codec roundtrip~%")))
+    (compare-eta (format nil "~A/codec" label) decoded eta)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; RUN ONE TEST CASE
@@ -55,8 +71,9 @@
 
 (defun run-eta-test (json-path chain-name)
   "Run a single η test from a safrole JSON test vector.
-   Extracts η, τ, slot, entropy; runs transition-eta; compares to post-state."
+   Returns: :pass | :fail | :skip"
   (let* ((data (load-json json-path))
+         (fname (file-namestring json-path))
          ;; Pre-state
          (pre-state (cdr (assoc :pre--state data)))
          (eta-pre (extract-eta-from-json pre-state))
@@ -68,34 +85,36 @@
          ;; Post-state
          (post-state (cdr (assoc :post--state data)))
          (eta-expected (extract-eta-from-json post-state))
-         ;; Check if output is error (bad-slot etc.) — skip those
+         ;; Check if output is error — skip those (η undefined on invalid input)
          (output (cdr (assoc :output data)))
          (is-error (assoc :err output)))
-    ;; Skip error test cases — η transition is undefined on invalid input
+    ;; Skip error test cases
     (when is-error
-      (format t "  ⊘ Skipped (error case: ~A)~%" (cdr is-error))
-      (return-from run-eta-test t))
-    ;; Run η STF
+      (format t "  ⊘ ~A (skip: ~A)~%" fname (cdr is-error))
+      (return-from run-eta-test :skip))
+    ;; Run
     (with-chain chain-name
-      (let* ((header (make-eta-test-header slot entropy))
-             (eta-prime (transition-eta header tau-pre eta-pre)))
-        ;; Compare each component
-        (loop for i from 0 below 4
-              for computed = (nth i eta-prime)
-              for expected = (nth i eta-expected)
-              do (assert (bytes= computed expected) ()
-                         "η[~A] MISMATCH~%  computed: ~A~%  expected: ~A"
-                         i
-                         (bytes-to-hex-string computed)
-                         (bytes-to-hex-string expected)))
-        ;; Also test codec roundtrip
-        (test-eta-codec-roundtrip eta-prime (file-namestring json-path))
-        (format t "  ✓ η transition correct (tau ~A→~A, ~A)~%"
-                tau-pre slot
-                (if (new-epoch-p tau-pre slot) "EPOCH CHANGE" "same epoch"))))))
+      (handler-case
+          (let* ((header (make-eta-test-header slot entropy))
+                 (eta-prime (transition-eta header tau-pre eta-pre))
+                 (stf-ok (compare-eta fname eta-prime eta-expected))
+                 (codec-ok (test-eta-codec-roundtrip eta-prime fname)))
+            (cond
+              ((and stf-ok codec-ok)
+               (format t "  ✅ ~A~%" fname)
+               :pass)
+              (t
+               (format t "  ❌ ~A — ~A~%" fname
+                       (cond ((not stf-ok) "η content mismatch")
+                             ((not codec-ok) "codec roundtrip failed")
+                             (t "unknown")))
+               :fail)))
+        (error (e)
+          (format t "  💥 ~A — ~A~%" fname e)
+          :fail)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; MAIN TEST — all safrole vectors for both chainspecs
+;;; MAIN — all safrole vectors for both chainspecs
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun run-all-eta-tests ()
@@ -109,27 +128,19 @@
              (dir (merge-pathnames (format nil "~A/" dir-name) base-dir))
              (json-files (sort (directory (merge-pathnames "*.json" dir))
                                #'string< :key #'namestring)))
-        (format t "~%═══ η tests — ~A (~A vectors) ═══~%"
-                (string-upcase dir-name) (length json-files))
+        (format t "~%=== η (Entropy) Tests (~A) ===~%"
+                (string-upcase dir-name))
         (dolist (json-path json-files)
           (incf total)
-          (let ((name (file-namestring json-path)))
-            (format t "~%[~A] ~A~%" dir-name name)
-            (handler-case
-                (progn
-                  (run-eta-test (namestring json-path) chain-name)
-                  (incf passed))
-              (error (c)
-                (format t "  ✗ FAIL: ~A~%" c))
-              (simple-error (c)
-                ;; Check for skipped (transition-tau assert on bad-slot)
-                (if (search "Skipped" (format nil "~A" c))
-                    (incf skipped)
-                    (format t "  ✗ FAIL: ~A~%" c))))))))
-    (format t "~%═══════════════════════════════════════~%")
-    (format t "η RESULTS: ~A/~A passed (~A skipped)~%" passed total skipped)
-    (format t "═══════════════════════════════════════~%")
-    (values passed total)))
+          (case (run-eta-test (namestring json-path) chain-name)
+            (:pass (incf passed))
+            (:skip (incf skipped))))))
+    (format t "~%")
+    (if (= passed (- total skipped))
+        (format t "  ✅ η: ~D/~D passed (~D skipped)~%" passed total skipped)
+        (format t "  ❌ η: ~D/~D passed (~D skipped)~%" passed total skipped))
+    (= passed (- total skipped))))
 
 ;;; Entry point
-(run-all-eta-tests)
+(unless (run-all-eta-tests)
+  (sb-ext:exit :code 1))

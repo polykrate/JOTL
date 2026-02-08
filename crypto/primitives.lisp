@@ -139,21 +139,15 @@
 ;;; Ed25519 Signature Verification (FFI REQUIRED)
 ;;; ============================================================
 
-(defun ed25519-verify (public-key message signature)
-  "Verify Ed25519 signature. GP: s ∈ V̄ₖ⟨m⟩
-   REQUIRES FFI - no fallback."
-  (require-ffi)
-  (funcall (find-symbol "ED25519-VERIFY" :jam.ffi) public-key message signature))
+;;; ed25519-verify is defined in bindings.lisp (actual FFI call).
+;;; Do NOT redefine here — find-symbol loop would cause infinite recursion.
 
 ;;; ============================================================
 ;;; Bandersnatch VRF (FFI REQUIRED)
 ;;; ============================================================
 
-(defun bandersnatch-vrf-output-hash (signature)
-  "Extract VRF output hash. GP: Y(s)
-   REQUIRES FFI - no fallback."
-  (require-ffi)
-  (funcall (find-symbol "BANDERSNATCH-VRF-OUTPUT-HASH" :jam.ffi) signature))
+;;; bandersnatch-vrf-output-hash is defined in bindings.lisp (actual FFI call).
+;;; Do NOT redefine here — find-symbol loop would cause infinite recursion.
 
 (defun Y (signature)
   "VRF output hash. GP: Y"
@@ -167,32 +161,22 @@
 ;;; Ring VRF (FFI REQUIRED)
 ;;; ============================================================
 
-(defun ring-vrf-verify (ring-commitment vrf-input signature &key (ring-size 6))
-  "Verify Ring VRF signature. GP: p ∈ V○ᵣ⟨x⟩
-   REQUIRES FFI - no fallback."
-  (require-ffi)
-  (funcall (find-symbol "BANDERSNATCH-VERIFY-RING-VRF" :jam.ffi)
-           ring-commitment vrf-input signature :ring-size ring-size))
-
-(defun ring-vrf-verify-with-output (ring-commitment vrf-input signature &key (ring-size 6))
-  "Verify Ring VRF and return output hash. Returns (values valid-p output-hash)
-   REQUIRES FFI - no fallback."
-  (require-ffi)
-  (funcall (find-symbol "BANDERSNATCH-VERIFY-RING-VRF-WITH-OUTPUT" :jam.ffi)
-           ring-commitment vrf-input signature :ring-size ring-size))
+;;; ring-vrf-verify and ring-vrf-verify-with-output are defined in bindings.lisp.
+;;; Do NOT redefine here — find-symbol loop would cause infinite recursion.
 
 ;;; ============================================================
 ;;; String Constants
 ;;; ============================================================
 
-(defparameter +jam-entropy+ (string-to-blob "$jam_entropy")
-  "GP: $jam_entropy")
+;;; GP notation: $foo means the string literal "foo" ($ is not part of the bytes)
+(defparameter +jam-entropy+ (string-to-blob "jam_entropy")
+  "GP: $jam_entropy — context tag for entropy accumulation")
 
-(defparameter +jam-ticket-seal+ (string-to-blob "$jam_ticket_seal")
-  "GP: $jam_ticket_seal")
+(defparameter +jam-ticket-seal+ (string-to-blob "jam_ticket_seal")
+  "GP: $jam_ticket_seal — context tag for ticket sealing")
 
-(defparameter +jam-fallback-seal+ (string-to-blob "$jam_fallback_seal")
-  "GP: $jam_fallback_seal")
+(defparameter +jam-fallback-seal+ (string-to-blob "jam_fallback_seal")
+  "GP: $jam_fallback_seal — context tag for fallback sealing")
 
 ;;; ============================================================
 ;;; Status
