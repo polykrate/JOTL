@@ -21,18 +21,8 @@
 (load (merge-pathnames "test-utils.lisp" *load-pathname*))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; JSON→LISP DECODERS
+;;; JSON→LISP DECODERS (safrole-specific)
 ;;; ═══════════════════════════════════════════════════════════════
-
-(defun safrole-json-validators (validators-json)
-  "Convert JSON validator list → list of K plists (336-byte full validators)."
-  (mapcar (lambda (v)
-            (list :bandersnatch (hex-to-bytes (cdr (assoc :bandersnatch v)))
-                  :ed25519      (hex-to-bytes (or (cdr (assoc :ed25519 v))
-                                                   (cdr (assoc :ed-25519 v))))
-                  :bls          (hex-to-bytes (cdr (assoc :bls v)))
-                  :metadata     (hex-to-bytes (cdr (assoc :metadata v)))))
-          validators-json))
 
 (defun safrole-json-eta (eta-json)
   "Convert JSON η (list of 4 hex strings) → list of 4 byte vectors."
@@ -96,10 +86,10 @@
                    :gamma-s (plist) :gamma-z (bytes) :post-offenders (list))"
   (list :tau             (cdr (assoc :tau state-json))
         :eta             (safrole-json-eta (cdr (assoc :eta state-json)))
-        :lambda          (safrole-json-validators (cdr (assoc :lambda state-json)))
-        :kappa           (safrole-json-validators (cdr (assoc :kappa state-json)))
-        :gamma-k         (safrole-json-validators (cdr (assoc :gamma--k state-json)))
-        :iota            (safrole-json-validators (cdr (assoc :iota state-json)))
+        :lambda          (json-validators (cdr (assoc :lambda state-json)))
+        :kappa           (json-validators (cdr (assoc :kappa state-json)))
+        :gamma-k         (json-validators (cdr (assoc :gamma--k state-json)))
+        :iota            (json-validators (cdr (assoc :iota state-json)))
         :gamma-a         (safrole-json-tickets (cdr (assoc :gamma--a state-json)))
         :gamma-s         (safrole-json-gamma-s (cdr (assoc :gamma--s state-json)))
         :gamma-z         (hex-to-bytes (cdr (assoc :gamma--z state-json)))
@@ -107,45 +97,8 @@
                                   (cdr (assoc :post--offenders state-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; COMPARISON HELPERS — deep byte-by-byte checks
+;;; COMPARISON HELPERS (safrole-specific)
 ;;; ═══════════════════════════════════════════════════════════════
-
-(defun compare-bytes (label actual expected)
-  "Compare two byte vectors. Returns T if equal."
-  (if (equalp actual expected)
-      t
-      (progn
-        (format t "    ✗ ~A: bytes mismatch~%" label)
-        (when (and actual expected)
-          (format t "      got-len: ~D  want-len: ~D~%" (length actual) (length expected))
-          (when (and (<= (length actual) 64) (<= (length expected) 64))
-            (format t "      got:  ~A~%      want: ~A~%"
-                    (jam.ffi:bytes-to-hex-string actual)
-                    (jam.ffi:bytes-to-hex-string expected))))
-        nil)))
-
-(defun compare-validator-list (label actual expected)
-  "Compare two lists of full validators (K plists). Returns T if all match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: length ~D ≠ ~D~%" label (length actual) (length expected))
-      (return-from compare-validator-list nil))
-    (loop for a in actual for e in expected for i from 0
-          do (unless (and (equalp (getf a :bandersnatch) (getf e :bandersnatch))
-                          (equalp (getf a :ed25519)      (getf e :ed25519))
-                          (equalp (getf a :bls)           (getf e :bls))
-                          (equalp (getf a :metadata)      (getf e :metadata)))
-               (format t "    ✗ ~A[~D]: validator mismatch~%" label i)
-               (unless (equalp (getf a :bandersnatch) (getf e :bandersnatch))
-                 (format t "      band got:  ~A~%      band want: ~A~%"
-                         (jam.ffi:bytes-to-hex-string (getf a :bandersnatch))
-                         (jam.ffi:bytes-to-hex-string (getf e :bandersnatch))))
-               (unless (equalp (getf a :ed25519) (getf e :ed25519))
-                 (format t "      ed25 got:  ~A~%      ed25 want: ~A~%"
-                         (jam.ffi:bytes-to-hex-string (getf a :ed25519))
-                         (jam.ffi:bytes-to-hex-string (getf e :ed25519))))
-               (setf ok nil)))
-    ok))
 
 (defun compare-ticket-list (label actual expected)
   "Compare two lists of state tickets (id+attempt). Returns T if all match."
@@ -186,21 +139,6 @@
                unless (equalp a e)
                do (format t "    ✗ ~A.data[~D]: key mismatch~%" label i)
                   (setf ok nil)))))
-    ok))
-
-(defun compare-eta (label actual expected)
-  "Compare two η (list of 4 hashes). Returns T if all match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: η length ~D ≠ ~D~%" label (length actual) (length expected))
-      (return-from compare-eta nil))
-    (loop for a in actual for e in expected for i from 0
-          unless (equalp a e)
-          do (format t "    ✗ ~A: η[~D]~%      got:  ~A~%      want: ~A~%"
-                     label i
-                     (jam.ffi:bytes-to-hex-string a)
-                     (jam.ffi:bytes-to-hex-string e))
-             (setf ok nil))
     ok))
 
 (defun compare-epoch-mark (label actual expected)

@@ -15,122 +15,19 @@
 
 (in-package :jotl)
 
+;; Load shared test helpers
+(load (merge-pathnames "test-utils.lisp" *load-pathname*))
+
 ;;; ═══════════════════════════════════════════════════════════════
-;;; JSON PARSERS
+;;; JSON PARSERS (assurance-specific)
 ;;; ═══════════════════════════════════════════════════════════════
-
-(defun hex-string-to-bytes-safe* (hex-str)
-  "Convert hex string to byte array, handling 0x prefix and empty strings."
-  (cond
-    ((null hex-str) (make-array 0 :element-type '(unsigned-byte 8)))
-    ((and (stringp hex-str) (or (string= hex-str "") (string= hex-str "0x")))
-     (make-array 0 :element-type '(unsigned-byte 8)))
-    (t (jam.ffi:hex-string-to-bytes hex-str))))
-
-(defun assurance-json-validators (validators-json)
-  "Parse JSON validator list → list of plists with all 4 key types."
-  (mapcar (lambda (v)
-            (list :bandersnatch (hex-string-to-bytes-safe*
-                                 (cdr (assoc :bandersnatch v)))
-                  :ed25519 (hex-string-to-bytes-safe*
-                            (or (cdr (assoc :ed25519 v))
-                                (cdr (assoc :ed-25519 v))))
-                  :bls (hex-string-to-bytes-safe*
-                        (cdr (assoc :bls v)))
-                  :metadata (hex-string-to-bytes-safe*
-                             (cdr (assoc :metadata v)))))
-          validators-json))
-
-(defun assurance-json-work-report (wr-json)
-  "Parse a JSON WorkReport → plist (same format as our internal representation)."
-  (when (null wr-json) (return-from assurance-json-work-report nil))
-  (let* ((pkg-json (cdr (assoc :package--spec wr-json)))
-         (ctx-json (cdr (assoc :context wr-json)))
-         (results-json (cdr (assoc :results wr-json)))
-         ;; WorkPackageSpec
-         (package-spec (list :hash (hex-string-to-bytes-safe*
-                                    (cdr (assoc :hash pkg-json)))
-                             :length (cdr (assoc :length pkg-json))
-                             :erasure-root (hex-string-to-bytes-safe*
-                                            (cdr (assoc :erasure--root pkg-json)))
-                             :exports-root (hex-string-to-bytes-safe*
-                                            (cdr (assoc :exports--root pkg-json)))
-                             :exports-count (cdr (assoc :exports--count pkg-json))))
-         ;; RefineContext
-         (prereqs-json (cdr (assoc :prerequisites ctx-json)))
-         (context (list :anchor (hex-string-to-bytes-safe*
-                                 (cdr (assoc :anchor ctx-json)))
-                        :state-root (hex-string-to-bytes-safe*
-                                     (cdr (assoc :state--root ctx-json)))
-                        :beefy-root (hex-string-to-bytes-safe*
-                                     (cdr (assoc :beefy--root ctx-json)))
-                        :lookup-anchor (hex-string-to-bytes-safe*
-                                        (cdr (assoc :lookup--anchor ctx-json)))
-                        :lookup-anchor-slot (cdr (assoc :lookup--anchor--slot ctx-json))
-                        :prerequisites (mapcar #'hex-string-to-bytes-safe*
-                                               (or prereqs-json '()))))
-         ;; WorkResults
-         (results (mapcar (lambda (r-json)
-                            (let* ((result-val-json (cdr (assoc :result r-json)))
-                                   (result-val
-                                     (cond
-                                       ((assoc :ok result-val-json)
-                                        (list :ok (hex-string-to-bytes-safe*
-                                                   (cdr (assoc :ok result-val-json)))))
-                                       ((assoc :out--of--gas result-val-json)
-                                        (list :out-of-gas t))
-                                       ((assoc :panic result-val-json)
-                                        (list :panic t))
-                                       ((assoc :bad--exports result-val-json)
-                                        (list :bad-exports t))
-                                       ((assoc :output--oversize result-val-json)
-                                        (list :output-oversize t))
-                                       ((assoc :bad--code result-val-json)
-                                        (list :bad-code t))
-                                       ((assoc :code--oversize result-val-json)
-                                        (list :code-oversize t))
-                                       (t (error "Unknown result variant: ~A"
-                                                  result-val-json))))
-                                   (load-json-rl (cdr (assoc :refine--load r-json)))
-                                   (refine-load
-                                     (list :gas-used (cdr (assoc :gas--used load-json-rl))
-                                           :imports (cdr (assoc :imports load-json-rl))
-                                           :extrinsic-count (cdr (assoc :extrinsic--count load-json-rl))
-                                           :extrinsic-size (cdr (assoc :extrinsic--size load-json-rl))
-                                           :exports (cdr (assoc :exports load-json-rl)))))
-                              (list :service-id (cdr (assoc :service--id r-json))
-                                    :code-hash (hex-string-to-bytes-safe*
-                                                (cdr (assoc :code--hash r-json)))
-                                    :payload-hash (hex-string-to-bytes-safe*
-                                                   (cdr (assoc :payload--hash r-json)))
-                                    :accumulate-gas (cdr (assoc :accumulate--gas r-json))
-                                    :result result-val
-                                    :refine-load refine-load)))
-                          results-json)))
-    (list :package-spec package-spec
-          :context context
-          :core-index (cdr (assoc :core--index wr-json))
-          :authorizer-hash (hex-string-to-bytes-safe*
-                            (cdr (assoc :authorizer--hash wr-json)))
-          :auth-gas-used (cdr (assoc :auth--gas--used wr-json))
-          :auth-output (hex-string-to-bytes-safe*
-                        (cdr (assoc :auth--output wr-json)))
-          :segment-root-lookup (mapcar (lambda (item)
-                                         (list :work-package-hash
-                                               (hex-string-to-bytes-safe*
-                                                (cdr (assoc :work--package--hash item)))
-                                               :segment-tree-root
-                                               (hex-string-to-bytes-safe*
-                                                (cdr (assoc :segment--tree--root item)))))
-                                       (or (cdr (assoc :segment--root--lookup wr-json)) '()))
-          :results results)))
 
 (defun assurance-json-assignment (assign-json)
   "Parse a JSON AvailabilityAssignment → nil or plist with :report :timeout.
    JSON null → nil."
   (if (or (null assign-json) (eq assign-json :null))
       nil
-      (list :report (assurance-json-work-report (cdr (assoc :report assign-json)))
+      (list :report (json-work-report (cdr (assoc :report assign-json)))
             :timeout (cdr (assoc :timeout assign-json)))))
 
 (defun assurance-json-assignments (assignments-json)
@@ -140,17 +37,14 @@
 (defun assurance-json-assurances (assurances-json)
   "Parse JSON assurances extrinsic → list of assurance plists."
   (mapcar (lambda (a)
-            (list :anchor (hex-string-to-bytes-safe*
-                           (cdr (assoc :anchor a)))
-                  :bitfield (hex-string-to-bytes-safe*
-                             (cdr (assoc :bitfield a)))
+            (list :anchor (hex-to-bytes (cdr (assoc :anchor a)))
+                  :bitfield (hex-to-bytes (cdr (assoc :bitfield a)))
                   :validator-index (cdr (assoc :validator--index a))
-                  :signature (hex-string-to-bytes-safe*
-                              (cdr (assoc :signature a)))))
+                  :signature (hex-to-bytes (cdr (assoc :signature a)))))
           assurances-json))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; COMPARISON HELPERS
+;;; COMPARISON HELPERS (assurance-specific)
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun compare-work-report (label actual expected)
@@ -206,21 +100,6 @@
     (loop for a in actual for e in expected for i from 0
           unless (compare-work-report (format nil "~A[~D]" label i) a e)
             do (setf ok nil))
-    ok))
-
-(defun compare-validators (label actual expected)
-  "Compare two validator lists by encoding each to binary. Returns T if match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: length ~D ≠ ~D~%" label
-              (length actual) (length expected))
-      (return-from compare-validators nil))
-    (loop for a in actual for e in expected for i from 0
-          do (let ((a-ed (ensure-bytes (getf a :ed25519)))
-                   (e-ed (ensure-bytes (getf e :ed25519))))
-               (unless (equalp a-ed e-ed)
-                 (format t "    ✗ ~A[~D].ed25519 mismatch~%" label i)
-                 (setf ok nil))))
     ok))
 
 ;;; ═══════════════════════════════════════════════════════════════
@@ -281,20 +160,19 @@
          (assurances (assurance-json-assurances
                       (cdr (assoc :assurances input-json))))
          (tau-prime (cdr (assoc :slot input-json)))
-         (parent-hash (hex-string-to-bytes-safe*
-                       (cdr (assoc :parent input-json))))
+         (parent-hash (hex-to-bytes (cdr (assoc :parent input-json))))
          ;; ── Parse pre-state ──
          (pre-assignments (assurance-json-assignments
                            (or (cdr (assoc :avail--assignments pre-json))
                                (cdr (assoc :avail-assignments pre-json)))))
-         (pre-validators (assurance-json-validators
+         (pre-validators (json-validators
                           (or (cdr (assoc :curr--validators pre-json))
                               (cdr (assoc :curr-validators pre-json)))))
          ;; ── Parse expected post-state ──
          (post-assignments (assurance-json-assignments
                             (or (cdr (assoc :avail--assignments post-json))
                                 (cdr (assoc :avail-assignments post-json)))))
-         (post-validators (assurance-json-validators
+         (post-validators (json-validators
                            (or (cdr (assoc :curr--validators post-json))
                                (cdr (assoc :curr-validators post-json)))))
          ;; ── Parse expected output ──
@@ -302,7 +180,7 @@
          (expected-err (cdr (assoc :err output-json)))
          (expected-reported
            (when expected-ok
-             (mapcar #'assurance-json-work-report
+             (mapcar #'json-work-report
                      (cdr (assoc :reported expected-ok)))))
          (fname (file-namestring path)))
     (let ((*chain* (case spec
@@ -332,7 +210,7 @@
                                         (format nil "~A/R*" fname)
                                         r-star expected-reported))
                            ;; Compare validators unchanged
-                           (val-ok (compare-validators
+                           (val-ok (compare-validator-list
                                      (format nil "~A/κ" fname)
                                      pre-validators post-validators))
                            ;; Codec roundtrip on result

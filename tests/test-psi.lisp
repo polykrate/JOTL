@@ -7,79 +7,23 @@
 
 (ql:quickload :cl-json :silent t)
 
-;;; Helper: extract ed25519 key accounting for cl-json renaming
-(defun json-ed25519 (validator-alist)
-  "Get ed25519 key from a validator alist (cl-json renames ed25519 → ed-25519)."
-  (or (cdr (assoc :ed25519 validator-alist))
-      (cdr (assoc :ed-25519 validator-alist))))
+;; Load shared test helpers
+(load (merge-pathnames "test-utils.lisp" *load-pathname*))
 
-;;; Helper: convert JSON validator list to our plist format
-(defun json-validators-to-plists (validators-json)
-  "Convert cl-json validator alists to plists with :ed25519 key."
-  (mapcar (lambda (v)
-            (list :ed25519 (let ((hex (json-ed25519 v)))
-                             (when hex (hex-string-to-bytes hex)))
-                  :bandersnatch (let ((hex (cdr (assoc :bandersnatch v))))
-                                  (when hex (hex-string-to-bytes hex)))))
-          validators-json))
+;;; ═══════════════════════════════════════════════════════════════
+;;; JSON PARSERS (psi-specific)
+;;; ═══════════════════════════════════════════════════════════════
 
-;;; Helper: convert JSON hash list to byte-vector list
-(defun json-hashes-to-bytes (hash-list)
-  (mapcar #'hex-string-to-bytes hash-list))
-
-;;; Helper: convert JSON disputes to our plist format
-(defun json-disputes-to-plist (disputes-json)
-  (let ((verdicts (cdr (assoc :verdicts disputes-json)))
-        (culprits (cdr (assoc :culprits disputes-json)))
-        (faults (cdr (assoc :faults disputes-json))))
-    (list
-     :verdicts (mapcar (lambda (v)
-                         (list :target (hex-string-to-bytes (cdr (assoc :target v)))
-                               :age (cdr (assoc :age v))
-                               :votes (mapcar (lambda (vote)
-                                                (list :vote (cdr (assoc :vote vote))
-                                                      :index (cdr (assoc :index vote))
-                                                      :signature (hex-string-to-bytes
-                                                                  (cdr (assoc :signature vote)))))
-                                              (cdr (assoc :votes v)))))
-                       verdicts)
-     :culprits (mapcar (lambda (c)
-                         (list :target (hex-string-to-bytes (cdr (assoc :target c)))
-                               :key (hex-string-to-bytes (cdr (assoc :key c)))
-                               :signature (hex-string-to-bytes (cdr (assoc :signature c)))))
-                       culprits)
-     :faults (mapcar (lambda (f)
-                       (list :target (hex-string-to-bytes (cdr (assoc :target f)))
-                             :vote (cdr (assoc :vote f))
-                             :key (hex-string-to-bytes (cdr (assoc :key f)))
-                             :signature (hex-string-to-bytes (cdr (assoc :signature f)))))
-                     faults))))
-
-;;; Helper: convert JSON psi state to our plist format
 (defun json-psi-to-plist (psi-json)
+  "Convert JSON psi state to our plist format."
   (list :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
         :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
         :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
         :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; COMPARISON — deep content comparison, not just lengths
+;;; COMPARISON (psi-specific)
 ;;; ═══════════════════════════════════════════════════════════════
-
-(defun compare-hash-sets (label actual expected)
-  "Compare two lists of 32-byte hashes. Returns T if all match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: length ~D ≠ ~D~%" label (length actual) (length expected))
-      (return-from compare-hash-sets nil))
-    (loop for a in actual for e in expected for i from 0
-          unless (equalp a e)
-            do (format t "    ✗ ~A[~D]: ~A ≠ ~A~%"
-                       label i
-                       (jam.ffi:bytes-to-hex-string a)
-                       (jam.ffi:bytes-to-hex-string e))
-               (setf ok nil))
-    ok))
 
 (defun compare-psi (label actual expected)
   "Deep comparison of two ψ plists (content, not just lengths)."
@@ -128,12 +72,12 @@
          (post (or (cdr (assoc :post-state json))
                    (cdr (assoc :post--state json))))
          ;; Parse input
-         (disputes (json-disputes-to-plist (cdr (assoc :disputes input))))
+         (disputes (json-disputes (cdr (assoc :disputes input))))
          ;; Parse pre-state
          (tau (cdr (assoc :tau pre)))
          (psi (json-psi-to-plist (cdr (assoc :psi pre))))
-         (kappa (json-validators-to-plists (cdr (assoc :kappa pre))))
-         (lambda-prev (json-validators-to-plists (cdr (assoc :lambda pre))))
+         (kappa (json-validators (cdr (assoc :kappa pre))))
+         (lambda-prev (json-validators (cdr (assoc :lambda pre))))
          ;; Expected output
          (expected-ok (assoc :ok output))
          (expected-err (cdr (assoc :err output)))

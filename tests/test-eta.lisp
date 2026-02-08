@@ -38,26 +38,6 @@
       (otherwise (error "Test header stub: ~a" msg)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; COMPARISON — deep content comparison
-;;; ═══════════════════════════════════════════════════════════════
-
-(defun compare-eta (label actual expected)
-  "Compare two η (list of 4 hashes) byte-by-byte. Returns T if all match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: η length ~D ≠ ~D~%" label (length actual) (length expected))
-      (return-from compare-eta nil))
-    (loop for i from 0 below (length actual)
-          for a = (nth i actual) for e = (nth i expected)
-          unless (bytes= a e)
-            do (format t "    ✗ ~A: η[~D]~%      got:  ~A~%      want: ~A~%"
-                       label i
-                       (jam.ffi:bytes-to-hex-string a)
-                       (jam.ffi:bytes-to-hex-string e))
-               (setf ok nil))
-    ok))
-
-;;; ═══════════════════════════════════════════════════════════════
 ;;; CODEC ROUNDTRIP — encode/decode η state
 ;;; ═══════════════════════════════════════════════════════════════
 
