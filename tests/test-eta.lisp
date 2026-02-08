@@ -20,9 +20,11 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun extract-eta-from-json (state-alist)
-  "Extract η (list of 4 hashes) from a safrole state JSON alist."
+  "Extract η closure from a safrole state JSON alist."
   (let ((eta-json (cdr (assoc :eta state-alist))))
-    (mapcar #'hex-to-bytes eta-json)))
+    (let ((hashes (mapcar #'hex-to-bytes eta-json)))
+      (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+                :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes)))))
 
 (defun extract-tau-from-json (state-alist)
   "Extract τ (timeslot number) from a safrole state JSON alist."

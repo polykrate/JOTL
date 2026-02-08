@@ -25,8 +25,10 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun safrole-json-eta (eta-json)
-  "Convert JSON η (list of 4 hex strings) → list of 4 byte vectors."
-  (mapcar #'hex-to-bytes eta-json))
+  "Convert JSON η (list of 4 hex strings) → eta closure."
+  (let ((hashes (mapcar #'hex-to-bytes eta-json)))
+    (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+              :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
 
 (defun safrole-json-tickets (tickets-json)
   "Convert JSON state tickets [{id,attempt},...] → list of plists."
@@ -243,10 +245,12 @@
   "Encode/decode each segment and re-compare. Returns T if all pass."
   (let ((ok t))
     ;; τ roundtrip
-    (let* ((encoded (encode-state-tau (getf state :tau)))
+    (let* ((tau-cl (make-tau-state :value (getf state :tau)))
+           (encoded (encode-state-tau tau-cl))
            (decoded (decode-state-tau encoded)))
-      (unless (eql decoded (getf state :tau))
-        (format t "    ✗ ~A/codec.tau: ~D ≠ ~D~%" label decoded (getf state :tau))
+      (unless (eql (funcall decoded :value) (getf state :tau))
+        (format t "    ✗ ~A/codec.tau: ~D ≠ ~D~%" label
+                (funcall decoded :value) (getf state :tau))
         (setf ok nil)))
     ;; η roundtrip
     (let* ((encoded (encode-state-eta (getf state :eta)))
@@ -254,22 +258,25 @@
       (unless (compare-eta (format nil "~A/codec.eta" label) decoded (getf state :eta))
         (setf ok nil)))
     ;; κ roundtrip
-    (let* ((encoded (encode-state-kappa (getf state :kappa)))
+    (let* ((kappa-cl (make-kappa :validators (getf state :kappa)))
+           (encoded (encode-state-kappa kappa-cl))
            (decoded (decode-state-kappa encoded)))
       (unless (compare-validator-list (format nil "~A/codec.kappa" label)
-                                       decoded (getf state :kappa))
+                                       (funcall decoded :validators) (getf state :kappa))
         (setf ok nil)))
     ;; λ roundtrip
-    (let* ((encoded (encode-state-lambda (getf state :lambda)))
+    (let* ((lambda-cl (make-lambda-state :validators (getf state :lambda)))
+           (encoded (encode-state-lambda lambda-cl))
            (decoded (decode-state-lambda encoded)))
       (unless (compare-validator-list (format nil "~A/codec.lambda" label)
-                                       decoded (getf state :lambda))
+                                       (funcall decoded :validators) (getf state :lambda))
         (setf ok nil)))
     ;; ι roundtrip
-    (let* ((encoded (encode-state-iota (getf state :iota)))
+    (let* ((iota-cl (make-iota :validators (getf state :iota)))
+           (encoded (encode-state-iota iota-cl))
            (decoded (decode-state-iota encoded)))
       (unless (compare-validator-list (format nil "~A/codec.iota" label)
-                                       decoded (getf state :iota))
+                                       (funcall decoded :validators) (getf state :iota))
         (setf ok nil)))
     ;; γ roundtrip (full gamma: γk + γz + γs + γa)
     (let* ((gamma-closure (make-gamma :pending-keys    (getf state :gamma-k)
@@ -324,14 +331,18 @@
   (let* (;; ── Pre-state segments ──
          (tau        (getf pre-state :tau))
          (eta        (getf pre-state :eta))
-         (kappa      (getf pre-state :kappa))
+         (kappa-keys (getf pre-state :kappa))
          (lambda-keys (getf pre-state :lambda))
          (gamma-k    (getf pre-state :gamma-k))
-         (iota       (getf pre-state :iota))
+         (iota-keys  (getf pre-state :iota))
          (gamma-a    (getf pre-state :gamma-a))
          (gamma-s    (getf pre-state :gamma-s))
          (gamma-z    (getf pre-state :gamma-z))
          (offenders  (getf pre-state :post-offenders))
+         ;; Wrap raw lists in closures for STF calls
+         (kappa-cl   (make-kappa :validators kappa-keys))
+         (lambda-cl  (make-lambda-state :validators lambda-keys))
+         (iota-cl    (make-iota :validators iota-keys))
          ;; Build gamma closure
          (gamma      (make-gamma :pending-keys    gamma-k
                                  :ring-commitment gamma-z
@@ -346,26 +357,25 @@
          ;; ── Wave 1: τ', η', κ', λ' ──
          (tau-prime     (transition-tau tau header))
          (eta-prime     (transition-eta header tau eta))
-         (kappa-prime   (transition-kappa header tau kappa gamma))
-         (lambda-prime  (transition-lambda header tau lambda-keys kappa))
-         ;; psi-prime as plist (offenders provided by test vector)
-         (psi-prime     (list :good nil :bad nil :wonky nil
-                              :offenders offenders))
+         (kappa-prime   (transition-kappa header tau kappa-cl gamma))
+         (lambda-prime  (transition-lambda header tau lambda-cl kappa-cl))
+         ;; psi-prime as closure (offenders provided by test vector)
+         (psi-prime     (make-psi :offenders offenders))
          ;; ── Wave 2: γ' ≺ (H, τ, ET, γ, ι, η', κ', ψ') ──
          (gamma-prime   (transition-gamma header tau tickets gamma
-                                          iota eta-prime kappa-prime psi-prime))
+                                          iota-cl eta-prime kappa-prime psi-prime))
          ;; ── Output markers ──
          (gamma-p-prime (funcall gamma-prime :pending-keys))
          (epoch-mark    (compute-epoch-mark tau tau-prime eta gamma-p-prime))
          (tickets-mark  (compute-winning-tickets-mark tau tau-prime gamma-a)))
     (values
-     ;; Post-state plist (same format as safrole-parse-state)
+     ;; Post-state plist — extract raw lists for comparison
      (list :tau             tau-prime
            :eta             eta-prime
-           :lambda          lambda-prime
-           :kappa           kappa-prime
+           :lambda          (funcall lambda-prime :validators)
+           :kappa           (funcall kappa-prime :validators)
            :gamma-k         (funcall gamma-prime :pending-keys)
-           :iota            iota  ;; ι unchanged by safrole
+           :iota            iota-keys  ;; ι unchanged by safrole
            :gamma-a         (funcall gamma-prime :accumulator)
            :gamma-s         (funcall gamma-prime :sealing)
            :gamma-z         (funcall gamma-prime :ring-commitment)

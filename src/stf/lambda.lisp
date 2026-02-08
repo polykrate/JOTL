@@ -10,17 +10,30 @@
 (in-package #:jotl)
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; VALUE OBJECT — λ closure
+;;; ═══════════════════════════════════════════════════════════════
+;;; CL reserves `lambda`, so value object is named `lambda-state`.
+;;; Constructor: make-lambda-state. Access: (funcall λ :validators).
+
+(define-value-object lambda-state
+  ((validators nil))
+  (:state-key +C9+)
+  (:encoded :memo (encode-full-validator-sequence validators)))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CODEC — C(9) ↦ E(λ)
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun encode-state-lambda (lambda-keys)
-  "C(9) ↦ E(λ) — V × 336 bytes (fixed size, no length prefix)."
-  (encode-full-validator-sequence lambda-keys))
+  "C(9) ↦ E(λ) — uses lambda closure's memoized encoding."
+  (funcall lambda-keys :encoded))
 
 (defun decode-state-lambda (bytes &optional (offset 0))
   "Decode λ from state binary.
-   Returns: (values list-of-validators bytes-consumed)"
-  (decode-full-validator-sequence bytes offset))
+   Returns: (values lambda-closure bytes-consumed)"
+  (multiple-value-bind (validators consumed)
+      (decode-full-validator-sequence bytes offset)
+    (values (make-lambda-state :validators validators) consumed)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; λ TRANSITION — GP §6.16
@@ -36,9 +49,11 @@
    Otherwise: λ' = λ (unchanged).
 
    Args: header (closure), tau (prior timeslot),
-         lambda-prev (list of V validators), kappa (list of V validators)
-   Returns: λ'"
+         lambda-prev (λ closure), kappa (κ closure)
+   Returns: λ' closure"
   (let ((tau-prime (funcall header :slot)))
     (if (new-epoch-p tau tau-prime)
-        kappa        ;; Epoch change: archive current
-        lambda-prev))) ;; No change
+        ;; Epoch change: archive current validators
+        (make-lambda-state :validators (funcall kappa :validators))
+        ;; No change
+        lambda-prev)))

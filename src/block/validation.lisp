@@ -40,6 +40,31 @@
     (values (null errors) (nreverse errors))))
 
 ;;; ═════════════════════════════════════════════════════════════════
+;;; POST-TRANSITION VALIDATION — called by transition-state
+;;; ═════════════════════════════════════════════════════════════════
+;;; Checks that require results from the full state transition.
+
+(defun validate-header-post-transition (header disputes)
+  "Validate header fields that depend on post-transition state.
+   Called from transition-state after all sub-STFs have run.
+
+   Checks:
+     HO — offenders mark must match ED-derived offenders
+
+   Args: header (closure), disputes (ED plist :verdicts :culprits :faults)
+   Signals error on mismatch."
+  ;; ── HO: offenders mark ──
+  (let* ((culprits       (getf disputes :culprits))
+         (faults         (getf disputes :faults))
+         (expected-ho    (compute-offenders-mark culprits faults))
+         (actual-ho      (funcall header :offenders-mark)))
+    ;; Both should be lists of Ed25519 keys (or nil)
+    (unless (and (= (length actual-ho) (length expected-ho))
+                 (every #'equalp actual-ho expected-ho))
+      (error "HO mismatch: expected ~D offenders, got ~D"
+             (length expected-ho) (length actual-ho)))))
+
+;;; ═════════════════════════════════════════════════════════════════
 ;;; ENVIRONMENTAL VALIDATION — called by import-block (node layer)
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; These need external context (wall-clock, parent header bytes).

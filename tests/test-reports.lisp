@@ -347,14 +347,18 @@
                    (reports-json-assignments
                     (or (cdr (assoc :avail--assignments pre-json))
                         (cdr (assoc :avail-assignments pre-json))))))
-         (pre-validators (json-validators
-                          (or (cdr (assoc :curr--validators pre-json))
-                              (cdr (assoc :curr-validators pre-json)))))
-         (prev-validators (json-validators
-                           (or (cdr (assoc :prev--validators pre-json))
-                               (cdr (assoc :prev-validators pre-json)))))
-         (entropy (mapcar #'hex-to-bytes
-                          (or (cdr (assoc :entropy pre-json)) '())))
+         (pre-validators (make-kappa :validators
+                          (json-validators
+                           (or (cdr (assoc :curr--validators pre-json))
+                               (cdr (assoc :curr-validators pre-json))))))
+         (prev-validators (make-lambda-state :validators
+                            (json-validators
+                             (or (cdr (assoc :prev--validators pre-json))
+                                 (cdr (assoc :prev-validators pre-json))))))
+         (entropy (let ((hashes (mapcar #'hex-to-bytes
+                                        (or (cdr (assoc :entropy pre-json)) '()))))
+                    (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+                              :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
          (offenders (mapcar #'hex-to-bytes
                             (or (cdr (assoc :offenders pre-json)) '())))
          (recent-blocks (reports-json-recent-blocks

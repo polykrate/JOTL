@@ -82,6 +82,10 @@
      (:file "lambda")
      (:file "iota")
      (:file "gamma")
+     (:file "alpha")
+     (:file "accumulate")
+     (:file "pi")
+     (:file "delta")
      (:file "upsilon")))))
 
 ;;;; Tests are run via scripts/ — see tests/README.md

@@ -11,17 +11,28 @@
 (in-package #:jotl)
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; VALUE OBJECT — ι closure
+;;; ═══════════════════════════════════════════════════════════════
+
+(define-value-object iota
+  ((validators nil))
+  (:state-key +C7+)
+  (:encoded :memo (encode-full-validator-sequence validators)))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CODEC — C(7) ↦ E(ι)
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun encode-state-iota (iota)
-  "C(7) ↦ E(ι) — V × 336 bytes (fixed size, no length prefix)."
-  (encode-full-validator-sequence iota))
+  "C(7) ↦ E(ι) — uses iota closure's memoized encoding."
+  (funcall iota :encoded))
 
 (defun decode-state-iota (bytes &optional (offset 0))
   "Decode ι from state binary.
-   Returns: (values list-of-validators bytes-consumed)"
-  (decode-full-validator-sequence bytes offset))
+   Returns: (values iota-closure bytes-consumed)"
+  (multiple-value-bind (validators consumed)
+      (decode-full-validator-sequence bytes offset)
+    (values (make-iota :validators validators) consumed)))
 
 ;;; ι transition is in transition-accumulate (stf/upsilon.lisp → future stf/accumulate.lisp)
 ;;; No transition-iota function needed here.

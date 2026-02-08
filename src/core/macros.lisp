@@ -20,10 +20,14 @@
                Trailing * is stripped: lambda* → :lambda, pi* → :pi
 
    EXTRA-CLAUSES: additional case clauses for computed messages.
-     Three forms:
+     Four forms:
        (:key BODY)              — computed on every access
        (:key :memo BODY)        — lazy-cached (computed once, memoized)
        (:key :alias FIELD-REF)  — simple alias for another field/expression
+       (:state-key EXPR)        — declares the segment's Merkle key C(n)
+                                   Auto-generates :state-key and :merkle-kv messages.
+                                   :merkle-kv returns (cons state-key encoded-bytes),
+                                   requires (:encoded :memo ...) to be defined.
 
    `self` is available in all extra-clause bodies to send messages to the
    closure itself (e.g. (:hash :memo (blake2b-256 (self :encoded)))).
@@ -33,10 +37,17 @@
        ((parent-hash nil) (slot nil) (seal nil))
        (:timeslot slot)
        (:encoded :memo (encode-header parent-hash slot seal))
-       (:hash :memo (blake2b-256 (self :encoded))))"
+       (:hash :memo (blake2b-256 (self :encoded))))
+
+   Example with state-key:
+     (define-value-object eta
+       ((eta-0 nil) (eta-1 nil) (eta-2 nil) (eta-3 nil))
+       (:state-key +C6+)
+       (:encoded :memo (concatenate ... eta-0 eta-1 eta-2 eta-3)))"
   (let ((fields '())
         (memo-clauses '())
-        (regular-clauses '()))
+        (regular-clauses '())
+        (state-key-expr nil))
     ;; ── Parse field specs ──
     (dolist (spec field-specs)
       (destructuring-bind (param default &key key) spec
@@ -51,18 +62,22 @@
                       :key msg-key :clean clean-str)
                 fields))))
     (setf fields (nreverse fields))
-    ;; ── Parse extra clauses: separate :memo from regular ──
+    ;; ── Parse extra clauses: separate :memo, :state-key, and regular ──
     (dolist (clause extra-clauses)
       (destructuring-bind (key &rest body) clause
-        (if (and (>= (length body) 2)
-                 (eq (first body) :memo))
-            ;; (:key :memo body...) → memoized
-            (push (list :key key :body (if (= (length (rest body)) 1)
-                                           (second body)
-                                           `(progn ,@(rest body))))
-                  memo-clauses)
-            ;; (:key body) → regular (including :alias)
-            (push clause regular-clauses))))
+        (cond
+          ;; (:state-key EXPR) → special: generates :state-key + :merkle-kv
+          ((eq key :state-key)
+           (setf state-key-expr (first body)))
+          ;; (:key :memo body...) → memoized
+          ((and (>= (length body) 2)
+                (eq (first body) :memo))
+           (push (list :key key :body (if (= (length (rest body)) 1)
+                                          (second body)
+                                          `(progn ,@(rest body))))
+                 memo-clauses))
+          ;; (:key body) → regular (including :alias)
+          (t (push clause regular-clauses)))))
     (setf memo-clauses (nreverse memo-clauses))
     (setf regular-clauses (nreverse regular-clauses))
     ;; ── Generate ──
@@ -91,6 +106,11 @@
                                             (or ,mv (setf ,mv ,(getf mc :body)))))
                           ;; Regular extra clauses
                           ,@regular-clauses
+                          ;; State-key auto-generated messages
+                          ,@(when state-key-expr
+                              `((:state-key ,state-key-expr)
+                                (:merkle-kv (cons (self :state-key)
+                                                  (self :encoded)))))
                           ;; Auto-generated
                           (:as-plist
                            (list ,@(loop for f in fields

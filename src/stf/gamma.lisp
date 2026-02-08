@@ -35,6 +35,7 @@
    (ring-commitment nil)  ;; γz: 144-byte vector
    (sealing nil)          ;; γs: plist (:variant :keys/:tickets :data [...])
    (accumulator nil))     ;; γa: list of ticket plists (:id bytes :attempt int)
+  (:state-key +C4+)
   ;; GP subscript aliases
   (:kappa  pending-keys)
   (:gamma-k pending-keys)
@@ -252,12 +253,14 @@
     (:tickets  (validate-seal-tickets  header gamma-s-prime eta-3-prime gamma-z))
     (:keys     (validate-seal-fallback header gamma-s-prime eta-3-prime))))
 
-(defun validate-entropy-source (header gamma-s-prime)
+(defun validate-entropy-source (header gamma-s-prime &key kappa-prime)
   "GP (6.17) — Validate entropy source HV.
    HV ∈ V̂_{HA}(XE ⌢ Y(HS))
    The entropy source must be a valid Bandersnatch VRF with:
-     - public key: the author's bandersnatch key from γ'S
+     - public key: the author's bandersnatch key
      - VRF input: jam_entropy ⌢ Y(HS)
+   In tickets mode, the author is anonymized; use κ'[HA].kb.
+   In fallback mode, use γ'S[HA].
    Signals SAFROLE-ERROR on failure."
   (let* ((seal            (funcall header :seal))
          (entropy-source  (funcall header :entropy-source))
@@ -273,13 +276,15 @@
     ;; Find the author's bandersnatch key
     (let ((author-key (ecase (getf gamma-s-prime :variant)
                         (:tickets
-                         ;; In tickets mode, we need the key from kappa
-                         ;; The author IS the ticket holder — we don't know their identity
-                         ;; (anonymized by Ring VRF). Use HA to look up in κ.
-                         ;; NOTE: this requires κ to be passed. For now, skip.
-                         nil)
+                         ;; In tickets mode, author identity is anonymized by Ring VRF.
+                         ;; Use κ'[HA].kb to look up the author's bandersnatch key.
+                         (when kappa-prime
+                           (let* ((kp-keys (funcall kappa-prime :validators))
+                                  (validator (nth author-idx kp-keys)))
+                             (when validator
+                               (getf validator :bandersnatch)))))
                         (:keys
-                         ;; In fallback mode, the key at HA in γS
+                         ;; In fallback mode, the key at HA in γ'S
                          (nth author-idx (getf gamma-s-prime :data))))))
       (when author-key
         (let ((entropy-vrf-out (jam.ffi:Y entropy-source)))
@@ -290,6 +295,19 @@
                    author-key vrf-input entropy-vrf-out entropy-source)
             (error 'safrole-error :code :bad-entropy-source
                    :detail "Entropy VRF verification failed")))))))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; HI — AUTHOR INDEX VALIDATION
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun validate-author-index (header)
+  "GP §5 — HI < V.
+   Author index must be a valid validator index.
+   Signals SAFROLE-ERROR on failure."
+  (let ((hi (funcall header :author-index)))
+    (unless (and (integerp hi) (< hi (num-validators)))
+      (error 'safrole-error :code :bad-author-index
+             :detail (format nil "HI=~A, V=~D" hi (num-validators))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; Z — OUTSIDE-IN SEQUENCER (GP 6.25)
@@ -411,13 +429,13 @@
 (defun compute-epoch-mark (tau tau-prime eta gamma-p-prime)
   "GP (6.27) — Compute expected epoch marker HE.
    Args: tau (prior timeslot), tau-prime (new timeslot),
-         eta (pre-transition entropy list: η₀ η₁ η₂ η₃),
+         eta (pre-transition entropy closure),
          gamma-p-prime (γ'P: new pending validator keys)
    Returns: epoch-mark plist or NIL."
   (if (new-epoch-p tau tau-prime)
       ;; Epoch change → emit marker
-      (list :entropy         (nth 0 eta)   ;; η₀
-            :tickets-entropy (nth 1 eta)   ;; η₁
+      (list :entropy         (funcall eta :eta-0)   ;; η₀
+            :tickets-entropy (funcall eta :eta-1)   ;; η₁
             :validators
             (mapcar (lambda (k)
                       (list :bandersnatch (getf k :bandersnatch)
@@ -626,10 +644,13 @@
 
    Args: header (H, block header closure), tau (τ, prior timeslot),
          tickets (ET list), gamma (γ closure),
-         iota (ι list), eta-prime (η' list),
-         kappa-prime (κ' list), psi-prime (ψ' plist)
+         iota (ι closure), eta-prime (η' closure),
+         kappa-prime (κ' closure), psi-prime (ψ' closure)
    Returns: γ'"
   (let* ((tau-prime (funcall header :slot))  ;; τ' = HT
+         ;; Extract raw validator lists from closures
+         (iota-keys (funcall iota :validators))
+         (kappa-prime-keys (funcall kappa-prime :validators))
          ;; Current γ components
          (gamma-p (funcall gamma :pending-keys))
          (gamma-z (funcall gamma :ring-commitment))
@@ -639,15 +660,15 @@
          (epoch-change (new-epoch-p tau tau-prime))
          (m (mod tau (epoch-duration)))  ;; prior slot position within epoch
          ;; η'₂ for VRF input (ticket validation + fallback sequence)
-         (eta-2-prime (nth 2 eta-prime))
+         (eta-2-prime (funcall eta-prime :eta-2))
          ;; Offenders from ψ'
-         (offenders (getf psi-prime :offenders)))
+         (offenders (funcall psi-prime :offenders)))
     (if epoch-change
         ;; ══════════════════════════════════════════════════════════
         ;; EPOCH CHANGE (e' > e)
         ;; ══════════════════════════════════════════════════════════
         (let* (;; (6.13) γ'P = Φ(ι) — filter offenders from enqueued keys
-               (gamma-p-prime (filter-offenders iota offenders))
+               (gamma-p-prime (filter-offenders iota-keys offenders))
                ;; (6.13) z = O([kb | k ≺ γ'P]) — ring commitment from new pending keys
                (bander-keys (mapcar (lambda (k) (getf k :bandersnatch))
                                     gamma-p-prime))
@@ -664,7 +685,7 @@
                           :data (outside-in-sequencer gamma-a))
                     ;; FALLBACK MODE: F(η'₂, κ')
                     (list :variant :keys
-                          :data (fallback-key-sequence eta-2-prime kappa-prime))))
+                          :data (fallback-key-sequence eta-2-prime kappa-prime-keys))))
                ;; (6.29-6.35) Ticket accumulation (base = ∅ on epoch)
                (gamma-a-prime (process-ticket-extrinsic
                                tickets gamma-z-prime eta-2-prime
@@ -686,3 +707,82 @@
                       :ring-commitment gamma-z
                       :sealing gamma-s
                       :accumulator gamma-a-prime)))))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; HEADER FIELD VALIDATION — HI, HS, HV, HE, HW
+;;; ═══════════════════════════════════════════════════════════════
+;;;
+;;; Called from transition-state (upsilon.lisp) AFTER transition-gamma
+;;; to validate header fields that depend on γ' intermediates.
+;;; Not called from transition-gamma itself to keep the STF pure
+;;; and avoid breaking test stubs that use minimal header closures.
+
+(defun compare-epoch-marks (a b)
+  "Deep comparison of two epoch marks (plists or nil).
+   Returns T if equal."
+  (cond
+    ((and (null a) (null b)) t)
+    ((or (null a) (null b)) nil)
+    (t (and (equalp (getf a :entropy) (getf b :entropy))
+            (equalp (getf a :tickets-entropy) (getf b :tickets-entropy))
+            (let ((va (getf a :validators))
+                  (vb (getf b :validators)))
+              (and (= (length va) (length vb))
+                   (every (lambda (x y)
+                            (and (equalp (getf x :bandersnatch) (getf y :bandersnatch))
+                                 (equalp (getf x :ed25519) (getf y :ed25519))))
+                          va vb)))))))
+
+(defun compare-tickets-marks (a b)
+  "Deep comparison of two tickets marks (list of ticket plists or nil).
+   Returns T if equal."
+  (cond
+    ((and (null a) (null b)) t)
+    ((or (null a) (null b)) nil)
+    (t (and (= (length a) (length b))
+            (every (lambda (x y)
+                     (and (equalp (getf x :id) (getf y :id))
+                          (= (getf x :attempt) (getf y :attempt))))
+                   a b)))))
+
+(defun validate-header-safrole (header tau gamma-prev eta eta-prime
+                                 gamma-prime kappa-prime)
+  "GP §5-6 — Validate header fields that depend on safrole state.
+   Called from transition-state after computing γ'.
+   Validates: HI, HS, HV, HE, HW.
+   Signals SAFROLE-ERROR on any mismatch.
+
+   Args:
+     header       — H (block header closure, from make-header)
+     tau          — τ (prior timeslot)
+     gamma-prev   — γ (pre-transition gamma closure)
+     eta          — η (pre-transition entropy closure)
+     eta-prime    — η' (post-transition entropy closure)
+     gamma-prime  — γ' (post-transition gamma closure)
+     kappa-prime  — κ' (post-transition validators)"
+  (let* ((tau-prime     (funcall header :slot))
+         (gamma-s-prime (funcall gamma-prime :sealing))
+         (gamma-z-prime (funcall gamma-prime :ring-commitment))
+         (gamma-p-prime (funcall gamma-prime :pending-keys))
+         (gamma-a       (funcall gamma-prev :accumulator))
+         (eta-3-prime   (funcall eta-prime :eta-3)))
+    ;; ── HI: author index < V ──
+    (validate-author-index header)
+    ;; ── HS: seal VRF verification ──
+    (validate-seal header gamma-s-prime eta-3-prime gamma-z-prime)
+    ;; ── HV: entropy source VRF verification ──
+    (validate-entropy-source header gamma-s-prime :kappa-prime kappa-prime)
+    ;; ── HE: epoch mark consistency ──
+    (let ((expected-he (compute-epoch-mark tau tau-prime eta gamma-p-prime))
+          (actual-he   (funcall header :epoch-mark)))
+      (unless (compare-epoch-marks actual-he expected-he)
+        (error 'safrole-error :code :bad-epoch-mark
+               :detail (format nil "HE mismatch: expected ~A, got ~A"
+                               (not (null expected-he)) (not (null actual-he))))))
+    ;; ── HW: tickets mark consistency ──
+    (let ((expected-hw (compute-winning-tickets-mark tau tau-prime gamma-a))
+          (actual-hw   (funcall header :tickets-mark)))
+      (unless (compare-tickets-marks actual-hw expected-hw)
+        (error 'safrole-error :code :bad-tickets-mark
+               :detail (format nil "HW mismatch: expected ~A, got ~A"
+                               (not (null expected-hw)) (not (null actual-hw))))))))

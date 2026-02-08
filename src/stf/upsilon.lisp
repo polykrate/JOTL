@@ -35,7 +35,11 @@
       (error "Υ: block invalid — ~{~A~^, ~}"
              (mapcar (lambda (e) (format nil "~A: ~A" (first e) (second e)))
                      errors))))
-  (transition-state sigma block))
+  (let ((sigma-prime (transition-state sigma block)))
+    ;; ── HR: state root must match Merkle root of σ' ──
+    (when (funcall (funcall block :header) :state-root)
+      (validate-state-root (funcall block :header) sigma-prime))
+    sigma-prime))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; transition-state — σ → σ' (GP §4.2.1)
@@ -58,18 +62,20 @@
          (e-a (funcall e :assurances))
          (e-g (funcall e :guarantees))
          ;; Prior state segments
-         (tau          (funcall sigma :tau))
-         (eta          (funcall sigma :eta))
-         (kappa        (funcall sigma :kappa))
-         (lambda-prev  (funcall sigma :lambda))
+         (tau-cl       (or (funcall sigma :tau) (make-tau-state)))
+         (tau          (funcall tau-cl :value))
+         (eta          (or (funcall sigma :eta) (make-eta)))
+         (kappa        (or (funcall sigma :kappa) (make-kappa)))
+         (lambda-prev  (or (funcall sigma :lambda) (make-lambda-state)))
          (gamma-prev   (funcall sigma :gamma))
          (rho          (or (funcall sigma :rho) (make-rho)))
-         (psi          (funcall sigma :psi))
+         (psi          (or (funcall sigma :psi)
+                           (make-psi)))
          (beta         (funcall sigma :beta))
          (alpha-prev   (funcall sigma :alpha))
          (delta        (funcall sigma :delta))
          ;; θ not extracted: it's only an OUTPUT of (4.16), never an input
-         (iota         (funcall sigma :iota))
+         (iota         (or (funcall sigma :iota) (make-iota)))
          (phi          (funcall sigma :phi))
          (chi          (funcall sigma :chi))
          (pi-prev      (funcall sigma :pi))
@@ -102,7 +108,11 @@
                ;; (4.15) R*  < (EA, ρ†)
                ;; ═══════════════════════════════════════════════
                (gamma-prime (transition-gamma h tau e-t gamma-prev
-                                              iota eta-prime kappa-prime psi-prime)))
+                                             iota eta-prime kappa-prime psi-prime)))
+          ;; ── Header safrole checks: HI, HS, HV, HE, HW ──
+          (when (funcall h :seal)
+            (validate-header-safrole h tau gamma-prev eta eta-prime
+                                     gamma-prime kappa-prime))
           ;; ρ‡ returns (values ρ‡ R* [error]) per §11
           (multiple-value-bind (rho-ddagger r-star)
               (transition-rho-ddagger e-a rho-dagger
@@ -120,7 +130,7 @@
                                 :lambda-prev lambda-prev
                                 :eta eta-prime
                                 :offenders (when psi-prime
-                                             (getf psi-prime :offenders))
+                                             (funcall psi-prime :offenders))
                                 :recent-blocks beta
                                 :auth-pools alpha-prev
                                 :accounts delta)))
@@ -141,6 +151,8 @@
                    (alpha-prime (transition-alpha h e-g phi-prime alpha-prev))
                    (pi-prime    (transition-pi e-g e-p e-a e-t tau
                                                kappa-prime pi-prev h s-reports)))
+              ;; ── Header post-transition checks: HO ──
+              (validate-header-post-transition h e-d)
               ;; BUILD σ'
               (make-state
                :alpha   alpha-prime
@@ -153,7 +165,7 @@
                :kappa   kappa-prime
                :lambda* lambda-prime
                :rho     rho-prime
-               :tau     tau-prime
+               :tau     (make-tau-state :value tau-prime)
                :phi     phi-prime
                :chi     chi-prime
                :psi     psi-prime
@@ -165,44 +177,20 @@
 ;;; SUB-STF LOCATIONS — one file per component
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; Implemented (own files, tested):
-;;;   transition-tau          → stf/tau.lisp    (§5.7, §6.1-6.2)   ✓ 42/42
-;;;   transition-eta          → stf/eta.lisp    (§6.21-6.23)       ✓ 42/42
-;;;   transition-beta-dagger  → stf/beta.lisp   (§7.5)             ✓  8/8
-;;;   transition-psi          → stf/psi.lisp    (§10)              ✓ 56/56
-;;;   transition-rho-dagger   → stf/rho.lisp    (§10.15)           ✓ (via ψ)
-;;;   transition-kappa        → stf/kappa.lisp  (§6.15)            ✓ (via γ)
-;;;   transition-lambda       → stf/lambda.lisp (§6.16)            ✓ (via γ)
-;;;   transition-gamma        → stf/gamma.lisp  (§6)               ✓ 42/42
+;;;   transition-tau          → stf/tau.lisp         (§5.7, §6.1-6.2) ✓ 42/42
+;;;   transition-eta          → stf/eta.lisp         (§6.21-6.23)     ✓ 42/42
+;;;   transition-beta-dagger  → stf/beta.lisp        (§7.5)           ✓  8/8
+;;;   transition-psi          → stf/psi.lisp         (§10)            ✓ 56/56
+;;;   transition-rho-dagger   → stf/rho.lisp         (§10.15)         ✓ (via ψ)
+;;;   transition-kappa        → stf/kappa.lisp       (§6.15)          ✓ (via γ)
+;;;   transition-lambda       → stf/lambda.lisp      (§6.16)          ✓ (via γ)
+;;;   transition-gamma        → stf/gamma.lisp       (§6)             ✓ 42/42
+;;;   transition-rho-ddagger  → stf/rho.lisp         (§11)            ✓ 20/20
+;;;   transition-rho          → stf/rho.lisp         (§11-12)         ✓ 84/84
 ;;;
-;;;   transition-rho-ddagger  → stf/rho.lisp     (§11)             ✓ 20/20
-;;;   compute-ready-reports   → stf/rho.lisp     (§11)             ✓ (via ρ‡)
-;;;
-;;;   transition-rho          → stf/rho.lisp     (§11-12)          ✓ 84/84
-;;;
-;;; Stubs (here, will be moved when implemented):
-;;;   transition-accumulate   → stf/accumulate   (§8, stub/PVM)   vectors: 60
-;;;   transition-beta (final) → stf/beta.lisp    (§7.7-7.8, stub)
-;;;   transition-delta        → stf/delta.lisp   (§7, stub)       vectors: 16
-;;;   transition-alpha        → stf/alpha.lisp   (§13, stub)      vectors:  6
-;;;   transition-pi           → stf/pi.lisp      (§15, stub)      vectors:  6
-
-(defun transition-accumulate (r-star omega xi delta chi iota phi tau tau-prime)
-  "GP §4.16 — Accumulation. STUB: §8 + PVM
-   Returns: (values ω' ξ' δ‡ χ' ι' ϕ' θ' S)"
-  (declare (ignore r-star tau tau-prime))
-  (values omega xi delta chi iota phi nil nil))
-
-(defun transition-delta (preimages delta-ddagger tau-prime)
-  "GP §4.18 — Services: fold preimages. STUB: §7"
-  (declare (ignore preimages tau-prime)) delta-ddagger)
-
-(defun transition-alpha (header guarantees phi-prime alpha)
-  "GP §4.19 — Core authorizations. STUB: §13"
-  (declare (ignore header guarantees phi-prime)) alpha)
-
-(defun transition-pi (guarantees preimages assurances tickets
-                      tau kappa-prime pi-prev header s-reports)
-  "GP §4.20 — Validator statistics. STUB: §15"
-  (declare (ignore guarantees preimages assurances tickets
-                   tau kappa-prime header s-reports))
-  pi-prev)
+;;; Stubs (own files):
+;;;   transition-accumulate   → stf/accumulate.lisp  (§8, stub/PVM)  vectors: 60
+;;;   transition-delta        → stf/delta.lisp       (§7, stub)      vectors: 16
+;;;   transition-alpha        → stf/alpha.lisp       (§13, stub)     vectors:  6
+;;;   transition-pi           → stf/pi.lisp          (§15, stub)     vectors:  6
+;;;   transition-beta (final) → stf/beta.lisp        (§7.7-7.8, stub)

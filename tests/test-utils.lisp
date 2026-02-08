@@ -193,12 +193,12 @@
     ok))
 
 (defun compare-eta (label actual expected)
-  "Compare two η (list of 4 hashes). Returns T if all match."
-  (let ((ok t))
-    (unless (= (length actual) (length expected))
-      (format t "    ✗ ~A: η length ~D ≠ ~D~%" label (length actual) (length expected))
-      (return-from compare-eta nil))
-    (loop for a in actual for e in expected for i from 0
+  "Compare two η closures (or lists for backward compat). Returns T if all match."
+  (let ((ok t)
+        (keys '(:eta-0 :eta-1 :eta-2 :eta-3)))
+    (loop for key in keys for i from 0
+          for a = (funcall actual key)
+          for e = (funcall expected key)
           unless (equalp a e)
           do (format t "    ✗ ~A: η[~D]~%      got:  ~A~%      want: ~A~%"
                      label i

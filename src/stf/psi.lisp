@@ -196,9 +196,9 @@
 (defun validate-verdict-not-already-judged (verdict psi)
   "(10.9) {r|(r,a,j)∈EV} ∤ ψG ∪ ψB ∪ ψW — no duplicate report hashes."
   (let ((target (getf verdict :target))
-        (good (getf psi :good))
-        (bad (getf psi :bad))
-        (wonky (getf psi :wonky)))
+        (good (funcall psi :good))
+        (bad (funcall psi :bad))
+        (wonky (funcall psi :wonky)))
     (when (or (member-hash target good)
               (member-hash target bad)
               (member-hash target wonky))
@@ -365,24 +365,27 @@
    ψ' = ψ updated with new verdicts, culprits, faults.
 
    Args: disputes (plist :verdicts :culprits :faults)
-         psi      (plist :good :bad :wonky :offenders)
+         psi      (psi closure)
          tau      (integer, current timeslot)
-         kappa    (list of validator plists, current epoch)
-         lambda-prev (list of validator plists, previous epoch)
-   Returns: (values ψ' v-list)
-     ψ'     (plist :good :bad :wonky :offenders) — (10.16-19)
+         kappa    (κ closure)
+         lambda-prev (λ closure)
+   Returns: (values ψ'-closure v-list)
+     ψ'     (psi closure) — (10.16-19)
      v-list (list of (target . positive-count))  — (10.12) for ρ† (10.15)
    Signals: DISPUTES-ERROR on validation failure."
   (let* ((verdicts  (getf disputes :verdicts))
          (culprits  (getf disputes :culprits))
          (faults    (getf disputes :faults))
+         ;; Extract raw validator lists from closures
+         (kappa-keys (funcall kappa :validators))
+         (lambda-keys (funcall lambda-prev :validators))
          ;; Current ψ segments
-         (good      (getf psi :good))
-         (bad       (getf psi :bad))
-         (wonky     (getf psi :wonky))
-         (offenders (getf psi :offenders))
+         (good      (funcall psi :good))
+         (bad       (funcall psi :bad))
+         (wonky     (funcall psi :wonky))
+         (offenders (funcall psi :offenders))
          ;; k = {ie | i ∈ λ∪κ} \ ψO
-         (valid-keys (build-valid-key-set kappa lambda-prev offenders)))
+         (valid-keys (build-valid-key-set kappa-keys lambda-keys offenders)))
 
     ;; ── (10.7) Verdicts sorted by r ──
     (validate-verdicts-sorted-unique verdicts)
@@ -396,7 +399,7 @@
       (validate-verdict-not-already-judged verdict psi)
       ;; (10.3) Signature verification per vote
       (validate-verdict-signatures verdict (getf verdict :age)
-                                   tau kappa lambda-prev))
+                                   tau kappa-keys lambda-keys))
 
     ;; ── (10.12) Build v = [(r, Σv) | (r,a,j) ∈ EV] ──
     (let* ((v-list (mapcar (lambda (verdict)
@@ -448,10 +451,10 @@
                       (append offenders new-offender-keys)
                       :test #'equalp)
                      #'hash<))
-             (psi-prime (list :good  good-prime
-                              :bad   bad-prime
-                              :wonky wonky-prime
-                              :offenders offenders-prime)))
+             (psi-prime (make-psi :good  good-prime
+                                  :bad   bad-prime
+                                  :wonky wonky-prime
+                                  :offenders offenders-prime)))
         ;; Return ψ' and v (10.12) for use by ρ† (10.15)
         (values psi-prime v-list)))))
 
@@ -469,14 +472,28 @@
           (mapcar (lambda (f) (getf f :key)) faults)))
 
 ;;; ═════════════════════════════════════════════════════════════════
+;;; VALUE OBJECT — ψ closure
+;;; ═════════════════════════════════════════════════════════════════
+
+(define-value-object psi
+  ((good '()) (bad '()) (wonky '()) (offenders '()))
+  (:state-key +C5+)
+  (:encoded :memo
+    (concatenate '(vector (unsigned-byte 8))
+                 (encode-sequence good #'encode-hash-32)
+                 (encode-sequence bad #'encode-hash-32)
+                 (encode-sequence wonky #'encode-hash-32)
+                 (encode-sequence offenders #'encode-hash-32))))
+
+;;; ═════════════════════════════════════════════════════════════════
 ;;; STATE CODECS — C(5) ↦ ψ
 ;;; ═════════════════════════════════════════════════════════════════
 
 (defun decode-state-psi (bytes &optional (offset 0))
-  "Decode ψ from state binary.
-   GP C(5): E(↕[x ∈ ψG ^^ x], ↕[x ∈ ψB ^^ x], ↕[x ∈ ψW ^^ x], ↕[x ∈ ψO ^^ x])
+  "Decode ψ from state binary → make-psi closure.
+   GP C(5): E(↕[x ∈ ψG], ↕[x ∈ ψB], ↕[x ∈ ψW], ↕[x ∈ ψO])
    = 4 sorted sequences of H(32).
-   Returns: (values psi-plist bytes-consumed)"
+   Returns: (values psi-closure bytes-consumed)"
   (let ((hash-decoder (lambda (b o) (values (subseq b o (+ o 32)) 32)))
         (pos offset))
     (multiple-value-bind (good good-size)
@@ -491,21 +508,12 @@
           (multiple-value-bind (offenders offenders-size)
               (decode-sequence bytes hash-decoder pos)
             (incf pos offenders-size)
-            (values (list :good good :bad bad :wonky wonky :offenders offenders)
+            (values (make-psi :good good :bad bad
+                              :wonky wonky :offenders offenders)
                     (- pos offset))))))))
 
 (defun encode-state-psi (psi)
-  "Encode ψ to state binary.
-   Returns: byte array"
-  ;; C(5): 4 sorted sequences of 32-byte hashes
-  (let ((good      (getf psi :good))
-        (bad       (getf psi :bad))
-        (wonky     (getf psi :wonky))
-        (offenders (getf psi :offenders)))
-    (concatenate '(vector (unsigned-byte 8))
-                 (encode-sequence good #'encode-hash-32)
-                 (encode-sequence bad #'encode-hash-32)
-                 (encode-sequence wonky #'encode-hash-32)
-                 (encode-sequence offenders #'encode-hash-32))))
+  "C(5) ↦ E(ψ) — uses psi closure's memoized encoding."
+  (funcall psi :encoded))
 
 ;;; Exports managed in package.lisp

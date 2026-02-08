@@ -50,17 +50,13 @@
    (kappa nil)
    (lambda* nil)
    (rho nil)
-   (tau 0)
+   (tau nil)
    (phi nil)
    (chi nil)
    (psi nil)
    (pi* nil)
    (omega nil)
-   (xi nil))
-  ;; Derived messages
-      (:epoch (timeslot-epoch tau))
-      (:phase (timeslot-phase tau))
-  (:epoch-and-phase (timeslot-to-epoch-and-phase tau)))
+   (xi nil)))
 
 ;;; ===================================================================
 ;;; GENESIS STATE σ₀
@@ -71,7 +67,7 @@
    
    Gray Paper: We presume consensus over H₀ and σ₀."
   (make-state
-   :tau 0
+   :tau (make-tau-state :value 0)
    :kappa validators
    :beta nil
-   :eta (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
+   :eta (make-eta)))

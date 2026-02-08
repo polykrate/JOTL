@@ -8,6 +8,18 @@
 (in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
+;;; VALUE OBJECT — τ closure
+;;; ═════════════════════════════════════════════════════════════════
+;;; τ is a single integer (timeslot). The closure wraps it for uniform
+;;; state storage and Merkle generation. Arithmetic uses the raw number
+;;; extracted via (funcall tau :value).
+
+(define-value-object tau-state
+  ((value 0))
+  (:state-key +C11+)
+  (:encoded :memo (E4 value)))
+
+;;; ═════════════════════════════════════════════════════════════════
 ;;; EUCLIDEAN DIVISION (GP §6.2)
 ;;; ═════════════════════════════════════════════════════════════════
 
@@ -40,12 +52,14 @@
 ;;; ═════════════════════════════════════════════════════════════════
 
 (defun encode-state-tau (tau)
-  "C(11) ↦ E4(τ) — 4-byte LE encoding for Merklization."
-  (E4 tau))
+  "C(11) ↦ E4(τ) — uses tau closure's memoized encoding."
+  (funcall tau :encoded))
 
 (defun decode-state-tau (bytes &optional (offset 0))
-  "Decode τ from 4 bytes LE. Returns: (values tau 4)"
-  (decode-u32 bytes offset))
+  "Decode τ from 4 bytes LE. Returns: (values tau-closure 4)"
+  (multiple-value-bind (val consumed)
+      (decode-u32 bytes offset)
+    (values (make-tau-state :value val) consumed)))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; τ STF (GP §5.7 + §6.1-6.2)
@@ -56,7 +70,7 @@
   (funcall header :slot))
 
 (defun transition-tau (tau header)
-  "τ STF: τ → τ'
+  "τ STF: τ (number) → τ' (number)
    
    GP §5.7: τ' > τ
    GP §6.1: τ' ≡ HT

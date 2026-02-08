@@ -164,9 +164,10 @@
                    (assurance-json-assignments
                            (or (cdr (assoc :avail--assignments pre-json))
                         (cdr (assoc :avail-assignments pre-json))))))
-         (pre-validators (json-validators
-                          (or (cdr (assoc :curr--validators pre-json))
-                              (cdr (assoc :curr-validators pre-json)))))
+         (pre-validators (make-kappa :validators
+                          (json-validators
+                           (or (cdr (assoc :curr--validators pre-json))
+                               (cdr (assoc :curr-validators pre-json))))))
          ;; ── Parse expected post-state ──
          (post-assignments (assurance-json-assignments
                             (or (cdr (assoc :avail--assignments post-json))
@@ -212,7 +213,8 @@
                            ;; Compare validators unchanged
                            (val-ok (compare-validator-list
                                      (format nil "~A/κ" fname)
-                                     pre-validators post-validators))
+                                     (funcall pre-validators :validators)
+                                     post-validators))
                            ;; Codec roundtrip on result
                            (codec-ok (test-rho-codec-roundtrip
                                        rho-ddagger fname)))

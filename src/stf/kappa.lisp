@@ -10,17 +10,28 @@
 (in-package #:jotl)
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; VALUE OBJECT — κ closure
+;;; ═══════════════════════════════════════════════════════════════
+
+(define-value-object kappa
+  ((validators nil))
+  (:state-key +C8+)
+  (:encoded :memo (encode-full-validator-sequence validators)))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CODEC — C(8) ↦ E(κ)
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun encode-state-kappa (kappa)
-  "C(8) ↦ E(κ) — V × 336 bytes (fixed size, no length prefix)."
-  (encode-full-validator-sequence kappa))
+  "C(8) ↦ E(κ) — uses kappa closure's memoized encoding."
+  (funcall kappa :encoded))
 
 (defun decode-state-kappa (bytes &optional (offset 0))
   "Decode κ from state binary.
-   Returns: (values list-of-validators bytes-consumed)"
-  (decode-full-validator-sequence bytes offset))
+   Returns: (values kappa-closure bytes-consumed)"
+  (multiple-value-bind (validators consumed)
+      (decode-full-validator-sequence bytes offset)
+    (values (make-kappa :validators validators) consumed)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; κ TRANSITION — GP §6.15
@@ -36,12 +47,12 @@
    Otherwise: κ' = κ (unchanged).
 
    Args: header (closure), tau (prior timeslot),
-         kappa (list of V validators), gamma (γ closure)
-   Returns: κ'"
+         kappa (κ closure), gamma (γ closure)
+   Returns: κ' closure"
   (let ((tau-prime (funcall header :slot)))
     (if (new-epoch-p tau tau-prime)
         ;; Epoch change: adopt pending keys from γ
         (let ((gamma-k (funcall gamma :kappa)))
-          (or gamma-k kappa))
+          (make-kappa :validators (or gamma-k (funcall kappa :validators))))
         ;; No change
         kappa)))

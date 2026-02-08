@@ -20,6 +20,7 @@
 
 (define-value-object beta
   ((history '()) (mmr-peaks #()))
+  (:state-key +C3+)
   (:length (length history))
   (:full-p (>= (length history) +history-size+))
   (:encoded :memo

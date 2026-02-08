@@ -15,30 +15,30 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun json-psi-to-plist (psi-json)
-  "Convert JSON psi state to our plist format."
-  (list :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
-        :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
-        :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
-        :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
+  "Convert JSON psi state to a psi closure."
+  (make-psi :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
+            :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
+            :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
+            :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; COMPARISON (psi-specific)
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun compare-psi (label actual expected)
-  "Deep comparison of two ψ plists (content, not just lengths)."
+  "Deep comparison of two ψ closures (content, not just lengths)."
   (let ((ok t))
     (unless (compare-hash-sets (format nil "~A.good" label)
-                               (getf actual :good) (getf expected :good))
+                               (funcall actual :good) (funcall expected :good))
       (setf ok nil))
     (unless (compare-hash-sets (format nil "~A.bad" label)
-                               (getf actual :bad) (getf expected :bad))
+                               (funcall actual :bad) (funcall expected :bad))
       (setf ok nil))
     (unless (compare-hash-sets (format nil "~A.wonky" label)
-                               (getf actual :wonky) (getf expected :wonky))
+                               (funcall actual :wonky) (funcall expected :wonky))
       (setf ok nil))
     (unless (compare-hash-sets (format nil "~A.offenders" label)
-                               (getf actual :offenders) (getf expected :offenders))
+                               (funcall actual :offenders) (funcall expected :offenders))
       (setf ok nil))
     ok))
 
@@ -76,8 +76,8 @@
          ;; Parse pre-state
          (tau (cdr (assoc :tau pre)))
          (psi (json-psi-to-plist (cdr (assoc :psi pre))))
-         (kappa (json-validators (cdr (assoc :kappa pre))))
-         (lambda-prev (json-validators (cdr (assoc :lambda pre))))
+         (kappa (make-kappa :validators (json-validators (cdr (assoc :kappa pre)))))
+         (lambda-prev (make-lambda-state :validators (json-validators (cdr (assoc :lambda pre)))))
          ;; Expected output
          (expected-ok (assoc :ok output))
          (expected-err (cdr (assoc :err output)))

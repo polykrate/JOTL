@@ -20,6 +20,7 @@
 
 (define-value-object rho
   ((assignments '()))
+  (:state-key +C10+)
   (:core-count (length assignments))
   (:encoded :memo
     (apply #'concatenate '(vector (unsigned-byte 8))
@@ -302,13 +303,14 @@
      rho-dagger   — ρ† rho closure
      tau-prime    — τ' = H_T (block timeslot)
      parent-hash  — H_P (parent header hash)
-     kappa        — κ (current validators)
+     kappa        — κ closure
    
    Returns: (values ρ‡-closure R* [error])
      ρ‡ — rho closure with available/stale cores cleared (11.17)
      R* — available work-reports (11.16)
      error — assurance-error if validation failed (ρ‡=ρ†, R*=nil)"
-  (let ((assignments (funcall rho-dagger :assignments)))
+  (let* ((assignments (funcall rho-dagger :assignments))
+         (kappa-keys (funcall kappa :validators)))
   (handler-case
       (progn
         ;; ── Validate EA (11.10-11.15) ───────────────────────
@@ -320,7 +322,7 @@
         (validate-assurances-sorted-unique assurances)    ;; (11.12)
         (dolist (a assurances)
             (validate-assurance-cores-engaged a assignments)  ;; (11.15)
-          (validate-assurance-signature a kappa parent-hash)) ;; (11.13)
+          (validate-assurance-signature a kappa-keys parent-hash)) ;; (11.13)
         ;; ── (11.16) R: count votes, find available cores ────
         (let* ((c (num-cores))
                (votes (count-core-votes assurances c))
@@ -482,7 +484,7 @@
    If ⌊τ'/E⌋ ≠ ⌊t(w)/E⌋ → e = η₃, k = λ (previous epoch)
    Otherwise → e = η₂, k = κ (same epoch, previous rotation)
    
-   Args: eta — full entropy (list of 4 hashes: η₀ η₁ η₂ η₃)
+   Args: eta — full entropy closure (responds to :eta-0 .. :eta-3)
          slot — τ' (block timeslot)
          guarantee-slot — t (guarantee timeslot)
          kappa — current validators
@@ -496,8 +498,8 @@
          ;; Choose entropy and validators based on epoch comparison
          (different-epoch-p (/= block-epoch guarantee-epoch))
          (entropy (if different-epoch-p
-                      (elt eta 3)  ;; η₃ for previous epoch
-                      (elt eta 2))) ;; η₂ for same epoch
+                      (funcall eta :eta-3)  ;; η₃ for previous epoch
+                      (funcall eta :eta-2))) ;; η₂ for same epoch
          (validators (if different-epoch-p
                          lambda-prev  ;; λ for previous epoch
                          kappa))      ;; κ for same epoch
@@ -521,7 +523,7 @@
   (let ((r (rotation-period)))
     (if (= (floor slot r) (floor guarantee-slot r))
         ;; Same rotation → M = P(η₂, τ')
-        (guarantor-assignments (elt eta 2) slot kappa offenders)
+        (guarantor-assignments (funcall eta :eta-2) slot kappa offenders)
         ;; Different rotation → M*
         (guarantor-assignments-star eta slot guarantee-slot
                                     kappa lambda-prev offenders))))
@@ -829,17 +831,20 @@
 
 (defun compute-output-packages-and-reporters (guarantees kappa lambda-prev tau-prime)
   "Compute reported packages and reporters from validated guarantees.
+   kappa/lambda-prev are closures.
    reported = list of (:work-package-hash h :segment-tree-root r)
    reporters = UNIQUE ed25519 keys of all guarantors, sorted lexicographically."
   (let ((reported '())
-        (reporter-keys '()))
+        (reporter-keys '())
+        (kappa-keys (funcall kappa :validators))
+        (lambda-keys (funcall lambda-prev :validators)))
     (dolist (g guarantees)
       (let* ((report (getf g :report))
              (spec (getf report :package-spec))
              (guarantee-slot (getf g :slot))
              (block-epoch (floor tau-prime (epoch-duration)))
              (guarantee-epoch (floor guarantee-slot (epoch-duration)))
-             (validators (if (/= block-epoch guarantee-epoch) lambda-prev kappa)))
+             (validators (if (/= block-epoch guarantee-epoch) lambda-keys kappa-keys)))
         ;; Add to reported
         (push (list :work-package-hash (ensure-bytes (getf spec :hash))
                     :segment-tree-root (ensure-bytes (getf spec :exports-root)))
@@ -978,9 +983,9 @@
      guarantees    — EG (list of guarantee plists)
      rho-ddagger   — ρ‡ rho closure
      tau-prime     — τ' = H_T (block timeslot)
-     kappa         — κ (current validators)
-     lambda-prev   — λ (previous validators)
-     eta           — η (4 entropy hashes)
+     kappa         — κ closure
+     lambda-prev   — λ closure
+     eta           — η closure
      offenders     — ψ_O (list of banned Ed25519 keys)
      recent-blocks — β closure (:history :mmr-peaks)
      auth-pools    — α (list of C lists of authorizer hashes)
@@ -990,6 +995,9 @@
    Signals: guarantee-error on validation failure"
   ;; All-or-nothing: guarantee-error propagates to caller on failure.
   (let* ((*current-tau-prime* tau-prime)
+         ;; Extract raw validator lists from closures
+         (kappa-keys (funcall kappa :validators))
+         (lambda-keys (funcall lambda-prev :validators))
          (assignments (funcall rho-ddagger :assignments)))
     ;; No guarantees → ρ' = ρ‡
     (when (null guarantees)
@@ -1010,7 +1018,7 @@
                ;; Compute assignments for this guarantee
                (core-assignments
                  (assignments-for-guarantee
-                  tau-prime guarantee-slot eta kappa lambda-prev offenders)))
+                  tau-prime guarantee-slot eta kappa-keys lambda-keys offenders)))
           ;; -- Basic report checks --
           (validate-guarantee-core-index report)
           (validate-guarantee-results-present report)
@@ -1021,10 +1029,10 @@
           (validate-guarantee-signatures-sorted-unique signatures)
           (dolist (sig signatures)
             (validate-guarantee-validator-index sig)
-            (validate-guarantee-not-banned sig kappa offenders)
+            (validate-guarantee-not-banned sig kappa-keys offenders)
             (validate-guarantee-core-assignment sig core-index core-assignments)
             (validate-guarantee-signature
-             sig report-hash kappa guarantee-slot eta lambda-prev offenders))
+             sig report-hash kappa-keys guarantee-slot eta lambda-keys offenders))
           ;; -- Content checks --
           (validate-guarantee-anchor report recent-blocks)
           (validate-guarantee-lookup-anchor report tau-prime recent-blocks)

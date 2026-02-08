@@ -170,6 +170,8 @@
    ;; ═══════════════════════════════════════════
    ;; STF — Timeslot τ (GP §6.1-6.2)
    ;; ═══════════════════════════════════════════
+   #:make-tau-state
+   #:tau-state-value
    #:timeslot-to-epoch-and-phase
    #:timeslot-epoch #:timeslot-phase
    #:epoch-phase-to-timeslot
@@ -199,12 +201,16 @@
    ;; ═══════════════════════════════════════════
    ;; STF — Entropy η (GP §6.21-6.23)
    ;; ═══════════════════════════════════════════
+   #:make-eta
+   #:eta-eta-0 #:eta-eta-1 #:eta-eta-2 #:eta-eta-3
    #:transition-eta
    #:encode-state-eta #:decode-state-eta
    
    ;; ═══════════════════════════════════════════
    ;; STF — Judgments ψ (GP §10)
    ;; ═══════════════════════════════════════════
+   #:make-psi
+   #:psi-good #:psi-bad #:psi-wonky #:psi-offenders
    #:transition-psi
    #:classify-verdict
    #:compute-offenders-mark
@@ -220,18 +226,24 @@
    ;; ═══════════════════════════════════════════
    ;; STF — Validator Keys κ (GP §6.15)
    ;; ═══════════════════════════════════════════
+   #:make-kappa
+   #:kappa-validators
    #:transition-kappa
    #:encode-state-kappa #:decode-state-kappa
    
    ;; ═══════════════════════════════════════════
    ;; STF — Archived Keys λ (GP §6.16)
    ;; ═══════════════════════════════════════════
+   #:make-lambda-state
+   #:lambda-state-validators
    #:transition-lambda
    #:encode-state-lambda #:decode-state-lambda
    
    ;; ═══════════════════════════════════════════
    ;; STF — Enqueued Keys ι (GP §8)
    ;; ═══════════════════════════════════════════
+   #:make-iota
+   #:iota-validators
    #:encode-state-iota #:decode-state-iota
    
    ;; ═══════════════════════════════════════════
@@ -256,6 +268,9 @@
    #:safrole-error #:safrole-error-code #:safrole-error-detail
    #:validate-seal #:validate-seal-tickets #:validate-seal-fallback
    #:validate-entropy-source #:seal-key-index
+   #:validate-author-index         ;; HI (GP §5)
+   #:validate-header-safrole       ;; HI+HS+HV+HE+HW (GP §5-6)
+   #:compare-epoch-marks #:compare-tickets-marks
    #:encode-state-gamma #:decode-state-gamma
    #:encode-gamma-sealing #:decode-gamma-sealing
    #:encode-state-ticket #:decode-state-ticket
@@ -311,6 +326,51 @@
    #:compute-output-packages-and-reporters
    #:update-cores-statistics #:update-services-statistics
    #:compute-core-assignments
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Core Authorizations α & Queue ϕ (GP §13)
+   ;; ═══════════════════════════════════════════
+   #:make-alpha #:alpha-pools
+   #:encode-state-alpha
+   #:make-phi #:phi-pools
+   #:encode-state-phi
+   #:transition-alpha
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Accumulation χ/ω/ξ/θ (GP §8)
+   ;; ═══════════════════════════════════════════
+   #:make-chi #:chi-manager #:chi-assign #:chi-designate #:chi-empower
+   #:encode-state-chi
+   #:make-omega #:omega-reports
+   #:encode-state-omega
+   #:make-xi #:xi-accumulations
+   #:encode-state-xi
+   #:make-theta #:theta-queue
+   #:encode-state-theta
+   #:transition-accumulate
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Validator Statistics π (GP §15)
+   ;; ═══════════════════════════════════════════
+   #:make-pi-segment #:pi-segment-stats
+   #:encode-state-pi
+   #:transition-pi
+   
+   ;; ═══════════════════════════════════════════
+   ;; STF — Services δ (GP §7)
+   ;; ═══════════════════════════════════════════
+   #:transition-delta
+   
+   ;; ═══════════════════════════════════════════
+   ;; Utils — State Merklization (GP Appendix D)
+   ;; ═══════════════════════════════════════════
+   #:+sigma-segment-keys+
+   #:merklize-state #:validate-state-root
+   
+   ;; ═══════════════════════════════════════════
+   ;; Block — Post-transition Validation
+   ;; ═══════════════════════════════════════════
+   #:validate-header-post-transition
    
    ;; ═══════════════════════════════════════════
    ;; STF — Υ(σ,B)→σ' (GP §4.1)
