@@ -88,26 +88,4 @@
                (block (make-block :header header :extrinsic extrinsic)))
           (values block (- pos offset)))))))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; BLOCK HASHING
-;;; ═════════════════════════════════════════════════════════════════
-
-(defun compute-block-hash (block)
-  "Block hash = header hash H(E(H))."
-  (funcall (funcall block :header) :hash))
-
-;;; ═════════════════════════════════════════════════════════════════
-;;; HELPERS
-;;; ═════════════════════════════════════════════════════════════════
-
-(defun validate-block-structure (block)
-  "Basic structural check: header and extrinsic present."
-  (assert (funcall block :header) () "Block must have a header")
-  (assert (funcall block :extrinsic) () "Block must have an extrinsic")
-  t)
-
-(defun block-size (block)
-  "Size of encoded block in bytes."
-  (length (funcall block :encoded)))
-
 ;;; Exports managed in package.lisp

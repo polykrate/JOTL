@@ -12,12 +12,6 @@
   ()
   (:report "JAM Crypto FFI not loaded. Call (load-ffi) first."))
 
-(defun require-ffi ()
-  "Ensure FFI is loaded. Signals error if not."
-  (unless (and (find-package :jam.ffi)
-               (fboundp (find-symbol "BLAKE2B-256" :jam.ffi)))
-    (error 'ffi-not-loaded)))
-
 (defun ffi-loaded-p ()
   "Check if FFI is available"
   (and (find-package :jam.ffi)
@@ -31,11 +25,6 @@
 (deftype hash-value ()
   "256-bit hash value. GP notation: ℍ"
   '(simple-array (unsigned-byte 8) (32)))
-
-;;; H₀ = [0]₃₂
-(defparameter +hash-zero+ (make-array 32 :element-type '(unsigned-byte 8)
-                                          :initial-element 0)
-  "Zero hash. GP notation: H₀")
 
 ;;; ============================================================
 ;;; H - Blake2b-256 (FFI REQUIRED)
@@ -96,12 +85,6 @@
     (string 
      (string-to-blob value))))
 
-(defun E-inverse (bytes &optional type-hint)
-  "SCALE decode bytes. GP: E⁻¹(y)"
-  (case type-hint
-    (:natural (decode-natural bytes))
-    (:string (blob-to-string bytes))
-    (otherwise bytes)))
 
 ;;; ============================================================
 ;;; 3.8.2 Signing Schemes - Types
@@ -178,24 +161,4 @@
 (defparameter +jam-fallback-seal+ (string-to-blob "jam_fallback_seal")
   "GP: $jam_fallback_seal — context tag for fallback sealing")
 
-;;; ============================================================
-;;; Status
-;;; ============================================================
-
-(defun crypto-status ()
-  "Report crypto FFI status"
-  (format t "~&Crypto Status:~%")
-  (if (ffi-loaded-p)
-      (progn
-        (format t "  Backend: FFI (jam-crypto) ✓~%")
-        (format t "  Blake2b-256: ✓~%")
-        (format t "  Keccak-256: ✓~%")
-        (format t "  Ed25519: ✓~%")
-        (format t "  Bandersnatch VRF: ✓~%")
-        (format t "  Ring VRF: ✓~%")
-        t)
-      (progn
-        (format t "  Backend: NOT LOADED ✗~%")
-        (format t "  Run (load-ffi) to enable crypto~%")
-        nil)))
 

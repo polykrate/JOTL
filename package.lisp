@@ -95,14 +95,10 @@
    ;; ═══════════════════════════════════════════
    #:make-header
    #:encode-header #:encode-header-unsealed #:decode-header
-   #:compute-header-hash #:compute-header-hash-from-plist
-   #:compute-header-hash-from-decoded
    #:header-parent-hash #:header-state-root #:header-extrinsic-hash
    #:header-slot #:header-epoch-mark #:header-tickets-mark
    #:header-author-index #:header-entropy-source #:header-offenders-mark
-   #:header-seal #:header-hash #:header-is-genesis-p
-   #:parent-function #:compute-parent-hash
-   #:+ancestor-retention-hours+ #:compute-ancestor-set #:is-ancestor-p
+   #:header-seal #:header-hash
    
    ;; ═══════════════════════════════════════════
    ;; Block — Extrinsic (GP §4.3)
@@ -121,7 +117,6 @@
    #:block-header #:block-extrinsic
    #:block-tickets #:block-disputes #:block-preimages
    #:block-assurances #:block-guarantees #:block-slot
-   #:compute-block-hash
    
    ;; ═══════════════════════════════════════════
    ;; Block — Validation (GP §5)
