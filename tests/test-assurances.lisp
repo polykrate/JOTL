@@ -162,7 +162,7 @@
          ;; ── Parse pre-state ──
          (pre-rho (make-rho :assignments
                    (assurance-json-assignments
-                    (or (cdr (assoc :avail--assignments pre-json))
+                           (or (cdr (assoc :avail--assignments pre-json))
                         (cdr (assoc :avail-assignments pre-json))))))
          (pre-validators (json-validators
                           (or (cdr (assoc :curr--validators pre-json))

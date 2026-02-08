@@ -36,14 +36,12 @@
    Otherwise: κ' = κ (unchanged).
 
    Args: header (closure), tau (prior timeslot),
-         kappa (list of V validators), gamma (γ closure or plist)
+         kappa (list of V validators), gamma (γ closure)
    Returns: κ'"
   (let ((tau-prime (funcall header :slot)))
     (if (new-epoch-p tau tau-prime)
         ;; Epoch change: adopt pending keys from γ
-        (let ((gamma-k (if (functionp gamma)
-                           (funcall gamma :kappa)
-                           (getf gamma :kappa))))
+        (let ((gamma-k (funcall gamma :kappa)))
           (or gamma-k kappa))
         ;; No change
         kappa)))

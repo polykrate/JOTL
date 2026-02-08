@@ -641,9 +641,7 @@
          ;; η'₂ for VRF input (ticket validation + fallback sequence)
          (eta-2-prime (nth 2 eta-prime))
          ;; Offenders from ψ'
-         (offenders (if (functionp psi-prime)
-                        (funcall psi-prime :offenders)
-                        (getf psi-prime :offenders))))
+         (offenders (getf psi-prime :offenders)))
     (if epoch-change
         ;; ══════════════════════════════════════════════════════════
         ;; EPOCH CHANGE (e' > e)

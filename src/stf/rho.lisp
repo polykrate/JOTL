@@ -103,23 +103,23 @@
          rho — rho closure
    Returns: ρ† rho closure (with invalidated cores set to nil)"
   (let ((assignments (funcall rho :assignments)))
-    (if (null v-list)
-        rho
-        ;; Threshold: ⌊2V/3⌋+1 — verdicts with t below this are bad/wonky
-        (let ((threshold (1+ (floor (* 2 (num-validators)) 3))))
-          ;; Collect targets with t < threshold (bad or wonky, not good)
-          (let ((invalidated-targets
-                  (loop for (target . pos-count) in v-list
-                        when (< pos-count threshold)
-                        collect target)))
-            (if (null invalidated-targets)
-                rho
+  (if (null v-list)
+      rho
+      ;; Threshold: ⌊2V/3⌋+1 — verdicts with t below this are bad/wonky
+      (let ((threshold (1+ (floor (* 2 (num-validators)) 3))))
+        ;; Collect targets with t < threshold (bad or wonky, not good)
+        (let ((invalidated-targets
+                (loop for (target . pos-count) in v-list
+                      when (< pos-count threshold)
+                      collect target)))
+          (if (null invalidated-targets)
+              rho
                 (make-rho :assignments
-                  (mapcar (lambda (assignment)
-                            (let ((h (assignment-report-hash assignment)))
-                              (if (and h (member-hash h invalidated-targets))
-                                  nil
-                                  assignment)))
+              (mapcar (lambda (assignment)
+                        (let ((h (assignment-report-hash assignment)))
+                          (if (and h (member-hash h invalidated-targets))
+                              nil
+                              assignment)))
                           assignments))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
@@ -309,43 +309,43 @@
      R* — available work-reports (11.16)
      error — assurance-error if validation failed (ρ‡=ρ†, R*=nil)"
   (let ((assignments (funcall rho-dagger :assignments)))
-    (handler-case
-        (progn
-          ;; ── Validate EA (11.10-11.15) ───────────────────────
-          ;; Per-assurance checks first (detect invalid data early),
-          ;; then ordering check (structural invariant).
-          (dolist (a assurances)
-            (validate-assurance-anchor a parent-hash)       ;; (11.11)
-            (validate-assurance-validator-index a))          ;; (11.10)
-          (validate-assurances-sorted-unique assurances)    ;; (11.12)
-          (dolist (a assurances)
+  (handler-case
+      (progn
+        ;; ── Validate EA (11.10-11.15) ───────────────────────
+        ;; Per-assurance checks first (detect invalid data early),
+        ;; then ordering check (structural invariant).
+        (dolist (a assurances)
+          (validate-assurance-anchor a parent-hash)       ;; (11.11)
+          (validate-assurance-validator-index a))          ;; (11.10)
+        (validate-assurances-sorted-unique assurances)    ;; (11.12)
+        (dolist (a assurances)
             (validate-assurance-cores-engaged a assignments)  ;; (11.15)
-            (validate-assurance-signature a kappa parent-hash)) ;; (11.13)
-          ;; ── (11.16) R: count votes, find available cores ────
-          (let* ((c (num-cores))
-                 (votes (count-core-votes assurances c))
-                 (threshold (super-majority))  ;; > ⅔V ≡ ≥ ⌊2V/3⌋+1
-                 ;; ── (11.17) Build ρ‡ and R* in one pass ─────
-                 (reported '())
-                 (new-assignments
-                   (loop for ci below c
+          (validate-assurance-signature a kappa parent-hash)) ;; (11.13)
+        ;; ── (11.16) R: count votes, find available cores ────
+        (let* ((c (num-cores))
+               (votes (count-core-votes assurances c))
+               (threshold (super-majority))  ;; > ⅔V ≡ ≥ ⌊2V/3⌋+1
+               ;; ── (11.17) Build ρ‡ and R* in one pass ─────
+               (reported '())
+               (new-assignments
+                 (loop for ci below c
                          for assignment in assignments
-                         collect
-                         (cond
-                           ;; No assignment → stays nil
-                           ((null assignment) nil)
-                           ;; (11.16) Supermajority → available → R* + clear
-                           ((>= (aref votes ci) threshold)
-                            (push (getf assignment :report) reported)
-                            nil)
-                           ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
-                           ((report-stale-p (getf assignment :timeout) tau-prime)
-                            nil)
-                           ;; Otherwise → keep
-                           (t assignment)))))
+                       collect
+                       (cond
+                         ;; No assignment → stays nil
+                         ((null assignment) nil)
+                         ;; (11.16) Supermajority → available → R* + clear
+                         ((>= (aref votes ci) threshold)
+                          (push (getf assignment :report) reported)
+                          nil)
+                         ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
+                         ((report-stale-p (getf assignment :timeout) tau-prime)
+                          nil)
+                         ;; Otherwise → keep
+                         (t assignment)))))
             (values (make-rho :assignments new-assignments) (nreverse reported))))
-      ;; ── Error path ─────────────────────────────────────────
-      (assurance-error (e)
+    ;; ── Error path ─────────────────────────────────────────
+    (assurance-error (e)
         (values rho-dagger nil e)))))
 
 (defun compute-ready-reports (assurances rho-dagger
