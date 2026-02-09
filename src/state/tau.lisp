@@ -1,82 +1,64 @@
-;;;; state/tau.lisp — Timeslot τ (Gray Paper §6.1-6.2)
+;;;; state/tau.lisp — τ Timeslot (GP §6.1-6.2)
 ;;;;
 ;;;; τ' ≡ HT                          (6.1)
 ;;;; let e' ℛ m' = τ'/E               (6.2)
 ;;;;
-;;;; The closure pre-computes epoch, phase, and rotation so that any
-;;;; STF can access them via (funcall tau :epoch), (funcall tau :phase), etc.
+;;;; GP (4.5): τ' < (H)
 ;;;;
-;;;; After transition-tau, the enriched closure also embeds τ' (prime):
-;;;;   (funcall tau :prime)               → τ' closure
-;;;;   (funcall (funcall tau :prime) :epoch)  → ⌊τ'/E⌋
+;;;; Messages:
+;;;;   :slot              → raw timeslot integer (semi-public for ρ timeout storage)
+;;;;   :epoch             → ⌊slot/E⌋                         (6.2)
+;;;;   :phase             → slot mod E                       (6.2)
+;;;;   :rotation          → ⌊slot/R⌋                         (11.3)
+;;;;   :min-allowed-slot  → R·max(0, ⌊slot/R⌋ − 1)          (11.26)
+;;;;   :encoded           → E4(slot)
+;;;;   :stale? timeout    → slot ≥ timeout + U               (11.17)
+;;;;   :slot>= other      → slot ≥ other
+;;;;   :lookup-fresh? s   → slot − s ≤ L                     (11.26)
+;;;;   :epoch-changed? τ' → ⌊slot/E⌋ ≠ ⌊slot'/E⌋
+;;;;   :transition :header h → τ' closure                    (4.5)
+;;;;   :decode bytes off  → (values τ-closure consumed)
 
 (in-package #:jotl)
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; VALUE OBJECT — τ closure
-;;; ═════════════════════════════════════════════════════════════════
-;;;
-;;; Fields:
-;;;   :value    — raw timeslot integer (persisted in σ)
-;;;   :prime    — nil | tau-state closure for τ' (ephemeral, set by transition-tau)
-;;;
-;;; Memoized:
-;;;   :epoch    — ⌊value/E⌋
-;;;   :phase    — value mod E
-;;;   :rotation — ⌊value/R⌋
-
-(define-value-object tau-state
-  ((value 0) (prime nil))
+(define-state-closure tau-state
+  ((slot 0))
   (:state-key +C11+)
-  ;; Only :value is persisted in σ (4 bytes LE).  :prime is ephemeral.
-  (:encoded :memo (E4 value))
-  ;; GP §6.2 — e ℛ m = τ/E
-  (:epoch    :memo (floor value (epoch-duration)))
-  (:phase    :memo (mod value (epoch-duration)))
-  ;; GP §11.3 — rotation index
-  (:rotation :memo (floor value (rotation-period))))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; EPOCH BOUNDARY
-;;; ═════════════════════════════════════════════════════════════════
+  ;; ── Codec ────────────────────────────────────────────────────
+  (:encoded :memo (E4 slot))
+  (:decode (bytes offset)
+    (multiple-value-bind (val consumed) (decode-u32 bytes offset)
+      (values (make-tau-state :slot val) consumed)))
 
-(defun new-epoch-p (tau)
-  "T if τ→τ' crosses an epoch boundary.
-   tau is an enriched tau-state closure with :prime."
-  (let ((tp (funcall tau :prime)))
-    (and tp (/= (funcall tau :epoch) (funcall tp :epoch)))))
+  ;; ── GP §6.2 — Derived time ──────────────────────────────────
+  (:epoch    :memo (floor slot (epoch-duration)))
+  (:phase    :memo (mod slot (epoch-duration)))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; STATE CODEC — C(11) ↦ E4(τ)
-;;; ═════════════════════════════════════════════════════════════════
+  ;; ── GP §11.3 — Rotation ─────────────────────────────────────
+  (:rotation :memo (floor slot (rotation-period)))
 
-(defun encode-state-tau (tau)
-  "C(11) ↦ E4(τ) — uses tau closure's memoized encoding."
-  (funcall tau :encoded))
+  ;; ── GP §11.26 — Min allowed slot for guarantees ─────────────
+  (:min-allowed-slot :memo
+    (* (rotation-period) (max 0 (1- (floor slot (rotation-period))))))
 
-(defun decode-state-tau (bytes &optional (offset 0))
-  "Decode τ from 4 bytes LE. Returns: (values tau-closure 4)"
-  (multiple-value-bind (val consumed)
-      (decode-u32 bytes offset)
-    (values (make-tau-state :value val) consumed)))
+  ;; ── Semantic queries ─────────────────────────────────────────
+  (:stale? (timeout)
+    (>= slot (+ timeout +availability-timeout+)))
 
-;;; ═════════════════════════════════════════════════════════════════
-;;; τ STF (GP §5.7 + §6.1-6.2)
-;;; ═════════════════════════════════════════════════════════════════
+  (:slot>= (other-slot)
+    (>= slot other-slot))
 
-(defun transition-tau (tau header)
-  "τ STF: τ (closure) → enriched τ (closure with :prime)
-   
-   GP §5.7: τ' > τ
-   GP §6.1: τ' ≡ HT
-   
-   Returns an enriched tau-state closure:
-     (funcall result :value)  → τ  (prior)
-     (funcall result :prime)  → τ' closure (posterior)
-     (funcall (funcall result :prime) :epoch) → ⌊τ'/E⌋
-   This single enriched object is passed to every sub-STF."
-  (let ((tau-prime-val (funcall header :slot)))
-    (assert (> tau-prime-val (funcall tau :value)) ()
-            "GP §5.7: τ'=~D must be > τ=~D" tau-prime-val (funcall tau :value))
-    (make-tau-state :value (funcall tau :value)
-                    :prime (make-tau-state :value tau-prime-val))))
+  (:lookup-fresh? (anchor-slot)
+    (<= (- slot anchor-slot) +max-lookup-anchor-age+))
+
+  (:epoch-changed? (tau-prime)
+    (/= (floor slot (epoch-duration))
+        (funcall tau-prime :epoch)))
+
+  ;; ── Transition: τ' < (H) ────────────────────────────────────
+  (:transition (&key header)
+    (let ((tau-prime-slot (funcall header :slot)))
+      (assert (> tau-prime-slot slot) ()
+              "GP §5.7: τ'=~D must be > τ=~D" tau-prime-slot slot)
+      (make-tau-state :slot tau-prime-slot))))

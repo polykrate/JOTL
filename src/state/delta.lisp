@@ -1,14 +1,12 @@
-;;;; stf/delta.lisp — Services δ (GP §7)
+;;;; state/delta.lisp — δ Service Accounts (GP §9.1)
 ;;;;
-;;;; δ — service accounts (code + state + balance).
-;;;; Preimage folding: §4.18.
+;;;; δ[s] = service account for service index s
+;;;;
+;;;; GP (4.18): δ' < (EP, δ†, τ')
+;;;; δ† is the post-accumulation intermediate (4.16)
+;;;;
+;;;; TODO: implement with define-state-closure
 
 (in-package #:jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; TRANSITION — δ' (GP §4.18)
-;;; ═══════════════════════════════════════════════════════════════
-
-(defun transition-delta (preimages delta-ddagger tau-prime)
-  "GP §4.18 — Services: fold preimages. STUB: §7"
-  (declare (ignore preimages tau-prime)) delta-ddagger)
+;;; PLACEHOLDER — will be implemented as state closure

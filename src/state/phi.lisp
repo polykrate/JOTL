@@ -1,19 +1,11 @@
-;;;; state/phi.lisp — Authorization Queue ϕ (GP §13.3)
+;;;; state/phi.lisp — ϕ Authorization Queue (GP §8.1, §13.3)
 ;;;;
-;;;; ϕ ∈ ⟦⟦H⟧A⟧C — C lists of A authorizer hashes.
-;;;; Same structure as α. ϕ feeds α.
+;;;; ϕ = authorization queue per core
+;;;;
+;;;; Transitions via accumulate (4.16)
+;;;;
+;;;; TODO: implement with define-state-closure
 
 (in-package #:jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; ϕ — Authorization Queue Closure
-;;; ═══════════════════════════════════════════════════════════════
-
-(define-value-object phi
-  ((pools nil))
-  (:state-key +C2+)
-  (:encoded :memo (encode-auth-pools pools)))
-
-(defun encode-state-phi (phi)
-  "C(2) ↦ E(ϕ) — uses phi closure's memoized encoding."
-  (funcall phi :encoded))
+;;; PLACEHOLDER — will be implemented as state closure

@@ -1,57 +1,32 @@
-;;;; stf/kappa.lisp — κ (Current Validator Keys)
-;;;; Gray Paper §6.15
+;;;; state/kappa.lisp — κ Current Validator Keys (GP §6.15)
 ;;;;
-;;;; κ ∈ K^V — Array of V full validator keys.
-;;;; K = (ke, kb, kbl, km) = ed25519(32) + bandersnatch(32) + bls(144) + metadata(128)
+;;;; κ ∈ K^V — Array of V full validator keys
+;;;; K = (ke, kb, kbl, km)
 ;;;;
-;;;; State key: C(8)
-;;;; Transition: κ' = γk if epoch change, else κ  (§6.15)
+;;;; GP (4.9): κ' < (H, τ, κ, γ)
+;;;;
+;;;; Messages:
+;;;;   :validators            → list of validator key plists
+;;;;   :encoded               → encoded validator sequence
+;;;;   :transition :tau τ :tau-prime τ' :gamma γ → κ' closure
 
 (in-package #:jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; VALUE OBJECT — κ closure
-;;; ═══════════════════════════════════════════════════════════════
-
-(define-value-object kappa
+(define-state-closure kappa-state
   ((validators nil))
   (:state-key +C8+)
-  (:encoded :memo (encode-full-validator-sequence validators)))
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; STATE CODEC — C(8) ↦ E(κ)
-;;; ═══════════════════════════════════════════════════════════════
+  (:encoded :memo (encode-full-validator-sequence validators))
 
-(defun encode-state-kappa (kappa)
-  "C(8) ↦ E(κ) — uses kappa closure's memoized encoding."
-  (funcall kappa :encoded))
+  (:decode (bytes offset)
+    (multiple-value-bind (vals consumed)
+        (decode-full-validator-sequence bytes offset)
+      (values (make-kappa-state :validators vals) consumed)))
 
-(defun decode-state-kappa (bytes &optional (offset 0))
-  "Decode κ from state binary.
-   Returns: (values kappa-closure bytes-consumed)"
-  (multiple-value-bind (validators consumed)
-      (decode-full-validator-sequence bytes offset)
-    (values (make-kappa :validators validators) consumed)))
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; κ TRANSITION — GP §6.15
-;;; ═══════════════════════════════════════════════════════════════
-;;;
-;;; κ' ≡ γk    if e' > e     (epoch change: adopt pending keys)
-;;;      κ     otherwise     (no change)
-
-(defun transition-kappa (tau kappa gamma)
-  "GP §6.15 — Validator key rotation at epoch boundary.
-
-   At epoch change: κ' = γk (pending keys become current).
-   Otherwise: κ' = κ (unchanged).
-
-   Args: tau (enriched τ closure with :prime),
-         kappa (κ closure), gamma (γ closure)
-   Returns: κ' closure"
-  (if (new-epoch-p tau)
-        ;; Epoch change: adopt pending keys from γ
+  ;; GP §6.15: κ' = γk if epoch change, else κ
+  (:transition (&key tau tau-prime gamma)
+    (if (funcall tau :epoch-changed? tau-prime)
         (let ((gamma-k (funcall gamma :kappa)))
-          (make-kappa :validators (or gamma-k (funcall kappa :validators))))
-        ;; No change
-      kappa))
+          (make-kappa-state :validators (or gamma-k validators)))
+        (self :type)  ;; return self (no change) — FIXME: need :self message
+        )))

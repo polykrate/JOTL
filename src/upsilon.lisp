@@ -4,13 +4,32 @@
 ;;;; TOP-LEVEL STF ORCHESTRATOR — composes all state transitions.
 ;;;; Pure function: (sigma, block) → sigma'.
 ;;;;
-;;;; Call hierarchy:
-;;;;   import-block(bytes, env)  ← node layer (future, impure)
-;;;;     ├─ decode-block(bytes)  ← codec
-;;;;     ├─ validate env checks  ← wall-clock, parent hash
-;;;;     └─ apply-block(σ, B)   ← THIS FILE = Υ (pure)
-;;;;          ├─ validate-block(B)     HX check (intrinsic)
-;;;;          └─ transition-state(σ,B) sub-STFs in wave order
+;;;; Dependency graph from GP §4.2.1:
+;;;;
+;;;;   Wave 0: τ' < (H)
+;;;;
+;;;;   Wave 1 (independent — parallelizable):
+;;;;     β†H < (H, βH)
+;;;;     η'  < (H, τ, η)
+;;;;     κ'  < (H, τ, κ, γ)
+;;;;     λ'  < (H, τ, λ, κ)
+;;;;     ψ'  < (ED, ψ)
+;;;;     ρ†  < (ED, ρ)
+;;;;
+;;;;   Wave 2 (depends on Wave 1):
+;;;;     γ'  < (H, T, ET, γ, ι, η', κ', ψ')
+;;;;     ρ‡  < (EA, ρ†)
+;;;;     R*  < (EA, ρ†)
+;;;;
+;;;;   Wave 3 (depends on Wave 2 — parallelizable):
+;;;;     ρ'  < (EG, ρ‡, κ, τ')
+;;;;     (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
+;;;;
+;;;;   Wave 4 (merge — depends on Wave 3):
+;;;;     β'H < (H, EC, β†H, θ')
+;;;;     δ'  < (EP, δ†, τ')
+;;;;     α'  < (H, EC, ϕ', α)
+;;;;     π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
 
 (in-package #:jotl)
 
@@ -20,189 +39,171 @@
 
 (defun apply-block (sigma block)
   "Υ(σ, B) → σ' — Block-level state transition.
-   
    Pure function: σ and B in, σ' out.
-   Environmental checks (wall-clock, parent hash) belong
-   to import-block (node layer), not here.
-   
-   1. Intrinsic validation (HX)
-   2. Pure state transition
-   
-   Args: sigma (closure), block (closure)"
-  (multiple-value-bind (valid-p errors)
-      (validate-block block)
-    (unless valid-p
-      (error "Υ: block invalid — ~{~A~^, ~}"
-             (mapcar (lambda (e) (format nil "~A: ~A" (first e) (second e)))
-                     errors))))
-  (let ((sigma-prime (transition-state sigma block)))
-    ;; ── HR: state root must match Merkle root of σ' ──
-    (when (funcall (funcall block :header) :state-root)
-      (validate-state-root (funcall block :header) sigma-prime))
-    sigma-prime))
+   Environmental checks (wall-clock, parent hash) belong to import-block."
+  ;; TODO: (validate-block block) — HX check
+  (transition-state sigma block))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; transition-state — σ → σ' (GP §4.2.1)
 ;;; ═════════════════════════════════════════════════════════════════
-;;;
-;;; Pure composition of sub-STFs in dependency-graph order.
-;;; All closures — no (if (functionp ...) ...) dispatch.
 
 (defun transition-state (sigma block)
-  "Υ-inner: σ → σ' — Pure state transition.
-   
-   GP §4.2.1 dependency graph (4 waves).
-   Block is a closure from decode-block or make-block."
-  (let* ((h (funcall block :header))
-         (e (funcall block :extrinsic))
-         ;; Extrinsic sub-components (from closures)
-         (e-t (funcall e :tickets))
-         (e-d (funcall e :disputes))
-         (e-p (funcall e :preimages))
-         (e-a (funcall e :assurances))
-         (e-g (funcall e :guarantees))
-         ;; Prior state segments — τ is a closure with :value, :epoch, :phase, :rotation
+  "Υ-inner: σ → σ' — Pure state transition following GP dependency graph."
+  (let* (;; ── Destructure block B = (H, E) ──
+         (h  (funcall block :header))
+         (e  (funcall block :extrinsic))
+         (e-t (funcall e :tickets))        ;; ET
+         (e-d (funcall e :disputes))       ;; ED
+         (e-p (funcall e :preimages))      ;; EP
+         (e-a (funcall e :assurances))     ;; EA
+         (e-g (funcall e :guarantees))     ;; EG
+
+         ;; ── Prior state components (closures) ──
          (tau          (or (funcall sigma :tau) (make-tau-state)))
-         (eta          (or (funcall sigma :eta) (make-eta)))
-         (kappa        (or (funcall sigma :kappa) (make-kappa)))
-         (lambda-prev  (or (funcall sigma :lambda) (make-lambda-state)))
-         (gamma-prev   (funcall sigma :gamma))
-         (rho          (or (funcall sigma :rho) (make-rho)))
-         (psi          (or (funcall sigma :psi)
-                           (make-psi)))
+         (eta          (funcall sigma :eta))
+         (kappa        (funcall sigma :kappa))
+         (lambda-prev  (funcall sigma :lambda))
+         (gamma        (funcall sigma :gamma))
+         (rho          (funcall sigma :rho))
+         (psi          (funcall sigma :psi))
          (beta         (funcall sigma :beta))
-         (alpha-prev   (funcall sigma :alpha))
+         (alpha        (funcall sigma :alpha))
          (delta        (funcall sigma :delta))
-         ;; θ not extracted: it's only an OUTPUT of (4.16), never an input
-         (iota         (or (funcall sigma :iota) (make-iota)))
+         (iota         (funcall sigma :iota))
          (phi          (funcall sigma :phi))
          (chi          (funcall sigma :chi))
          (pi-prev      (funcall sigma :pi))
          (omega        (funcall sigma :omega))
          (xi           (funcall sigma :xi)))
+
     ;; ═══════════════════════════════════════════════════════════
-    ;; WAVE 1 — depends only on prior σ and block B
-    ;; (4.5)  τ'  < (H, τ)
-    ;; (4.6)  β†  < (H, βH)
-    ;; (4.8)  η'  < (H, τ, η)
-    ;; (4.9)  κ'  < (H, τ, κ, γ)
-    ;; (4.10) λ'  < (H, τ, λ, κ)
-    ;; (4.11) ψ'  < (ED, ψ)     [+τ,κ,λ for §10.3]
-    ;; (4.12) ρ†  < (ED, ρ)     [via v-list from (10.12)]
+    ;; WAVE 0 — τ' < (H)
     ;; ═══════════════════════════════════════════════════════════
-    ;; transition-tau returns enriched tau: :value=τ, :prime=τ' closure
-    ;; Shadow `tau` — all sub-STFs receive this single enriched object.
-    (let* ((tau          (transition-tau tau h))
-          (eta-prime    (transition-eta h tau eta))
-          (beta-dagger  (transition-beta-dagger h beta))
-           (kappa-prime  (transition-kappa tau kappa gamma-prev))
-           (lambda-prime (transition-lambda tau lambda-prev kappa)))
-      ;; ψ' returns (values ψ' v-list) per (10.12)
-      (multiple-value-bind (psi-prime v-list)
-          (transition-psi e-d psi tau kappa lambda-prev)
-        ;; ρ† uses v-list to invalidate bad/wonky assignments (10.15)
-        (let* ((rho-dagger (transition-rho-dagger v-list rho))
-               ;; ═══════════════════════════════════════════════
-               ;; WAVE 2 — depends on Wave 1 results
-               ;; (4.7)  γ'  < (H, τ, ET, γ, ι, η', κ', ψ')
-               ;; (4.13) ρ‡  < (EA, ρ†)
-               ;; (4.15) R*  < (EA, ρ†)
-               ;; ═══════════════════════════════════════════════
-               (gamma-prime (transition-gamma h tau e-t gamma-prev
-                                             iota eta-prime kappa-prime psi-prime)))
-          ;; ── Header safrole checks: HI, HS, HV, HE, HW ──
-          (when (funcall h :seal)
-            (validate-header-safrole h tau gamma-prev eta eta-prime
-                                     gamma-prime kappa-prime))
-          ;; ρ‡ returns (values ρ‡ R* [error]) per §11
-          (multiple-value-bind (rho-ddagger r-star)
+    (let* ((tau-prime (funcall tau :transition :header h))
+
+           ;; ═══════════════════════════════════════════════════════
+           ;; WAVE 1 — independent, all depend on prior σ + B only
+           ;; ═══════════════════════════════════════════════════════
+           ;; (4.6)  β†H < (H, βH)
+           (beta-dagger  (transition-beta-dagger h beta))
+           ;; (4.8)  η'  < (H, τ, η)
+           (eta-prime    (funcall eta :transition
+                                  :header h :tau tau :tau-prime tau-prime))
+           ;; (4.9)  κ'  < (H, τ, κ, γ)
+           (kappa-prime  (funcall kappa :transition
+                                  :tau tau :tau-prime tau-prime :gamma gamma))
+           ;; (4.10) λ'  < (H, τ, λ, κ)
+           (lambda-prime (funcall lambda-prev :transition
+                                  :tau tau :tau-prime tau-prime :kappa kappa))
+           ;; (4.11) ψ'  < (ED, ψ)  [+τ,κ,λ for §10.3 signing]
+           (psi-prime    (transition-psi e-d psi tau kappa lambda-prev))
+           ;; (4.12) ρ†  < (ED, ρ)  [via v-list from ψ (10.12)]
+           (rho-dagger   (transition-rho-dagger psi-prime rho)))
+
+      ;; ═══════════════════════════════════════════════════════════
+      ;; WAVE 2 — depends on Wave 1 results
+      ;; ═══════════════════════════════════════════════════════════
+      ;; (4.7)  γ'  < (H, T, ET, γ, ι, η', κ', ψ')
+      (let* ((gamma-prime (transition-gamma h tau tau-prime e-t gamma
+                                            iota eta-prime kappa-prime psi-prime))
+
+             ;; (4.13) ρ‡  < (EA, ρ†)
+             ;; (4.15) R*  < (EA, ρ†)
+             ;; Both computed together
+             (rho-ddagger+r-star
               (transition-rho-ddagger e-a rho-dagger
-                                      :tau-prime (funcall tau :prime)
+                                      :tau-prime tau-prime
                                       :parent-hash (funcall h :parent-hash)
-                                      :kappa kappa)
-            (let* (;; ═══════════════════════════════════════════════
-                   ;; WAVE 3 — depends on Wave 2 results (parallel)
-                   ;; (4.14) ρ'  ≺ (EG, ρ‡, κ, τ')
-                   ;; (4.16) accumulate ≺ (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
-                   ;; ═══════════════════════════════════════════════
-                   (rho-prime (transition-rho e-g rho-ddagger
-                                :tau-prime (funcall tau :prime)
-                                :kappa kappa
-                                :lambda-prev lambda-prev
-                                :eta eta-prime
-                                :offenders (when psi-prime
-                                             (funcall psi-prime :offenders))
-                                :recent-blocks beta
-                                :auth-pools alpha-prev
-                                :accounts delta)))
-          (multiple-value-bind (omega-prime xi-prime delta-ddagger
-                                chi-prime iota-prime phi-prime
-                                theta-prime s-reports)
-              (transition-accumulate r-star omega xi delta chi
-                                    iota phi tau (funcall tau :prime))
-            ;; ═══════════════════════════════════════════════
-            ;; WAVE 4 — merge / join (depends on Wave 3)
-            ;; (4.17) β'  < (H, EG, β†, θ')
-            ;; (4.18) δ'  < (EP, δ‡, τ')
-            ;; (4.19) α'  < (H, EG, ϕ', α)
-            ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
-            ;; ═══════════════════════════════════════════════
-            (let* ((beta-prime  (transition-beta h e-g beta-dagger theta-prime))
-                   (delta-prime (transition-delta e-p delta-ddagger (funcall tau :prime)))
-                   (alpha-prime (transition-alpha h e-g phi-prime alpha-prev))
-                   (pi-prime    (transition-pi e-g e-p e-a e-t tau
-                                               kappa-prime pi-prev h s-reports)))
-              ;; ── Header post-transition checks: HO ──
-              (validate-header-post-transition h e-d)
-              ;; BUILD σ'
-              (make-state
-               :alpha   alpha-prime
-               :beta    beta-prime
-               :theta   theta-prime
-               :gamma   gamma-prime
-               :delta   delta-prime
-               :eta     eta-prime
-               :iota    iota-prime
-               :kappa   kappa-prime
-               :lambda* lambda-prime
-               :rho     rho-prime
-               :tau     (funcall tau :prime)
-               :phi     phi-prime
-               :chi     chi-prime
-               :psi     psi-prime
-               :pi*     pi-prime
-               :omega   omega-prime
-               :xi      xi-prime))))))))))
+                                      :kappa kappa)))
+
+        (declare (ignore rho-ddagger+r-star))  ;; FIXME: destructure properly
+
+        ;; ═══════════════════════════════════════════════════════════
+        ;; WAVE 3 — depends on Wave 2 (parallelizable)
+        ;; ═══════════════════════════════════════════════════════════
+        ;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
+        ;; (4.16) (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
+
+        ;; ═══════════════════════════════════════════════════════════
+        ;; WAVE 4 — merge / join
+        ;; ═══════════════════════════════════════════════════════════
+        ;; (4.17) β'H < (H, EC, β†H, θ')
+        ;; (4.18) δ'  < (EP, δ†, τ')
+        ;; (4.19) α'  < (H, EC, ϕ', α)
+        ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
+
+        ;; ── BUILD σ' ──
+        ;; TODO: wire all waves properly as state closures get implemented
+        (make-state
+         :alpha   alpha           ;; TODO: (4.19)
+         :beta    beta-dagger     ;; TODO: (4.17) needs θ'
+         :gamma   gamma-prime     ;; ✓ (4.7)
+         :delta   delta           ;; TODO: (4.18)
+         :eta     eta-prime       ;; ✓ (4.8)
+         :iota    iota            ;; TODO: (4.16) accumulate
+         :kappa   kappa-prime     ;; ✓ (4.9)
+         :lambda* lambda-prime    ;; ✓ (4.10)
+         :rho     rho             ;; TODO: (4.14) ρ' once ρ‡ works
+         :tau     tau-prime       ;; ✓ (4.5)
+         :phi     phi             ;; TODO: (4.16) accumulate
+         :chi     chi             ;; TODO: (4.16) accumulate
+         :psi     psi-prime       ;; ✓ (4.11)
+         :pi*     pi-prev         ;; TODO: (4.20)
+         :omega   omega           ;; TODO: (4.16) accumulate
+         :xi      xi              ;; TODO: (4.16) accumulate
+         :theta   nil)))))        ;; TODO: (4.16) accumulate
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; SUB-ORCHESTRATOR — transition-accumulate (GP §4.16)
+;;; PLACEHOLDERS — Sub-STFs not yet ported to state closures
 ;;; ═════════════════════════════════════════════════════════════════
-;;; Produces ω', ξ', δ‡, χ', ι', ϕ', θ', S from R* and prior state.
-;;; This is a sub-orchestrator (like Υ itself), not a state component.
+;;; These will be removed as each state component gets its :transition.
 
-(defun transition-accumulate (r-star omega xi delta chi iota phi tau tau-prime)
-  "GP §4.16 — Accumulation. STUB: §8 + PVM
-   Returns: (values ω' ξ' δ‡ χ' ι' ϕ' θ' S)"
-  (declare (ignore r-star tau tau-prime))
-  (values omega xi delta chi iota phi nil nil))
+(defun transition-beta-dagger (h beta)
+  "GP §7.5 — (4.6) β†H < (H, βH). STUB."
+  (declare (ignore h))
+  beta)
+
+(defun transition-psi (disputes psi tau kappa lambda-prev)
+  "GP §10 — (4.11) ψ' < (ED, ψ). STUB.
+   Returns: (values ψ' v-list)"
+  (declare (ignore disputes tau kappa lambda-prev))
+  (values psi nil))
+
+(defun transition-rho-dagger (psi-prime rho)
+  "GP §10.15 — (4.12) ρ† < (ED, ρ). STUB."
+  (declare (ignore psi-prime))
+  rho)
+
+(defun transition-gamma (h tau tau-prime tickets gamma iota eta-prime kappa-prime psi-prime)
+  "GP §6 — (4.7) γ' < (H, T, ET, γ, ι, η', κ', ψ'). STUB."
+  (declare (ignore h tau tau-prime tickets iota eta-prime kappa-prime psi-prime))
+  gamma)
+
+(defun transition-rho-ddagger (assurances rho-dagger &key tau-prime parent-hash kappa)
+  "GP §11 — (4.13) ρ‡ < (EA, ρ†), (4.15) R* < (EA, ρ†). STUB.
+   Returns: (values ρ‡ R*)"
+  (declare (ignore assurances tau-prime parent-hash kappa))
+  (values rho-dagger nil))
 
 ;;; ═════════════════════════════════════════════════════════════════
-;;; SUB-STF LOCATIONS — one file per state component
+;;; IMPLEMENTATION STATUS
 ;;; ═════════════════════════════════════════════════════════════════
-;;; Implemented (tested):
-;;;   transition-tau          → state/tau.lisp        (§6.1-6.2)  ✓ 42/42
-;;;   transition-eta          → state/eta.lisp        (§6.21-6.23)✓ 42/42
-;;;   transition-beta-dagger  → state/beta.lisp       (§7.5)      ✓  8/8
-;;;   transition-psi          → state/psi.lisp        (§10)       ✓ 56/56
-;;;   transition-rho-dagger   → state/rho.lisp        (§10.15)    ✓ (via ψ)
-;;;   transition-kappa        → state/kappa.lisp      (§6.15)     ✓ (via γ)
-;;;   transition-lambda       → state/lambda.lisp     (§6.16)     ✓ (via γ)
-;;;   transition-gamma        → state/gamma.lisp      (§6)        ✓ 42/42
-;;;   transition-rho-ddagger  → state/rho.lisp        (§11)       ✓ 20/20
-;;;   transition-rho          → state/rho.lisp        (§11-12)    ✓ 84/84
 ;;;
-;;; Stubs:
-;;;   transition-delta        → state/delta.lisp      (§7)        vectors: 16
-;;;   transition-alpha        → state/alpha.lisp      (§13)       vectors:  6
-;;;   transition-pi           → state/pi.lisp         (§15)       vectors:  6
-;;;   transition-beta (final) → state/beta.lisp       (§7.7-7.8)
+;;; ✓ τ  — state/tau.lisp     (define-state-closure, :transition)
+;;; ◐ η  — state/eta.lisp     (define-state-closure, :transition — needs testing)
+;;; ◐ κ  — state/kappa.lisp   (define-state-closure, :transition — needs :self fix)
+;;; ◐ λ  — state/lambda.lisp  (define-state-closure, :transition — needs :self fix)
+;;; ○ β  — state/beta.lisp    (placeholder)
+;;; ○ ψ  — state/psi.lisp     (placeholder)
+;;; ○ ρ  — state/rho.lisp     (placeholder)
+;;; ○ γ  — state/gamma.lisp   (placeholder)
+;;; ○ ι  — state/iota.lisp    (placeholder)
+;;; ○ α  — state/alpha.lisp   (placeholder)
+;;; ○ ϕ  — state/phi.lisp     (placeholder)
+;;; ○ δ  — state/delta.lisp   (placeholder)
+;;; ○ π  — state/pi.lisp      (placeholder)
+;;; ○ χ  — state/chi.lisp     (placeholder)
+;;; ○ ω  — state/omega.lisp   (placeholder)
+;;; ○ ξ  — state/xi.lisp      (placeholder)
+;;; ○ θ  — state/theta.lisp   (placeholder)

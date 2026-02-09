@@ -1,38 +1,11 @@
-;;;; stf/iota.lisp — ι (Enqueued Validator Keys)
-;;;; Gray Paper §8
+;;;; state/iota.lisp — ι Enqueued Validator Keys (GP §6.7)
 ;;;;
-;;;; ι ∈ K^V — Array of V full validator keys (queued for next epoch).
-;;;; K = (ke, kb, kbl, km) = ed25519(32) + bandersnatch(32) + bls(144) + metadata(128)
+;;;; ι ∈ K^V — Validator keys to be drawn from next epoch
 ;;;;
-;;;; State key: C(7)
-;;;; Transition: ι' comes from accumulate (§8, eq 4.16), NOT safrole.
-;;;;             γ' reads ι but does not modify it.
+;;;; Transitions via accumulate (4.16)
+;;;;
+;;;; TODO: implement with define-state-closure
 
 (in-package #:jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; VALUE OBJECT — ι closure
-;;; ═══════════════════════════════════════════════════════════════
-
-(define-value-object iota
-  ((validators nil))
-  (:state-key +C7+)
-  (:encoded :memo (encode-full-validator-sequence validators)))
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; STATE CODEC — C(7) ↦ E(ι)
-;;; ═══════════════════════════════════════════════════════════════
-
-(defun encode-state-iota (iota)
-  "C(7) ↦ E(ι) — uses iota closure's memoized encoding."
-  (funcall iota :encoded))
-
-(defun decode-state-iota (bytes &optional (offset 0))
-  "Decode ι from state binary.
-   Returns: (values iota-closure bytes-consumed)"
-  (multiple-value-bind (validators consumed)
-      (decode-full-validator-sequence bytes offset)
-    (values (make-iota :validators validators) consumed)))
-
-;;; ι transition is in transition-accumulate (stf/upsilon.lisp → future stf/accumulate.lisp)
-;;; No transition-iota function needed here.
+;;; PLACEHOLDER — will be implemented as state closure
