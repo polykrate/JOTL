@@ -329,7 +329,8 @@
    Returns: (values post-state-plist epoch-mark tickets-mark)
    Signals safrole-error or assertion error on invalid blocks."
   (let* (;; ── Pre-state segments ──
-         (tau        (getf pre-state :tau))
+         (tau-raw    (getf pre-state :tau))
+         (tau        (make-tau-state :value tau-raw))  ;; closure
          (eta        (getf pre-state :eta))
          (kappa-keys (getf pre-state :kappa))
          (lambda-keys (getf pre-state :lambda))
@@ -354,11 +355,11 @@
          (tickets       (getf input :tickets))
          ;; Build header
          (header        (make-safrole-test-header slot entropy))
-         ;; ── Wave 1: τ', η', κ', λ' ──
-         (tau-prime     (transition-tau tau header))
+         ;; ── Wave 1: τ enriched (shadow), η', κ', λ' ──
+         (tau           (transition-tau tau header))           ;; enriched: :value=τ, :prime=τ'
          (eta-prime     (transition-eta header tau eta))
-         (kappa-prime   (transition-kappa header tau kappa-cl gamma))
-         (lambda-prime  (transition-lambda header tau lambda-cl kappa-cl))
+         (kappa-prime   (transition-kappa tau kappa-cl gamma))
+         (lambda-prime  (transition-lambda tau lambda-cl kappa-cl))
          ;; psi-prime as closure (offenders provided by test vector)
          (psi-prime     (make-psi :offenders offenders))
          ;; ── Wave 2: γ' ≺ (H, τ, ET, γ, ι, η', κ', ψ') ──
@@ -366,11 +367,11 @@
                                           iota-cl eta-prime kappa-prime psi-prime))
          ;; ── Output markers ──
          (gamma-p-prime (funcall gamma-prime :pending-keys))
-         (epoch-mark    (compute-epoch-mark tau tau-prime eta gamma-p-prime))
-         (tickets-mark  (compute-winning-tickets-mark tau tau-prime gamma-a)))
+         (epoch-mark    (compute-epoch-mark tau eta gamma-p-prime))
+         (tickets-mark  (compute-winning-tickets-mark tau gamma-a)))
     (values
-     ;; Post-state plist — extract raw lists for comparison
-     (list :tau             tau-prime
+     ;; Post-state plist — extract raw values for comparison
+     (list :tau             (funcall (funcall tau :prime) :value)
            :eta             eta-prime
            :lambda          (funcall lambda-prime :validators)
            :kappa           (funcall kappa-prime :validators)

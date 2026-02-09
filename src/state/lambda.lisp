@@ -42,18 +42,17 @@
 ;;; λ' ≡ κ     if e' > e     (epoch change: archive current keys)
 ;;;      λ     otherwise     (no change)
 
-(defun transition-lambda (header tau lambda-prev kappa)
+(defun transition-lambda (tau lambda-prev kappa)
   "GP §6.16 — Archive current validator keys at epoch boundary.
 
    At epoch change: λ' = κ (current keys become archived).
    Otherwise: λ' = λ (unchanged).
 
-   Args: header (closure), tau (prior timeslot),
+   Args: tau (enriched τ closure with :prime),
          lambda-prev (λ closure), kappa (κ closure)
    Returns: λ' closure"
-  (let ((tau-prime (funcall header :slot)))
-    (if (new-epoch-p tau tau-prime)
-        ;; Epoch change: archive current validators
-        (make-lambda-state :validators (funcall kappa :validators))
-        ;; No change
-        lambda-prev)))
+  (if (new-epoch-p tau)
+      ;; Epoch change: archive current validators
+      (make-lambda-state :validators (funcall kappa :validators))
+      ;; No change
+      lambda-prev))

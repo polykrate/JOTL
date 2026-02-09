@@ -55,12 +55,11 @@
   "GP §6.21-6.23 — Entropy accumulator transition.
    
    η  = eta closure
-   τ  = prior timeslot (number)
-   header = closure with :slot (τ') and :entropy-source (Y(HV))
+   τ  = enriched tau closure (:value τ, :prime τ' closure)
+   header = closure with :entropy-source (Y(HV))
    
    Returns: η' = eta closure"
-  (let* ((tau-prime       (funcall header :slot))
-         (entropy-source  (funcall header :entropy-source))  ;; Y(HV)
+  (let* ((entropy-source  (funcall header :entropy-source))  ;; Y(HV)
          ;; Destructure η
          (eta-0 (funcall eta :eta-0))
          (eta-1 (funcall eta :eta-1))
@@ -71,7 +70,7 @@
                        (concatenate '(vector (unsigned-byte 8))
                                     eta-0 entropy-source)))
          ;; GP §6.2: epoch indices
-         (epoch-change-p (new-epoch-p tau tau-prime)))
+         (epoch-change-p (new-epoch-p tau)))
     ;; GP §6.23: rotation on epoch boundary
     (if epoch-change-p
         ;; Rotate: η'₁=η₀(old), η'₂=η₁, η'₃=η₂

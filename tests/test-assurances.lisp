@@ -157,7 +157,7 @@
          ;; ── Parse input ──
          (assurances (assurance-json-assurances
                       (cdr (assoc :assurances input-json))))
-         (tau-prime (cdr (assoc :slot input-json)))
+         (tau-prime (make-tau-state :value (cdr (assoc :slot input-json))))
          (parent-hash (hex-to-bytes (cdr (assoc :parent input-json))))
          ;; ── Parse pre-state ──
          (pre-rho (make-rho :assignments

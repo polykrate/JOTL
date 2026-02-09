@@ -103,8 +103,9 @@
   "(10.3) Get Ed25519 key for validator at INDEX.
    age is the absolute epoch number:
      a = ⌊τ/E⌋ → κ (current), otherwise → λ (previous).
+   tau is a tau-state closure.
    Returns: 32-byte Ed25519 public key, or NIL if invalid."
-  (let* ((current-epoch (timeslot-epoch tau))
+  (let* ((current-epoch (funcall tau :epoch))
          (validators (if (= age current-epoch) kappa lambda-prev)))
     (when (and validators (< index (length validators)))
       (let ((validator (elt validators index)))
@@ -163,9 +164,10 @@
 
 (defun validate-judgement-age (verdict tau)
   "(10.3) a ∈ {⌊τ/E⌋, ⌊τ/E⌋-1} — epoch must be current or previous.
-   age field is the absolute epoch number, not an offset."
+   age field is the absolute epoch number, not an offset.
+   tau is a tau-state closure."
   (let* ((age (getf verdict :age))
-         (current-epoch (timeslot-epoch tau)))
+         (current-epoch (funcall tau :epoch)))
     (unless (or (= age current-epoch)
                 (= age (1- current-epoch)))
       (reject-disputes :bad-judgement-age

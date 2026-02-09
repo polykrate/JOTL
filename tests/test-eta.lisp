@@ -65,7 +65,8 @@
          ;; Pre-state
          (pre-state (cdr (assoc :pre--state data)))
          (eta-pre (extract-eta-from-json pre-state))
-         (tau-pre (extract-tau-from-json pre-state))
+         (tau-pre-raw (extract-tau-from-json pre-state))
+         (tau-pre (make-tau-state :value tau-pre-raw))  ;; closure
          ;; Input
          (input (cdr (assoc :input data)))
          (slot (cdr (assoc :slot input)))
@@ -95,7 +96,10 @@
                    :fail)))
               ;; ── Success case: run transition-eta, compare η' ──
               (let* ((header (make-eta-test-header slot entropy))
-                     (eta-prime (transition-eta header tau-pre eta-pre))
+                     ;; Enriched tau: :value=τ, :prime=τ' closure
+                     (tau (make-tau-state :value tau-pre-raw
+                                          :prime (make-tau-state :value slot)))
+                     (eta-prime (transition-eta header tau eta-pre))
                      (stf-ok (compare-eta fname eta-prime eta-expected))
                      (codec-ok (test-eta-codec-roundtrip eta-prime fname)))
                 (cond

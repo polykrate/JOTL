@@ -40,19 +40,18 @@
 ;;; κ' ≡ γk    if e' > e     (epoch change: adopt pending keys)
 ;;;      κ     otherwise     (no change)
 
-(defun transition-kappa (header tau kappa gamma)
+(defun transition-kappa (tau kappa gamma)
   "GP §6.15 — Validator key rotation at epoch boundary.
 
    At epoch change: κ' = γk (pending keys become current).
    Otherwise: κ' = κ (unchanged).
 
-   Args: header (closure), tau (prior timeslot),
+   Args: tau (enriched τ closure with :prime),
          kappa (κ closure), gamma (γ closure)
    Returns: κ' closure"
-  (let ((tau-prime (funcall header :slot)))
-    (if (new-epoch-p tau tau-prime)
+  (if (new-epoch-p tau)
         ;; Epoch change: adopt pending keys from γ
         (let ((gamma-k (funcall gamma :kappa)))
           (make-kappa :validators (or gamma-k (funcall kappa :validators))))
         ;; No change
-        kappa)))
+      kappa))

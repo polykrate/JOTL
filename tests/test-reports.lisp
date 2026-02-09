@@ -339,7 +339,7 @@
          ;; ── Parse input ──
          (guarantees (reports-json-guarantees
                       (cdr (assoc :guarantees input-json))))
-         (tau-prime (cdr (assoc :slot input-json)))
+         (tau-prime (make-tau-state :value (cdr (assoc :slot input-json))))
          ;; known-packages is now computed internally by transition-rho
          ;; from recent-blocks via collect-known-package-hashes
          ;; ── Parse pre-state ──

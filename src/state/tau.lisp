@@ -1,51 +1,50 @@
-;;;; stf/tau.lisp — Timeslot STF (Gray Paper §6.1-6.2)
+;;;; state/tau.lisp — Timeslot τ (Gray Paper §6.1-6.2)
 ;;;;
 ;;;; τ' ≡ HT                          (6.1)
 ;;;; let e' ℛ m' = τ'/E               (6.2)
 ;;;;
-;;;; The STF takes τ (a number) and H (closure), returns τ' (a number).
+;;;; The closure pre-computes epoch, phase, and rotation so that any
+;;;; STF can access them via (funcall tau :epoch), (funcall tau :phase), etc.
+;;;;
+;;;; After transition-tau, the enriched closure also embeds τ' (prime):
+;;;;   (funcall tau :prime)               → τ' closure
+;;;;   (funcall (funcall tau :prime) :epoch)  → ⌊τ'/E⌋
 
 (in-package #:jotl)
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; VALUE OBJECT — τ closure
 ;;; ═════════════════════════════════════════════════════════════════
-;;; τ is a single integer (timeslot). The closure wraps it for uniform
-;;; state storage and Merkle generation. Arithmetic uses the raw number
-;;; extracted via (funcall tau :value).
+;;;
+;;; Fields:
+;;;   :value    — raw timeslot integer (persisted in σ)
+;;;   :prime    — nil | tau-state closure for τ' (ephemeral, set by transition-tau)
+;;;
+;;; Memoized:
+;;;   :epoch    — ⌊value/E⌋
+;;;   :phase    — value mod E
+;;;   :rotation — ⌊value/R⌋
 
 (define-value-object tau-state
-  ((value 0))
+  ((value 0) (prime nil))
   (:state-key +C11+)
-  (:encoded :memo (E4 value)))
-
-;;; ═════════════════════════════════════════════════════════════════
-;;; EUCLIDEAN DIVISION (GP §6.2)
-;;; ═════════════════════════════════════════════════════════════════
-
-(defun timeslot-to-epoch-and-phase (timeslot)
-  "τ/E → (values e m)"
-  (floor timeslot (epoch-duration)))
-
-(defun timeslot-epoch (timeslot)
-  "e = ⌊τ/E⌋"
-  (floor timeslot (epoch-duration)))
-
-(defun timeslot-phase (timeslot)
-  "m = τ mod E"
-  (mod timeslot (epoch-duration)))
-
-(defun epoch-phase-to-timeslot (epoch phase)
-  "Inverse: (e, m) → τ = e·E + m"
-  (+ (* epoch (epoch-duration)) phase))
+  ;; Only :value is persisted in σ (4 bytes LE).  :prime is ephemeral.
+  (:encoded :memo (E4 value))
+  ;; GP §6.2 — e ℛ m = τ/E
+  (:epoch    :memo (floor value (epoch-duration)))
+  (:phase    :memo (mod value (epoch-duration)))
+  ;; GP §11.3 — rotation index
+  (:rotation :memo (floor value (rotation-period))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; EPOCH BOUNDARY
 ;;; ═════════════════════════════════════════════════════════════════
 
-(defun new-epoch-p (tau tau-prime)
-  "T if τ→τ' crosses an epoch boundary."
-  (> (timeslot-epoch tau-prime) (timeslot-epoch tau)))
+(defun new-epoch-p (tau)
+  "T if τ→τ' crosses an epoch boundary.
+   tau is an enriched tau-state closure with :prime."
+  (let ((tp (funcall tau :prime)))
+    (and tp (/= (funcall tau :epoch) (funcall tp :epoch)))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; STATE CODEC — C(11) ↦ E4(τ)
@@ -65,19 +64,19 @@
 ;;; τ STF (GP §5.7 + §6.1-6.2)
 ;;; ═════════════════════════════════════════════════════════════════
 
-(defun timeslot-from-header (header)
-  "Extract τ' ≡ HT from header closure."
-  (funcall header :slot))
-
 (defun transition-tau (tau header)
-  "τ STF: τ (number) → τ' (number)
+  "τ STF: τ (closure) → enriched τ (closure with :prime)
    
    GP §5.7: τ' > τ
    GP §6.1: τ' ≡ HT
    
-   e', m', new-epoch-p are derivable on demand via
-   (timeslot-to-epoch-and-phase τ') and (new-epoch-p τ τ')."
-  (let ((tau-prime (timeslot-from-header header)))
-    (assert (> tau-prime tau) ()
-            "GP §5.7: τ'=~D must be > τ=~D" tau-prime tau)
-    tau-prime))
+   Returns an enriched tau-state closure:
+     (funcall result :value)  → τ  (prior)
+     (funcall result :prime)  → τ' closure (posterior)
+     (funcall (funcall result :prime) :epoch) → ⌊τ'/E⌋
+   This single enriched object is passed to every sub-STF."
+  (let ((tau-prime-val (funcall header :slot)))
+    (assert (> tau-prime-val (funcall tau :value)) ()
+            "GP §5.7: τ'=~D must be > τ=~D" tau-prime-val (funcall tau :value))
+    (make-tau-state :value (funcall tau :value)
+                    :prime (make-tau-state :value tau-prime-val))))

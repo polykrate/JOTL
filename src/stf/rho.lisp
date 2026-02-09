@@ -301,7 +301,7 @@
    Args:
      assurances   — EA (list of assurance plists)
      rho-dagger   — ρ† rho closure
-     tau-prime    — τ' closure (tau-state)
+     tau-prime    — τ' = H_T (block timeslot)
      parent-hash  — H_P (parent header hash)
      kappa        — κ closure
    
@@ -309,8 +309,7 @@
      ρ‡ — rho closure with available/stale cores cleared (11.17)
      R* — available work-reports (11.16)
      error — assurance-error if validation failed (ρ‡=ρ†, R*=nil)"
-  (let* ((tau-prime-val (funcall tau-prime :value))   ;; raw number for arithmetic
-         (assignments (funcall rho-dagger :assignments))
+  (let* ((assignments (funcall rho-dagger :assignments))
          (kappa-keys (funcall kappa :validators)))
   (handler-case
       (progn
@@ -341,9 +340,9 @@
                          ((>= (aref votes ci) threshold)
                           (push (getf assignment :report) reported)
                           nil)
-                        ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
-                        ((report-stale-p (getf assignment :timeout) tau-prime-val)
-                         nil)
+                         ;; (11.17) Stale: H_T ≥ t + U → clear (not reported)
+                         ((report-stale-p (getf assignment :timeout) tau-prime)
+                          nil)
                          ;; Otherwise → keep
                          (t assignment)))))
             (values (make-rho :assignments new-assignments) (nreverse reported))))
@@ -486,14 +485,16 @@
    Otherwise → e = η₂, k = κ (same epoch, previous rotation)
    
    Args: eta — full entropy closure (responds to :eta-0 .. :eta-3)
-         slot — τ' (block timeslot, raw number)
+         slot — τ' (block timeslot)
          guarantee-slot — t (guarantee timeslot)
          kappa — current validators
          lambda-prev — previous validators
          offenders — list of banned Ed25519 keys
    Returns: vector of length V where M*[v] = core assigned, nil for banned"
-  (let* ((block-epoch     (floor slot (epoch-duration)))
-         (guarantee-epoch (floor guarantee-slot (epoch-duration)))
+  (let* ((e-dur (epoch-duration))
+         (r (rotation-period))
+         (block-epoch (floor slot e-dur))
+         (guarantee-epoch (floor guarantee-slot e-dur))
          ;; Choose entropy and validators based on epoch comparison
          (different-epoch-p (/= block-epoch guarantee-epoch))
          (entropy (if different-epoch-p
@@ -506,8 +507,7 @@
          (c (num-cores))
          ;; P(e, t) — compute at the guarantee slot
          (raw-assignments (compute-core-assignments
-                           (ensure-bytes entropy) guarantee-slot v c
-                           (epoch-duration) (rotation-period)))
+                           (ensure-bytes entropy) guarantee-slot v c e-dur r))
          ;; Φ(k) — non-banned validators
          (valid-set (phi-filter validators offenders))
          (result (make-array v :initial-element nil)))
@@ -520,12 +520,13 @@
   "Select M or M* based on whether the guarantee is in the current rotation.
    ⌊τ'/R⌋ = ⌊t/R⌋ → current rotation → M
    Otherwise → previous rotation → M*"
-  (if (= (floor slot (rotation-period)) (floor guarantee-slot (rotation-period)))
-      ;; Same rotation → M = P(η₂, τ')
-      (guarantor-assignments (funcall eta :eta-2) slot kappa offenders)
-      ;; Different rotation → M*
-      (guarantor-assignments-star eta slot guarantee-slot
-                                  kappa lambda-prev offenders)))
+  (let ((r (rotation-period)))
+    (if (= (floor slot r) (floor guarantee-slot r))
+        ;; Same rotation → M = P(η₂, τ')
+        (guarantor-assignments (funcall eta :eta-2) slot kappa offenders)
+        ;; Different rotation → M*
+        (guarantor-assignments-star eta slot guarantee-slot
+                                    kappa lambda-prev offenders))))
 
 ;;; ─────────────────────────────────────────────────────────────────
 ;;; Validation helpers
@@ -554,14 +555,13 @@
     (when (or (null results) (zerop (length results)))
       (reject-guarantee :missing-work-results))))
 
-(defun validate-guarantee-slot-age (guarantee-slot tau-prime-val)
-  "(11.26) t ≤ τ' (not in future) AND t ≥ R·max(0,⌊τ'/R⌋-1) (not before last rotation).
-   tau-prime-val is the raw τ' timeslot number."
-  (when (> guarantee-slot tau-prime-val)
+(defun validate-guarantee-slot-age (guarantee-slot tau-prime)
+  "(11.26) t ≤ τ' (not in future) AND t ≥ R * (⌊τ'/R⌋ - 1) (not before last rotation epoch)."
+  (when (> guarantee-slot tau-prime)
     (reject-guarantee :future-report-slot
-                      (format nil "t=~A > τ'=~A" guarantee-slot tau-prime-val)))
+                      (format nil "t=~A > τ'=~A" guarantee-slot tau-prime)))
   (let* ((r (rotation-period))
-         (min-slot (* r (max 0 (1- (floor tau-prime-val r))))))
+         (min-slot (* r (max 0 (1- (floor tau-prime r))))))
     (when (< guarantee-slot min-slot)
       (reject-guarantee :report-epoch-before-last
                         (format nil "t=~A < ~A" guarantee-slot min-slot)))))
@@ -616,7 +616,7 @@
   (let* ((idx (getf signature :validator-index))
          (sig-bytes (ensure-bytes (getf signature :signature)))
          ;; Determine which validator set to use
-         (block-epoch (funcall *current-tau-prime* :epoch))
+         (block-epoch (floor (or *current-tau-prime* 0) (epoch-duration)))
          (guarantee-epoch (floor guarantee-slot (epoch-duration)))
          (validators (if (/= block-epoch guarantee-epoch) lambda-prev kappa))
          (validator (elt validators idx))
@@ -831,18 +831,18 @@
 
 (defun compute-output-packages-and-reporters (guarantees kappa lambda-prev tau-prime)
   "Compute reported packages and reporters from validated guarantees.
-   kappa/lambda-prev are closures. tau-prime is τ' closure (tau-state).
+   kappa/lambda-prev are closures.
    reported = list of (:work-package-hash h :segment-tree-root r)
    reporters = UNIQUE ed25519 keys of all guarantors, sorted lexicographically."
   (let ((reported '())
         (reporter-keys '())
         (kappa-keys (funcall kappa :validators))
-        (lambda-keys (funcall lambda-prev :validators))
-        (block-epoch (funcall tau-prime :epoch)))
+        (lambda-keys (funcall lambda-prev :validators)))
     (dolist (g guarantees)
       (let* ((report (getf g :report))
              (spec (getf report :package-spec))
              (guarantee-slot (getf g :slot))
+             (block-epoch (floor tau-prime (epoch-duration)))
              (guarantee-epoch (floor guarantee-slot (epoch-duration)))
              (validators (if (/= block-epoch guarantee-epoch) lambda-keys kappa-keys)))
         ;; Add to reported
@@ -982,7 +982,7 @@
    Args:
      guarantees    — EG (list of guarantee plists)
      rho-ddagger   — ρ‡ rho closure
-     tau-prime     — τ' closure (tau-state)
+     tau-prime     — τ' = H_T (block timeslot)
      kappa         — κ closure
      lambda-prev   — λ closure
      eta           — η closure
@@ -994,8 +994,7 @@
    Returns: ρ' rho closure
    Signals: guarantee-error on validation failure"
   ;; All-or-nothing: guarantee-error propagates to caller on failure.
-  (let* ((*current-tau-prime* tau-prime)   ;; τ' closure, for :epoch access
-         (tau-prime-val (funcall tau-prime :value))  ;; raw number for arithmetic
+  (let* ((*current-tau-prime* tau-prime)
          ;; Extract raw validator lists from closures
          (kappa-keys (funcall kappa :validators))
          (lambda-keys (funcall lambda-prev :validators))
@@ -1019,12 +1018,12 @@
                ;; Compute assignments for this guarantee
                (core-assignments
                  (assignments-for-guarantee
-                  tau-prime-val guarantee-slot eta kappa-keys lambda-keys offenders)))
+                  tau-prime guarantee-slot eta kappa-keys lambda-keys offenders)))
           ;; -- Basic report checks --
           (validate-guarantee-core-index report)
           (validate-guarantee-results-present report)
           (validate-guarantee-core-not-engaged core-index assignments)
-          (validate-guarantee-slot-age guarantee-slot tau-prime-val)
+          (validate-guarantee-slot-age guarantee-slot tau-prime)
           ;; -- Signature checks --
           (validate-guarantee-sufficient-signatures signatures)
           (validate-guarantee-signatures-sorted-unique signatures)
@@ -1036,7 +1035,7 @@
              sig report-hash kappa-keys guarantee-slot eta lambda-keys offenders))
           ;; -- Content checks --
           (validate-guarantee-anchor report recent-blocks)
-          (validate-guarantee-lookup-anchor report tau-prime-val recent-blocks)
+          (validate-guarantee-lookup-anchor report tau-prime recent-blocks)
           (validate-guarantee-service-ids report accounts)
           (validate-guarantee-code-hashes report accounts)
           (validate-guarantee-authorization report auth-pools)
@@ -1051,7 +1050,7 @@
           (push (ensure-bytes (getf (getf report :package-spec) :hash))
                 seen-hashes)
           (setf (nth core-index rho-prime)
-                (list :report report :timeout tau-prime-val))))
+                (list :report report :timeout tau-prime))))
       (make-rho :assignments rho-prime))))
 
 ;;; Exports managed in package.lisp

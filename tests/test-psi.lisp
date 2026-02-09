@@ -17,9 +17,9 @@
 (defun json-psi-to-plist (psi-json)
   "Convert JSON psi state to a psi closure."
   (make-psi :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
-            :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
-            :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
-            :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
+        :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
+        :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
+        :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; COMPARISON (psi-specific)
@@ -74,7 +74,7 @@
          ;; Parse input
          (disputes (json-disputes (cdr (assoc :disputes input))))
          ;; Parse pre-state
-         (tau (cdr (assoc :tau pre)))
+         (tau (make-tau-state :value (cdr (assoc :tau pre))))
          (psi (json-psi-to-plist (cdr (assoc :psi pre))))
          (kappa (make-kappa :validators (json-validators (cdr (assoc :kappa pre)))))
          (lambda-prev (make-lambda-state :validators (json-validators (cdr (assoc :lambda pre)))))

@@ -77,6 +77,14 @@
      (:file "theta")))    ;; θ  — accumulation outputs
    
    ;; 5. Υ — Top-level STF orchestrator
-   (:file "upsilon" :pathname "src/upsilon")))
+   (:file "upsilon" :pathname "src/upsilon")
+   
+   ;; 6. v2 — Experimental: self-transforming state closures
+   (:module "v2"
+    :pathname "src/v2"
+    :serial t
+    :components
+    ((:file "macros")
+     (:file "tau")))))
 
 ;;;; Tests are run via scripts/ — see tests/README.md

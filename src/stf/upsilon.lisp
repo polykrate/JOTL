@@ -1,7 +1,7 @@
-;;;; upsilon.lisp — Υ(σ, B) → σ'
+;;;; stf/upsilon.lisp — Υ(σ, B) → σ'
 ;;;; Gray Paper §4.1 & §4.2.1
 ;;;;
-;;;; TOP-LEVEL STF ORCHESTRATOR — composes all state transitions.
+;;;; TOP-LEVEL STF — orchestrates all sub-STFs.
 ;;;; Pure function: (sigma, block) → sigma'.
 ;;;;
 ;;;; Call hierarchy:
@@ -61,8 +61,9 @@
          (e-p (funcall e :preimages))
          (e-a (funcall e :assurances))
          (e-g (funcall e :guarantees))
-         ;; Prior state segments — τ is a closure with :value, :epoch, :phase, :rotation
-         (tau          (or (funcall sigma :tau) (make-tau-state)))
+         ;; Prior state segments
+         (tau-cl       (or (funcall sigma :tau) (make-tau-state)))
+         (tau          (funcall tau-cl :value))
          (eta          (or (funcall sigma :eta) (make-eta)))
          (kappa        (or (funcall sigma :kappa) (make-kappa)))
          (lambda-prev  (or (funcall sigma :lambda) (make-lambda-state)))
@@ -90,13 +91,11 @@
     ;; (4.11) ψ'  < (ED, ψ)     [+τ,κ,λ for §10.3]
     ;; (4.12) ρ†  < (ED, ρ)     [via v-list from (10.12)]
     ;; ═══════════════════════════════════════════════════════════
-    ;; transition-tau returns enriched tau: :value=τ, :prime=τ' closure
-    ;; Shadow `tau` — all sub-STFs receive this single enriched object.
-    (let* ((tau          (transition-tau tau h))
+    (let ((tau-prime    (transition-tau tau h))
           (eta-prime    (transition-eta h tau eta))
           (beta-dagger  (transition-beta-dagger h beta))
-           (kappa-prime  (transition-kappa tau kappa gamma-prev))
-           (lambda-prime (transition-lambda tau lambda-prev kappa)))
+          (kappa-prime  (transition-kappa h tau kappa gamma-prev))
+          (lambda-prime (transition-lambda h tau lambda-prev kappa)))
       ;; ψ' returns (values ψ' v-list) per (10.12)
       (multiple-value-bind (psi-prime v-list)
           (transition-psi e-d psi tau kappa lambda-prev)
@@ -117,7 +116,7 @@
           ;; ρ‡ returns (values ρ‡ R* [error]) per §11
           (multiple-value-bind (rho-ddagger r-star)
               (transition-rho-ddagger e-a rho-dagger
-                                      :tau-prime (funcall tau :prime)
+                                      :tau-prime tau-prime
                                       :parent-hash (funcall h :parent-hash)
                                       :kappa kappa)
             (let* (;; ═══════════════════════════════════════════════
@@ -126,7 +125,7 @@
                    ;; (4.16) accumulate ≺ (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
                    ;; ═══════════════════════════════════════════════
                    (rho-prime (transition-rho e-g rho-ddagger
-                                :tau-prime (funcall tau :prime)
+                                :tau-prime tau-prime
                                 :kappa kappa
                                 :lambda-prev lambda-prev
                                 :eta eta-prime
@@ -139,7 +138,7 @@
                                 chi-prime iota-prime phi-prime
                                 theta-prime s-reports)
               (transition-accumulate r-star omega xi delta chi
-                                    iota phi tau (funcall tau :prime))
+                                    iota phi tau tau-prime)
             ;; ═══════════════════════════════════════════════
             ;; WAVE 4 — merge / join (depends on Wave 3)
             ;; (4.17) β'  < (H, EG, β†, θ')
@@ -148,7 +147,7 @@
             ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
             ;; ═══════════════════════════════════════════════
             (let* ((beta-prime  (transition-beta h e-g beta-dagger theta-prime))
-                   (delta-prime (transition-delta e-p delta-ddagger (funcall tau :prime)))
+                   (delta-prime (transition-delta e-p delta-ddagger tau-prime))
                    (alpha-prime (transition-alpha h e-g phi-prime alpha-prev))
                    (pi-prime    (transition-pi e-g e-p e-a e-t tau
                                                kappa-prime pi-prev h s-reports)))
@@ -166,7 +165,7 @@
                :kappa   kappa-prime
                :lambda* lambda-prime
                :rho     rho-prime
-               :tau     (funcall tau :prime)
+               :tau     (make-tau-state :value tau-prime)
                :phi     phi-prime
                :chi     chi-prime
                :psi     psi-prime

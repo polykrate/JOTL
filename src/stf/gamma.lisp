@@ -426,13 +426,13 @@
 ;;;   - η₁ (end-of-last-epoch entropy)
 ;;;   - For each validator in γ'P: (bandersnatch, ed25519) key pair
 
-(defun compute-epoch-mark (tau eta gamma-p-prime)
+(defun compute-epoch-mark (tau tau-prime eta gamma-p-prime)
   "GP (6.27) — Compute expected epoch marker HE.
-   Args: tau (enriched τ closure with :prime),
+   Args: tau (prior timeslot), tau-prime (new timeslot),
          eta (pre-transition entropy closure),
          gamma-p-prime (γ'P: new pending validator keys)
    Returns: epoch-mark plist or NIL."
-  (if (new-epoch-p tau)
+  (if (new-epoch-p tau tau-prime)
       ;; Epoch change → emit marker
       (list :entropy         (funcall eta :eta-0)   ;; η₀
             :tickets-entropy (funcall eta :eta-1)   ;; η₁
@@ -457,18 +457,19 @@
 ;;; (m was before Y, m' is at or after Y) and exactly E tickets
 ;;; are accumulated, emit the winning tickets (reordered via Z).
 
-(defun compute-winning-tickets-mark (tau gamma-a)
+(defun compute-winning-tickets-mark (tau tau-prime gamma-a)
   "GP (6.28) — Compute expected winning-tickets marker HW.
-   Args: tau (enriched τ closure with :prime),
+   Args: tau (prior timeslot), tau-prime (new timeslot),
          gamma-a (accumulated tickets list)
    Returns: list of tickets (Z-reordered) or NIL."
-  (let* ((y       (closing-offset))
-         (m       (funcall tau :phase))                        ;; prior slot within epoch
-         (m-prime (funcall (funcall tau :prime) :phase)))      ;; new slot within epoch
-    (if (and (not (new-epoch-p tau))                           ;; e' = e
+  (let* ((e   (epoch-duration))
+         (y   (closing-offset))
+         (m   (mod tau e))         ;; prior slot within epoch
+         (m-prime (mod tau-prime e)))  ;; new slot within epoch
+    (if (and (not (new-epoch-p tau tau-prime))   ;; e' = e
              (< m y)                              ;; m < Y
              (<= y m-prime)                       ;; Y ≤ m'
-             (= (length gamma-a) (epoch-duration))) ;; |γA| = E
+             (= (length gamma-a) e))              ;; |γA| = E
         ;; Threshold crossed + enough tickets → Z(γA)
         (outside-in-sequencer gamma-a)
         ;; Otherwise → ∅
@@ -575,17 +576,17 @@
              :detail "Submitted ticket not in final accumulator"))))
 
 (defun process-ticket-extrinsic (tickets gamma-z-prime eta-2-prime
-                                 gamma-a tau epoch-change-p)
+                                 gamma-a tau-prime epoch-change-p)
   "GP (6.29)-(6.35) — Full ticket processing pipeline.
    Args:
      tickets: raw extrinsic tickets (ET) — list of (:attempt u8 :signature 784B)
      gamma-z-prime: γ'Z ring commitment for VRF verification
      eta-2-prime: η'₂ for VRF input
      gamma-a: current accumulator (or nil)
-     tau: enriched τ closure with :prime
+     tau-prime: new timeslot (τ')
      epoch-change-p: T if e' > e
    Returns: γ'A (new accumulator)"
-  (let ((m-prime (funcall (funcall tau :prime) :phase)))
+  (let ((m-prime (mod tau-prime (epoch-duration))))
     ;; (6.30) Check ticket count limits
     (validate-ticket-count tickets m-prime)
     ;; Early return if no tickets
@@ -641,13 +642,13 @@
      (6.28) Winning tickets marker HW (compute-winning-tickets-mark)
      (6.29-6.35) Ticket validation + accumulation γ'A
 
-   Args: header (H, block header closure),
-         tau (enriched τ closure with :prime),
+   Args: header (H, block header closure), tau (τ, prior timeslot),
          tickets (ET list), gamma (γ closure),
          iota (ι closure), eta-prime (η' closure),
          kappa-prime (κ' closure), psi-prime (ψ' closure)
    Returns: γ'"
-  (let* (;; Extract raw validator lists from closures
+  (let* ((tau-prime (funcall header :slot))  ;; τ' = HT
+         ;; Extract raw validator lists from closures
          (iota-keys (funcall iota :validators))
          (kappa-prime-keys (funcall kappa-prime :validators))
          ;; Current γ components
@@ -655,9 +656,9 @@
          (gamma-z (funcall gamma :ring-commitment))
          (gamma-s (funcall gamma :sealing))
          (gamma-a (funcall gamma :accumulator))
-         ;; Epoch math via tau closures
-         (epoch-change (new-epoch-p tau))
-         (m (funcall tau :phase))  ;; prior slot position within epoch
+         ;; Epoch math
+         (epoch-change (new-epoch-p tau tau-prime))
+         (m (mod tau (epoch-duration)))  ;; prior slot position within epoch
          ;; η'₂ for VRF input (ticket validation + fallback sequence)
          (eta-2-prime (funcall eta-prime :eta-2))
          ;; Offenders from ψ'
@@ -688,7 +689,7 @@
                ;; (6.29-6.35) Ticket accumulation (base = ∅ on epoch)
                (gamma-a-prime (process-ticket-extrinsic
                                tickets gamma-z-prime eta-2-prime
-                               gamma-a tau t)))  ;; epoch-change-p = T
+                               gamma-a tau-prime t)))  ;; epoch-change-p = T
           (make-gamma :pending-keys gamma-p-prime
                       :ring-commitment gamma-z-prime
                       :sealing gamma-s-prime
@@ -701,7 +702,7 @@
         ;; (6.29-6.35) Ticket accumulation (base = γA)
         (let ((gamma-a-prime (process-ticket-extrinsic
                               tickets gamma-z eta-2-prime
-                              gamma-a tau nil)))  ;; epoch-change-p = NIL
+                              gamma-a tau-prime nil)))  ;; epoch-change-p = NIL
           (make-gamma :pending-keys gamma-p
                       :ring-commitment gamma-z
                       :sealing gamma-s
@@ -753,13 +754,14 @@
 
    Args:
      header       — H (block header closure, from make-header)
-     tau          — enriched τ closure with :prime
+     tau          — τ (prior timeslot)
      gamma-prev   — γ (pre-transition gamma closure)
      eta          — η (pre-transition entropy closure)
      eta-prime    — η' (post-transition entropy closure)
      gamma-prime  — γ' (post-transition gamma closure)
      kappa-prime  — κ' (post-transition validators)"
-  (let* ((gamma-s-prime (funcall gamma-prime :sealing))
+  (let* ((tau-prime     (funcall header :slot))
+         (gamma-s-prime (funcall gamma-prime :sealing))
          (gamma-z-prime (funcall gamma-prime :ring-commitment))
          (gamma-p-prime (funcall gamma-prime :pending-keys))
          (gamma-a       (funcall gamma-prev :accumulator))
@@ -771,14 +773,14 @@
     ;; ── HV: entropy source VRF verification ──
     (validate-entropy-source header gamma-s-prime :kappa-prime kappa-prime)
     ;; ── HE: epoch mark consistency ──
-    (let ((expected-he (compute-epoch-mark tau eta gamma-p-prime))
+    (let ((expected-he (compute-epoch-mark tau tau-prime eta gamma-p-prime))
           (actual-he   (funcall header :epoch-mark)))
       (unless (compare-epoch-marks actual-he expected-he)
         (error 'safrole-error :code :bad-epoch-mark
                :detail (format nil "HE mismatch: expected ~A, got ~A"
                                (not (null expected-he)) (not (null actual-he))))))
     ;; ── HW: tickets mark consistency ──
-    (let ((expected-hw (compute-winning-tickets-mark tau gamma-a))
+    (let ((expected-hw (compute-winning-tickets-mark tau tau-prime gamma-a))
           (actual-hw   (funcall header :tickets-mark)))
       (unless (compare-tickets-marks actual-hw expected-hw)
         (error 'safrole-error :code :bad-tickets-mark

@@ -177,11 +177,7 @@
    ;; ═══════════════════════════════════════════
    #:make-tau-state
    #:tau-state-value
-   #:timeslot-to-epoch-and-phase
-   #:timeslot-epoch #:timeslot-phase
-   #:epoch-phase-to-timeslot
    #:new-epoch-p
-   #:timeslot-from-header
    #:transition-tau
    #:encode-state-tau #:decode-state-tau
    
