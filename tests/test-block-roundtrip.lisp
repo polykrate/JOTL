@@ -197,10 +197,11 @@
          (check (format nil "~A: HW match" label) nil
                 (format nil "decoded=~A json=~A" (not (null dec-tm)) (not (j-null-p json-tm)))))))))
 
-(defun test-json-extrinsic (extrinsic json-extrinsic label)
-  "Compare decoded extrinsic closure fields against JSON."
+(defun test-json-extrinsic (block json-extrinsic label)
+  "Compare decoded block's raw extrinsic fields against JSON.
+   Block holds ET, ED, EP, EA, EG directly (no extrinsic closure)."
   (format t "~%  ── Step 3b: Extrinsic vs JSON ──~%")
-  (let ((ex extrinsic)
+  (let ((ex block)
         (je json-extrinsic))
     ;; --- Tickets ---
     (let ((dec-t (funcall ex :tickets))
@@ -361,9 +362,8 @@
    WARNING-only for codec vectors (known placeholder HX)."
   (format t "~%  ── Step 5: HX check (informational) ──~%")
   (let* ((h (funcall block :header))
-         (ex (funcall block :extrinsic))
          (header-hx (funcall h :extrinsic-hash))
-         (computed-hx (funcall ex :extrinsic-hash)))
+         (computed-hx (funcall block :extrinsic-hash)))
     (warn-check (format nil "~A: HX header = computed" label)
                 (bytes= header-hx computed-hx)
                 (format nil "codec vectors have placeholder HX"))))
@@ -397,7 +397,7 @@
             ;; Step 3: JSON cross-validation
             (test-json-header (funcall block :header)
                               (j json-data :header) label)
-            (test-json-extrinsic (funcall block :extrinsic)
+            (test-json-extrinsic block
                                  (j json-data :extrinsic) label)
             ;; Step 4: Header hash
             (test-header-hash block bin-bytes label)
@@ -545,14 +545,16 @@
       (check (format nil "~A: JSON crosscheck" label) nil (format nil "~A" e)))))
 
 (defun test-extrinsic-file-roundtrip (bin-path label)
-  "Extrinsic roundtrip via closure: bin → decode-extrinsic → :encoded → compare."
+  "Extrinsic roundtrip via standalone functions:
+   bin → decode-extrinsic-data → encode-extrinsic-data → compare."
   (let ((bin (load-bin bin-path)))
     (handler-case
-        (multiple-value-bind (extrinsic consumed) (decode-extrinsic bin 0)
+        (multiple-value-bind (et ed ep ea eg consumed)
+            (decode-extrinsic-data bin 0)
           (check (format nil "~A: consumed all ~D bytes" label (length bin))
                  (= consumed (length bin))
                  (format nil "consumed ~D / ~D" consumed (length bin)))
-          (let ((re-encoded (funcall extrinsic :encoded)))
+          (let ((re-encoded (encode-extrinsic-data et ed ep ea eg)))
             (check (format nil "~A: roundtrip byte-exact" label)
                    (bytes= re-encoded bin))))
       (error (e)
@@ -612,7 +614,7 @@
            #'decode-guarantees-extrinsic #'encode-guarantees-extrinsic
            (format nil "~A/guarantees_extrinsic" label))
 
-          ;; Full extrinsic (via closure)
+          ;; Full extrinsic (standalone encode/decode)
           (test-extrinsic-file-roundtrip
            (format nil "~Aextrinsic.bin" base)
            (format nil "~A/extrinsic (full)" label))

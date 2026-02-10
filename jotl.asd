@@ -47,7 +47,7 @@
      (:file "work-report")   ;; WorkReport, WorkResult codec
      (:file "guarantees")    ;; EG codec (depends on work-report)
      (:file "header")        ;; H closure + epoch-marker, tickets-mark codec
-     (:file "extrinsic")     ;; E closure + HX computation
+     (:file "extrinsic")     ;; E standalone functions (encode/decode/HX)
      (:file "block")         ;; B ≡ (H, E) closure
      (:file "validation")))  ;; HX, HO, env checks
    

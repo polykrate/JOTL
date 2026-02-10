@@ -12,14 +12,14 @@
 ;;; INTRINSIC VALIDATION — called by Υ (apply-block)
 ;;; ═════════════════════════════════════════════════════════════════
 
-(defun validate-extrinsic-hash (header extrinsic)
+(defun validate-extrinsic-hash (header block)
   "HX ≡ H(H#(ET) ⌢ H#(EP) ⌢ H#(EG) ⌢ H#(EA) ⌢ H#(ED)) — §5.4-5.6.
    Intrinsic to the block. No external context needed.
    
-   Args: header (closure), extrinsic (closure)
+   Args: header (closure), block (closure — holds raw extrinsic data)
    Returns: (values valid-p computed-hx)"
   (let ((header-hx (funcall header :extrinsic-hash))
-        (computed-hx (funcall extrinsic :extrinsic-hash)))
+        (computed-hx (funcall block :extrinsic-hash)))
     (values (equalp header-hx computed-hx) computed-hx)))
 
 (defun validate-block (block)
@@ -31,10 +31,9 @@
    
    Returns: (values valid-p errors)"
   (let ((h (funcall block :header))
-        (e (funcall block :extrinsic))
         (errors '()))
-    ;; §5.4-5.6: HX
-    (multiple-value-bind (ok computed) (validate-extrinsic-hash h e)
+    ;; §5.4-5.6: HX — block knows HX directly (no extrinsic closure)
+    (multiple-value-bind (ok computed) (validate-extrinsic-hash h block)
       (declare (ignore computed))
       (unless ok (push (list :hx "HX mismatch") errors)))
     (values (null errors) (nreverse errors))))

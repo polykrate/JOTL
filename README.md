@@ -6,9 +6,9 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
 ## What Works — 290+ tests
 
-- **Block codec** — Full decode/encode of B = (H, E) against all test vectors
-  - Header H = (HP, HR, HX, HT, HE, HW, HO, HI, HV, HS)
-  - Extrinsic E = (ET, EP, EG, EA, ED)
+- **Block codec** — Full decode/encode of B = (H, ET, ED, EP, EA, EG)
+  - Header H is a state closure (hash, seal, genesis sovereignty)
+  - Extrinsic data (ET, ED, EP, EA, EG) is open — consumed directly
   - WorkReport, RefineContext, WorkResult structures
   - Header hash H(E(H)) = blake2b(sealed header)
   - Extrinsic hash HX = H(H(ET)‖H(EP)‖H(g)‖H(EA)‖H(ED))
@@ -48,8 +48,8 @@ src/
 │   ├── work-report.lisp    WorkReport, WorkResult codec
 │   ├── guarantees.lisp     EG codec (GP §11-12)
 │   ├── header.lisp         H closure + epoch-mark, tickets-mark closures
-│   ├── extrinsic.lisp      E closure + HX computation
-│   ├── block.lisp          B ≡ (H, E) closure
+│   ├── extrinsic.lisp      E standalone functions (encode/decode/HX)
+│   ├── block.lisp          B ≡ (H, ET, ED, EP, EA, EG) — block as message
 │   └── validation.lisp     HX, HO, offenders-mark checks
 │
 ├── state/
@@ -166,6 +166,14 @@ no `:decode` (it is assembled from Merkle segments), and no `:transition`
 - `:merkle-kvs` — pairs C(n) + bytes for the Merkle trie
 - `:state-root` — H(trie) = the state root HR
 
+**B — the message, not an actor.** In Kay's model, σ is the actor and B is the
+message sent to it. Υ is the handler. The block holds the header H (a closure
+with genuine sovereignty: hash, seal, genesis check) and the extrinsic
+sub-elements ET, ED, EP, EA, EG as raw open data. Extrinsics have no lifecycle,
+no transitions, no sovereignty — they are consumed directly by state closures
+during Υ. The block is never an actor; it is data that travels through the
+transition and is consumed.
+
 **Immutability.** Closures never mutate. Transitions return new instances.
 This aligns with the Gray Paper's functional STF model and ensures the
 dependency graph (GP §4.2.1) is safe.
@@ -240,7 +248,7 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 ## Roadmap
 
 - [x] JAM Codec (Appendix C)
-- [x] Block B = (H, E) — full codec, all test vectors
+- [x] Block B = (H, ET, ED, EP, EA, EG) — message with open extrinsic data
 - [x] Header hash H(E(H))
 - [x] Extrinsic hash HX
 - [x] State sigma closure (17 segments)

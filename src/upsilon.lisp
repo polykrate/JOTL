@@ -56,13 +56,14 @@
   "Υ-inner: σ → σ' — Pure state transition following GP dependency graph.
    σ is a byte store. Components are loaded lazily per wave via
    (funcall sigma :load :kw), then re-encoded back into σ' bytes."
-  (let* (;; ── Destructure block B = (H, E) ──
+  (let* (;; ── Block is a message, not an actor ──
+         ;; H is a closure (sovereignty: hash, EU(H), genesis).
+         ;; ET, ED, EA, EG are raw data — consumed directly.
          (h   (funcall block :header))
-         (e   (funcall block :extrinsic))
-         (e-t (funcall e :tickets))        ;; ET
-         (e-d (funcall e :disputes))       ;; ED
-         (e-a (funcall e :assurances))     ;; EA
-         (e-g (funcall e :guarantees)))    ;; EG
+         (e-t (funcall block :tickets))        ;; ET
+         (e-d (funcall block :disputes))       ;; ED
+         (e-a (funcall block :assurances))     ;; EA
+         (e-g (funcall block :guarantees)))    ;; EG
 
     ;; ═══════════════════════════════════════════════════════════
     ;; WAVE 0 — τ' < (H)

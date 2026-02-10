@@ -132,20 +132,18 @@
    #:make-tickets-mark
    
    ;; ═══════════════════════════════════════════
-   ;; Bloc — Extrinsic E (GP §4.3)
+   ;; Bloc — Extrinsic codec (GP §4.3)
    ;; ═══════════════════════════════════════════
-   #:make-extrinsic
-   #:decode-extrinsic
-   #:extrinsic-tickets #:extrinsic-disputes #:extrinsic-preimages
-   #:extrinsic-assurances #:extrinsic-guarantees
+   ;; No extrinsic closure — raw data consumed by state closures.
+   #:encode-extrinsic-data
+   #:decode-extrinsic-data
    #:compute-extrinsic-hash
    
    ;; ═══════════════════════════════════════════
-   ;; Bloc — B ≡ (H, E) (GP §4.2)
+   ;; Bloc — B ≡ (H, ET, ED, EP, EA, EG) (GP §4.2)
    ;; ═══════════════════════════════════════════
    #:make-block
    #:decode-block
-   #:block-header #:block-extrinsic
    
    ;; ═══════════════════════════════════════════
    ;; Bloc — Codec helpers
