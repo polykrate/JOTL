@@ -11,11 +11,11 @@
 
 (defmacro define-value-object (name (&rest field-specs) &body extra-clauses)
   "Define an immutable value object as a message-dispatching closure (v1).
-   Single-arg dispatch: (funcall obj :key) → value."
+   Single-arg dispatch: (funcall obj :key) → value.
+   No Merkle key knowledge — block data structures only."
   (let ((fields '())
         (memo-clauses '())
-        (regular-clauses '())
-        (state-key-expr nil))
+        (regular-clauses '()))
     (dolist (spec field-specs)
       (destructuring-bind (param default &key key) spec
         (let* ((param-str (symbol-name param))
@@ -31,8 +31,6 @@
     (dolist (clause extra-clauses)
       (destructuring-bind (key &rest body) clause
         (cond
-          ((eq key :state-key)
-           (setf state-key-expr (first body)))
           ((and (>= (length body) 2) (eq (first body) :memo))
            (push (list :key key :body (if (= (length (rest body)) 1)
                                           (second body)
@@ -60,10 +58,6 @@
                                   collect `(,(getf mc :key)
                                             (or ,mv (setf ,mv ,(getf mc :body)))))
                           ,@regular-clauses
-                          ,@(when state-key-expr
-                              `((:state-key ,state-key-expr)
-                                (:merkle-kv (cons (self :state-key)
-                                                  (self :encoded)))))
                           (:as-plist
                            (list ,@(loop for f in fields
                                          append (list (getf f :key)
@@ -79,25 +73,6 @@
                             (funcall obj ,(getf f :key))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; STATE DECODER REGISTRY — used by σ decode dispatch
-;;; ═══════════════════════════════════════════════════════════════
-
-(defvar *state-decoders* (make-hash-table :test 'equalp)
-  "Maps C(n) byte-vector → (lambda (bytes offset) → (values closure consumed)).
-   Populated by define-state-closure expansions.")
-
-(defun register-state-decoder (state-key decoder-fn)
-  "Register a state component decoder."
-  (setf (gethash state-key *state-decoders*) decoder-fn))
-
-(defun decode-state-segment (state-key bytes offset)
-  "Decode a state segment given its Merkle key and raw bytes."
-  (let ((decoder (gethash state-key *state-decoders*)))
-    (unless decoder
-      (error "No decoder registered for state-key ~A" state-key))
-    (funcall decoder bytes offset)))
-
-;;; ═══════════════════════════════════════════════════════════════
 ;;; V2 — define-state-closure
 ;;; ═══════════════════════════════════════════════════════════════
 ;;;
@@ -105,10 +80,13 @@
 ;;;   - Holds immutable data (fields)
 ;;;   - Derives lazy/memoized computed properties
 ;;;   - Encodes itself to bytes (:encoded)
-;;;   - Decodes from bytes (:decode / sigma registry)
-;;;   - Knows its Merkle position (:state-key, :merkle-kv)
+;;;   - Decodes from bytes (:decode message + top-level decode-NAME fn)
 ;;;   - Answers semantic queries via method messages
 ;;;   - Transforms itself into its prime via :transition
+;;;
+;;; Merkle position (state key C(n)) is NOT the component's concern.
+;;; σ (sigma) owns the mapping C(n) → component AND the decode dispatch.
+;;; Components just know their codec; σ knows where they live.
 ;;;
 ;;; Uniform access principle: all messages use (funcall obj :msg &rest args).
 
@@ -118,14 +96,13 @@
    Generates:
      (make-NAME &key field1 field2 ...) → closure
      (NAME-field1 obj)                  → value  (accessor per field)
-     Registers decoder in *state-decoders* when :state-key + :decode present.
+     (decode-NAME bytes offset)         → (values closure consumed)  [when :decode present]
 
    FIELD-SPECS: (PARAM DEFAULT) or (PARAM DEFAULT :key MSG-KEY)
    EXTRA-CLAUSES:
      (:key BODY)                    — computed on every access
      (:key :memo BODY)              — lazy-cached
-     (:state-key EXPR)              — Merkle key C(n)
-     (:decode (BYTES OFFSET) BODY)  — decoder, registered in *state-decoders*
+     (:decode (BYTES OFFSET) BODY)  — decoder (also generates top-level decode-NAME)
      (:key (PARAMS) BODY)           — method with positional args
      (:transition (&key ...) BODY)  — STF: (funcall obj :transition :k v ...)
      (:transition-NAME (&key ...) BODY) — multi-stage STF"
@@ -134,8 +111,7 @@
         (regular-clauses '())
         (method-clauses '())
         (transition-clauses '())
-        (decode-clause nil)
-        (state-key-expr nil))
+        (decode-clause nil))
     ;; ── Parse field specs ──
     (dolist (spec field-specs)
       (destructuring-bind (param default &key key) spec
@@ -154,8 +130,6 @@
       (destructuring-bind (key &rest body) clause
         (let ((key-name (symbol-name key)))
           (cond
-            ((eq key :state-key)
-             (setf state-key-expr (first body)))
             ((eq key :decode)
              (setf decode-clause (list :params (first body)
                                        :body (if (= (length (rest body)) 1)
@@ -192,6 +166,7 @@
     (setf transition-clauses (nreverse transition-clauses))
     ;; ── Generate ──
     (let ((constructor (intern (format nil "MAKE-~A" name)))
+          (decoder-fn (when decode-clause (intern (format nil "DECODE-~A" name))))
           (type-kw (intern (symbol-name name) :keyword))
           (memo-vars (loop for mc in memo-clauses
                            collect (gensym (format nil "MEMO-~A-" (getf mc :key))))))
@@ -224,10 +199,6 @@
                                 `((:decode
                                    (destructuring-bind ,(getf decode-clause :params) (cdr args)
                                      ,(getf decode-clause :body)))))
-                            ,@(when state-key-expr
-                                `((:state-key ,state-key-expr)
-                                  (:merkle-kv (cons (self :state-key)
-                                                    (self :encoded)))))
                             (:as-plist
                              (list ,@(loop for f in fields
                                            append (list (getf f :key)
@@ -241,8 +212,7 @@
                  collect `(defun ,acc-name (obj)
                             ,(format nil "Access ~A from ~A." (getf f :key) name)
                             (funcall obj ,(getf f :key))))
-         ,@(when (and state-key-expr decode-clause)
-             `((register-state-decoder
-                ,state-key-expr
-                (lambda ,(getf decode-clause :params)
-                  ,(getf decode-clause :body)))))))))
+         ,@(when decode-clause
+             `((defun ,decoder-fn ,(getf decode-clause :params)
+                 ,(format nil "Decode ~A from bytes.  Top-level standalone decoder." name)
+                 ,(getf decode-clause :body))))))))

@@ -5,8 +5,8 @@
 ;;;;   2. Memoized accessors: :epoch, :phase, :rotation, :min-allowed-slot
 ;;;;   3. Transition: :transition :header h  → τ' closure
 ;;;;   4. Codec: :encoded, :decode
-;;;;   5. State-key: :state-key, :merkle-kv
-;;;;   6. Sigma decoder registry
+;;;;   5. Sigma byte store + Merkle mapping (σ owns C(n))
+;;;;   6. Sigma :load dispatch + decode-tau-state
 ;;;;   7. Epoch boundary: :epoch-changed? message
 ;;;;   8. Transition chaining: τ → τ' → τ''
 ;;;;   9. Semantic queries: :stale?, :slot>=, :lookup-fresh?
@@ -100,26 +100,40 @@
           (= consumed 4))
         (tau-assert "decode roundtrip"
           (= (funcall decoded :slot) 12345)))
-      ;; Decode via sigma registry
-      (tau-assert "decoder registered"
-        (not (null (gethash +C11+ *state-decoders*))))
+      ;; Decode via standalone function (no registry needed)
       (multiple-value-bind (decoded consumed)
-          (decode-state-segment +C11+ encoded 0)
-        (tau-assert "registry decode roundtrip"
+          (decode-tau-state encoded 0)
+        (tau-assert "decode-tau-state roundtrip"
           (and (= consumed 4)
                (= (funcall decoded :slot) 12345)))))
 
-    ;; ── 5. State-key / Merkle ────────────────────────────────────
-    (let ((tau (make-tau-state :slot 42)))
-      (tau-assert "state-key = C(11)"
-        (equalp (funcall tau :state-key) +C11+))
-      (let ((mkv (funcall tau :merkle-kv)))
-        (tau-assert "merkle-kv is cons"
-          (consp mkv))
-        (tau-assert "merkle-kv car = state-key"
-          (equalp (car mkv) +C11+))
-        (tau-assert "merkle-kv cdr = encoded"
-          (equalp (cdr mkv) (funcall tau :encoded)))))
+    ;; ── 5. Sigma byte store + Merkle mapping (σ owns C(n)) ──────
+    (let* ((tau (make-tau-state :slot 42))
+           (tau-bytes (funcall tau :encoded))
+           (sigma (make-sigma-state :tau tau-bytes)))
+      ;; σ stores raw bytes
+      (tau-assert "σ :segment :tau = raw bytes"
+        (equalp (funcall sigma :segment :tau) tau-bytes))
+      ;; Merkle KVs
+      (let ((kvs (funcall sigma :merkle-kvs)))
+        (tau-assert "σ merkle-kvs contains τ at C(11)"
+          (assoc +C11+ kvs :test #'equalp))
+        (tau-assert "σ merkle-kvs τ bytes = encoded"
+          (equalp (cdr (assoc +C11+ kvs :test #'equalp)) tau-bytes)))
+      ;; σ :load → lazy decode from bytes
+      (let ((decoded (funcall sigma :load :tau)))
+        (tau-assert "σ :load :tau returns closure"
+          (functionp decoded))
+        (tau-assert "σ :load :tau slot = 42"
+          (= (funcall decoded :slot) 42)))
+      ;; decode-tau-state standalone function
+      (multiple-value-bind (decoded consumed) (decode-tau-state tau-bytes 0)
+        (tau-assert "decode-tau-state returns closure"
+          (functionp decoded))
+        (tau-assert "decode-tau-state consumed = 4"
+          (= consumed 4))
+        (tau-assert "decode-tau-state roundtrip"
+          (= (funcall decoded :slot) 42))))
 
     ;; ── 6. Deterministic values across slots ─────────────────────
     (dolist (val '(0 1 100 599 600 601 1199 1200 99999))

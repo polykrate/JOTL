@@ -18,9 +18,6 @@
    ;; ═══════════════════════════════════════════
    #:define-value-object
    #:define-state-closure
-   #:*state-decoders*
-   #:register-state-decoder
-   #:decode-state-segment
    
    ;; ═══════════════════════════════════════════
    ;; Lib — Constants
@@ -112,7 +109,6 @@
    ;; ═══════════════════════════════════════════
    #:trie-bit #:trie-branch #:trie-leaf
    #:merkle-root #:compute-state-root #:pad-key-to-32
-   #:+sigma-segment-keys+
    #:merklize-state #:validate-state-root
    
    ;; ═══════════════════════════════════════════
@@ -126,30 +122,122 @@
    #:binary-merkle-root-keccak
    
    ;; ═══════════════════════════════════════════
+   ;; Bloc — Header H (GP §5)
+   ;; ═══════════════════════════════════════════
+   #:make-header
+   #:decode-header
+   ;; HE sub-closure (GP §6.6)
+   #:make-epoch-mark
+   ;; HW sub-closure (GP §6.6)
+   #:make-tickets-mark
+   
+   ;; ═══════════════════════════════════════════
+   ;; Bloc — Extrinsic E (GP §4.3)
+   ;; ═══════════════════════════════════════════
+   #:make-extrinsic
+   #:decode-extrinsic
+   #:extrinsic-tickets #:extrinsic-disputes #:extrinsic-preimages
+   #:extrinsic-assurances #:extrinsic-guarantees
+   #:compute-extrinsic-hash
+   
+   ;; ═══════════════════════════════════════════
+   ;; Bloc — B ≡ (H, E) (GP §4.2)
+   ;; ═══════════════════════════════════════════
+   #:make-block
+   #:decode-block
+   #:block-header #:block-extrinsic
+   
+   ;; ═══════════════════════════════════════════
+   ;; Bloc — Codec helpers
+   ;; ═══════════════════════════════════════════
+   #:encode-work-report #:decode-work-report
+   #:encode-ticket #:decode-ticket
+   #:encode-tickets-extrinsic #:decode-tickets-extrinsic
+   #:encode-disputes-extrinsic #:decode-disputes-extrinsic
+   #:encode-preimages-extrinsic #:decode-preimages-extrinsic
+   #:encode-assurances-extrinsic #:decode-assurances-extrinsic
+   #:encode-guarantees-extrinsic #:decode-guarantees-extrinsic
+   #:encode-guarantee-signatures #:decode-guarantee-signatures
+   
+   ;; ═══════════════════════════════════════════
+   ;; Bloc — Validation (GP §5)
+   ;; ═══════════════════════════════════════════
+   #:compute-offenders-mark
+   #:validate-extrinsic-hash
+   #:validate-block
+   #:validate-timeslot-not-future
+   #:validate-parent-hash
+   #:validate-header-post-transition
+   
+   ;; ═══════════════════════════════════════════
    ;; State — σ overall (GP §4.4)
    ;; ═══════════════════════════════════════════
-   #:make-state #:make-genesis-state
+   #:make-sigma-state #:make-genesis-state
+   #:+sigma-segment-order+
+   #:sigma-decode-segment
    
    ;; ═══════════════════════════════════════════
    ;; State — τ Timeslot (GP §6.1-6.2)
    ;; ═══════════════════════════════════════════
-   #:make-tau-state
+   #:make-tau-state #:decode-tau-state
    #:tau-state-slot
    
    ;; ═══════════════════════════════════════════
    ;; State — η Entropy (GP §6.21-6.23)
    ;; ═══════════════════════════════════════════
-   #:make-eta-state
+   #:make-eta-state #:decode-eta-state
    
    ;; ═══════════════════════════════════════════
    ;; State — κ Current Validators (GP §6.15)
    ;; ═══════════════════════════════════════════
-   #:make-kappa-state
+   #:make-kappa-state #:decode-kappa-state
    
    ;; ═══════════════════════════════════════════
    ;; State — λ Archived Validators (GP §6.16)
    ;; ═══════════════════════════════════════════
-   #:make-lambda-state
+   #:make-lambda-state #:decode-lambda-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ι Enqueued Validators (GP §6.7)
+   ;; ═══════════════════════════════════════════
+   #:make-iota-state #:decode-iota-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — β Recent History (GP §7)
+   ;; ═══════════════════════════════════════════
+   #:make-beta-state #:decode-beta-state
+   #:make-history-record
+   #:encode-block-info #:decode-block-info
+   #:encode-reported-wp #:decode-reported-wp
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — γ Safrole (GP §6)
+   ;; ═══════════════════════════════════════════
+   #:make-gamma-state #:decode-gamma-state
+   #:safrole-error #:safrole-error-code #:safrole-error-detail
+   ;; Gamma-specific codec helpers
+   #:encode-state-ticket #:decode-state-ticket
+   #:encode-gamma-sealing #:decode-gamma-sealing
+   ;; Gamma standalone functions
+   #:filter-offenders #:outside-in-sequencer
+   #:fallback-key-sequence #:closing-offset
+   #:compute-epoch-mark #:compute-winning-tickets-mark
+   #:validate-header-safrole
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ψ Judgments (GP §10)
+   ;; ═══════════════════════════════════════════
+   #:make-psi-state #:decode-psi-state
+   #:disputes-error #:disputes-error-code #:disputes-error-detail
+   #:super-majority
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ρ Core Assignments (GP §10-12)
+   ;; ═══════════════════════════════════════════
+   #:make-rho-state #:decode-rho-state
+   #:encode-rho-assignment #:decode-rho-assignment
+   #:assurance-error #:assurance-error-code #:assurance-error-detail
+   #:guarantee-error #:guarantee-error-code #:guarantee-error-detail
    
    ;; ═══════════════════════════════════════════
    ;; Υ — Orchestrator (GP §4.1)

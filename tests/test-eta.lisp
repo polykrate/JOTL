@@ -1,11 +1,11 @@
 ;;;; tests/test-eta.lisp — η (Entropy) STF tests
-;;;; Validates transition-eta against safrole test vectors.
+;;;; Validates eta-state :transition against safrole test vectors.
 ;;;;
 ;;;; η is extracted from the safrole test state (not a standalone STF vector).
-;;;; Tests: JSON comparison (byte-by-byte) + codec roundtrip.
+;;;; Tests: JSON comparison (byte-by-byte) + codec roundtrip via closure messages.
 ;;;;
 ;;;; ALL cases verified (zero skips):
-;;;;   - Success: run transition-eta, compare η' to post_state
+;;;;   - Success: (funcall eta :transition ...), compare η' to post_state
 ;;;;   - Error:   verify η' = η (block rejected → no state change)
 ;;;;
 ;;;; Test vectors: tests/jamtestvectors/stf/safrole/{tiny,full}/
@@ -23,15 +23,15 @@
   "Extract η closure from a safrole state JSON alist."
   (let ((eta-json (cdr (assoc :eta state-alist))))
     (let ((hashes (mapcar #'hex-to-bytes eta-json)))
-      (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
-                :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes)))))
+      (make-eta-state :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+                      :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes)))))
 
 (defun extract-tau-from-json (state-alist)
   "Extract τ (timeslot number) from a safrole state JSON alist."
   (cdr (assoc :tau state-alist)))
 
 (defun make-eta-test-header (slot entropy-source)
-  "Create a minimal header closure for transition-eta testing.
+  "Create a minimal header closure for eta :transition testing.
    Only :slot and :entropy-source are needed."
   (lambda (msg)
     (case msg
@@ -40,15 +40,18 @@
       (otherwise (error "Test header stub: ~a" msg)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; CODEC ROUNDTRIP — encode/decode η state
+;;; CODEC ROUNDTRIP — via closure messages
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun test-eta-codec-roundtrip (eta label)
-  "Verify encode/decode roundtrip for η."
-  (let* ((encoded (encode-state-eta eta))
-         (decoded (decode-state-eta encoded)))
+  "Verify encode/decode roundtrip for η via closure messages."
+  (let* ((encoded (funcall eta :encoded))
+         (decoded (multiple-value-bind (obj consumed)
+                      (funcall (make-eta-state) :decode encoded 0)
+                    (declare (ignore consumed))
+                    obj)))
     (assert (= (length encoded) 128) ()
-            "~A: encode-state-eta should produce 128 bytes, got ~A" label (length encoded))
+            "~A: :encoded should produce 128 bytes, got ~A" label (length encoded))
     (compare-eta (format nil "~A/codec" label) decoded eta)))
 
 ;;; ═══════════════════════════════════════════════════════════════
@@ -58,7 +61,7 @@
 (defun run-eta-test (json-path chain-name)
   "Run a single η test from a safrole JSON test vector.
    Returns: :pass | :fail
-   - Success vectors: run transition-eta, compare η' to post_state
+   - Success vectors: run η :transition, compare η' to post_state
    - Error vectors:   verify η' = η (block rejected → state unchanged)"
   (let* ((data (load-json json-path))
          (fname (file-namestring json-path))
@@ -66,7 +69,6 @@
          (pre-state (cdr (assoc :pre--state data)))
          (eta-pre (extract-eta-from-json pre-state))
          (tau-pre-raw (extract-tau-from-json pre-state))
-         (tau-pre (make-tau-state :value tau-pre-raw))  ;; closure
          ;; Input
          (input (cdr (assoc :input data)))
          (slot (cdr (assoc :slot input)))
@@ -94,13 +96,16 @@
                                  ((not codec-ok) "codec roundtrip failed")
                                  (t "unknown")))
                    :fail)))
-              ;; ── Success case: run transition-eta, compare η' ──
-              (let* ((header (make-eta-test-header slot entropy))
-                     ;; Enriched tau: :value=τ, :prime=τ' closure
-                     (tau (make-tau-state :value tau-pre-raw
-                                          :prime (make-tau-state :value slot)))
-                     (eta-prime (transition-eta header tau eta-pre))
-                     (stf-ok (compare-eta fname eta-prime eta-expected))
+              ;; ── Success case: run η :transition via closure message ──
+              (let* ((header    (make-eta-test-header slot entropy))
+                     (tau       (make-tau-state :slot tau-pre-raw))
+                     (tau-prime (make-tau-state :slot slot))
+                     ;; η' ← (funcall eta :transition ...)
+                     (eta-prime (funcall eta-pre :transition
+                                         :header header
+                                         :tau tau
+                                         :tau-prime tau-prime))
+                     (stf-ok   (compare-eta fname eta-prime eta-expected))
                      (codec-ok (test-eta-codec-roundtrip eta-prime fname)))
                 (cond
                   ((and stf-ok codec-ok)
@@ -123,7 +128,7 @@
 (defun run-all-eta-tests ()
   "Run η tests against all safrole test vectors (tiny + full).
    ALL cases are verified (zero skips):
-   - Success: transition-eta + compare
+   - Success: η :transition + compare
    - Error: verify η unchanged"
   (let ((base-dir (merge-pathnames "tests/jamtestvectors/stf/safrole/"
                                     (asdf:system-source-directory :jotl)))

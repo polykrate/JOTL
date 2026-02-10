@@ -1,8 +1,12 @@
-;;;; codec/state-keys.lisp — State Merklization Keys C(n) (Gray Paper §D)
+;;;; lib/state-keys.lisp — State Merklization Keys C(n) (Gray Paper §D)
 ;;;;
 ;;;; Each state segment has a 32-byte Merkle key:
 ;;;;   C(n)     = [n, 0, 0, ..., 0]            for n ∈ {1..16}
 ;;;;   C(255,s) = [255] ⌢ E4(s) ⌢ [0...0]     for service accounts δ
+;;;;
+;;;; OWNERSHIP: σ (sigma.lisp) owns the mapping C(n) → component.
+;;;; Individual state components do NOT know their Merkle key.
+;;;; These constants are consumed by σ and by tests.
 ;;;;
 ;;;; Mapping (GP Appendix D, state encoding):
 ;;;;   C(1)   → α    Core authorizations

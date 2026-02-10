@@ -15,6 +15,8 @@
 ;;;; 84 vectors total: 42 tiny + 42 full
 ;;;; Green 🟢 = expected OK, Red 🔴 = expected error
 
+(ql:quickload :cl-json :silent t)
+
 (in-package :jotl)
 
 ;; Load shared test helpers
@@ -79,7 +81,8 @@
                               nil
                               (hex-to-bytes p)))
                         (or peaks-json '()))))
-    (make-beta :history history :mmr-peaks peaks)))
+    (make-beta-state :history history
+                     :mmr-peaks (coerce peaks 'vector))))
 
 (defun reports-json-auth-pools (pools-json)
   "Parse JSON auth_pools → list of C lists of byte-vector hashes."
@@ -270,8 +273,10 @@
 (defun test-rho-prime-codec-roundtrip (rho label)
   "Verify encode/decode roundtrip for ρ' (rho closure)."
   (handler-case
-      (let* ((encoded (encode-state-rho rho))
-             (decoded (decode-state-rho encoded)))
+      (let* ((encoded (funcall rho :encoded))
+             (decoded (multiple-value-bind (obj n)
+                          (funcall (make-rho-state) :decode encoded 0)
+                        (declare (ignore n)) obj)))
         (if (compare-assignments-rho (format nil "~A/roundtrip" label)
                                      (funcall decoded :assignments)
                                      (funcall rho :assignments))
@@ -339,15 +344,15 @@
          ;; ── Parse input ──
          (guarantees (reports-json-guarantees
                       (cdr (assoc :guarantees input-json))))
-         (tau-prime (make-tau-state :value (cdr (assoc :slot input-json))))
+         (tau-prime (make-tau-state :slot (cdr (assoc :slot input-json))))
          ;; known-packages is now computed internally by transition-rho
          ;; from recent-blocks via collect-known-package-hashes
          ;; ── Parse pre-state ──
-         (pre-rho (make-rho :assignments
+         (pre-rho (make-rho-state :assignments
                    (reports-json-assignments
                     (or (cdr (assoc :avail--assignments pre-json))
                         (cdr (assoc :avail-assignments pre-json))))))
-         (pre-validators (make-kappa :validators
+         (pre-validators (make-kappa-state :validators
                           (json-validators
                            (or (cdr (assoc :curr--validators pre-json))
                                (cdr (assoc :curr-validators pre-json))))))
@@ -357,8 +362,8 @@
                                  (cdr (assoc :prev-validators pre-json))))))
          (entropy (let ((hashes (mapcar #'hex-to-bytes
                                         (or (cdr (assoc :entropy pre-json)) '()))))
-                    (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
-                              :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
+                    (make-eta-state :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+                                    :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
          (offenders (mapcar #'hex-to-bytes
                             (or (cdr (assoc :offenders pre-json)) '())))
          (recent-blocks (reports-json-recent-blocks
@@ -406,21 +411,25 @@
                      (:full +full-chainspec+)
                      (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
-          ;; transition-rho returns rho closure or signals guarantee-error
-          (let ((rho-prime (transition-rho guarantees pre-rho
-                                          :tau-prime tau-prime
-                                          :kappa pre-validators
-                                          :lambda-prev prev-validators
-                                          :eta entropy
-                                          :offenders offenders
-                                          :recent-blocks recent-blocks
-                                          :auth-pools auth-pools
-                                          :accounts accounts)))
+          ;; rho closure :transition — signals guarantee-error on failure
+          (let ((rho-prime (funcall pre-rho :transition
+                                   :guarantees guarantees
+                                   :tau-prime tau-prime
+                                   :kappa pre-validators
+                                   :lambda-prev prev-validators
+                                   :eta entropy
+                                   :offenders offenders
+                                   :recent-blocks recent-blocks
+                                   :auth-pools auth-pools
+                                   :accounts accounts)))
             ;; ── Success path: all EG valid, ρ' computed ──
             (if expected-ok
                 (multiple-value-bind (reported reporters)
                     (compute-output-packages-and-reporters
-                     guarantees pre-validators prev-validators tau-prime)
+                     guarantees
+                     pre-validators
+                     prev-validators
+                     (funcall tau-prime :epoch))
                   (let* ((cores-stats-prime (update-cores-statistics
                                              pre-cores-stats guarantees))
                          (services-stats-prime (update-services-statistics

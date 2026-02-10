@@ -28,36 +28,53 @@
      (:file "constants")
      (:file "primitives")
      (:file "types")
+     (:file "protocol")
      (:file "state-keys")
      (:file "merkle-trie")
      (:file "mmr")
      (:file "display")))
    
-   ;; 3. State — One file per GP state component (GP I.4.2)
-   ;;    Order matters: σ first (defines make-state), then τ (first real closure),
-   ;;    then components in dependency order for transitions.
+   ;; 3. Bloc — Block data structures B=(H,E) + codec + validation
+   ;;    Uses define-value-object (v1) — no state transitions, no Merkle keys.
+   (:module "bloc"
+    :pathname "src/bloc"
+    :serial t
+    :components
+    ((:file "tickets")       ;; ET codec
+     (:file "disputes")      ;; ED codec
+     (:file "preimages")     ;; EP codec
+     (:file "assurances")    ;; EA codec
+     (:file "work-report")   ;; WorkReport, WorkResult codec
+     (:file "guarantees")    ;; EG codec (depends on work-report)
+     (:file "header")        ;; H closure + epoch-marker, tickets-mark codec
+     (:file "extrinsic")     ;; E closure + HX computation
+     (:file "block")         ;; B ≡ (H, E) closure
+     (:file "validation")))  ;; HX, HO, env checks
+   
+   ;; 4. State — One file per GP state component (GP I.4.2)
+   ;;    Uses define-state-closure (v2) — self-transforming, codec, Merkle.
    (:module "state"
     :pathname "src/state"
     :serial t
     :components
-    ((:file "sigma")      ;; σ  — overall state (make-state, make-genesis-state)
-     (:file "tau")        ;; τ  — timeslot       ✓ define-state-closure
-     (:file "eta")        ;; η  — entropy         ◐ define-state-closure
-     (:file "kappa")      ;; κ  — current validators ◐
-     (:file "lambda")     ;; λ  — archived validators ◐
-     (:file "beta")       ;; β  — recent history   ○
-     (:file "psi")        ;; ψ  — judgments        ○
-     (:file "rho")        ;; ρ  — core assignments ○
-     (:file "iota")       ;; ι  — enqueued validators ○
-     (:file "gamma")      ;; γ  — safrole         ○
-     (:file "alpha")      ;; α  — authorizations  ○
-     (:file "phi")        ;; ϕ  — auth queue      ○
-     (:file "delta")      ;; δ  — services        ○
-     (:file "pi")         ;; π  — statistics      ○
-     (:file "chi")        ;; χ  — privileged IDs  ○
-     (:file "omega")      ;; ω  — accum queue     ○
-     (:file "xi")         ;; ξ  — accum history   ○
-     (:file "theta")))    ;; θ  — accum outputs   ○
+    ((:file "tau")        ;; τ  — timeslot         ✓ define-state-closure
+     (:file "eta")        ;; η  — entropy          ✓ define-state-closure
+     (:file "kappa")      ;; κ  — current validators ✓
+     (:file "lambda")     ;; λ  — archived validators ✓
+     (:file "beta")       ;; β  — recent history   ✓
+     (:file "psi")        ;; ψ  — judgments        ✓
+     (:file "rho")        ;; ρ  — core assignments ✓
+     (:file "iota")       ;; ι  — enqueued validators ✓
+     (:file "gamma")      ;; γ  — safrole          ✓
+     (:file "alpha")      ;; α  — authorizations   ○
+     (:file "phi")        ;; ϕ  — auth queue       ○
+     (:file "delta")      ;; δ  — services         ○
+     (:file "pi")         ;; π  — statistics       ○
+     (:file "chi")        ;; χ  — privileged IDs   ○
+     (:file "omega")      ;; ω  — ready work-reports ○
+     (:file "xi")         ;; ξ  — recent accum     ○
+     (:file "theta")      ;; θ  — accum queue      ○
+     (:file "sigma")))    ;; σ  — overall state (last — needs all components)
    
-   ;; 4. Υ — Top-level STF orchestrator (GP §4.2.1)
+   ;; 5. Υ — Top-level STF orchestrator (GP §4.2.1)
    (:file "upsilon" :pathname "src/upsilon")))

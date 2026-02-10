@@ -1,5 +1,5 @@
 ;;;; tests/test-psi.lisp — ψ (Disputes) STF tests
-;;;; Full validation: transition-psi against jamtestvectors/stf/disputes
+;;;; Full validation: psi-state :transition against jamtestvectors/stf/disputes
 ;;;; Covers: verdicts, culprits, faults, signatures, ordering, age, vote split
 ;;;;
 ;;;; 56 vectors total: 28 tiny + 28 full
@@ -15,11 +15,11 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun json-psi-to-plist (psi-json)
-  "Convert JSON psi state to a psi closure."
-  (make-psi :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
-        :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
-        :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
-        :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
+  "Convert JSON psi state to a psi-state closure."
+  (make-psi-state :good (json-hashes-to-bytes (cdr (assoc :good psi-json)))
+                  :bad (json-hashes-to-bytes (cdr (assoc :bad psi-json)))
+                  :wonky (json-hashes-to-bytes (cdr (assoc :wonky psi-json)))
+                  :offenders (json-hashes-to-bytes (cdr (assoc :offenders psi-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; COMPARISON (psi-specific)
@@ -48,9 +48,9 @@
 
 (defun test-psi-codec-roundtrip (psi label)
   "Verify encode/decode roundtrip for ψ."
-  (let* ((encoded (encode-state-psi psi))
+  (let* ((encoded (funcall psi :encoded))
          (decoded (multiple-value-bind (result consumed)
-                      (decode-state-psi encoded)
+                      (funcall (make-psi-state) :decode encoded 0)
                     (declare (ignore consumed))
                     result)))
     (unless (compare-psi (format nil "~A/codec-roundtrip" label)
@@ -74,9 +74,9 @@
          ;; Parse input
          (disputes (json-disputes (cdr (assoc :disputes input))))
          ;; Parse pre-state
-         (tau (make-tau-state :value (cdr (assoc :tau pre))))
+         (tau (make-tau-state :slot (cdr (assoc :tau pre))))
          (psi (json-psi-to-plist (cdr (assoc :psi pre))))
-         (kappa (make-kappa :validators (json-validators (cdr (assoc :kappa pre)))))
+         (kappa (make-kappa-state :validators (json-validators (cdr (assoc :kappa pre)))))
          (lambda-prev (make-lambda-state :validators (json-validators (cdr (assoc :lambda pre)))))
          ;; Expected output
          (expected-ok (assoc :ok output))
@@ -88,9 +88,11 @@
                     (:full +full-chainspec+)
                     (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
-          (multiple-value-bind (psi-prime v-list)
-              (transition-psi disputes psi tau kappa lambda-prev)
-            (declare (ignore v-list))
+          (let ((psi-prime (funcall psi :transition
+                                    :disputes disputes
+                                    :tau tau
+                                    :kappa kappa
+                                    :lambda-prev lambda-prev)))
             (if expected-ok
                 ;; Expected success — deep content comparison of post-state ψ
                 (let* ((post-psi (json-psi-to-plist (cdr (assoc :psi post))))
@@ -112,9 +114,12 @@
           (format t "  💥 ~A — ~A~%" fname e))))))
 
 ;;; Run all tests
-(dolist (spec '(:tiny :full))
-  (format t "~%=== Disputes STF Tests (~(~A~)) ===~%" spec)
-  (let ((dir (format nil "tests/jamtestvectors/stf/disputes/~(~A~)/" spec)))
-    (dolist (path (sort (directory (merge-pathnames "*.json" dir)) #'string<
-                        :key #'namestring))
-      (run-disputes-test (namestring path) spec))))
+(let ((total 0) (passed 0))
+  (dolist (spec '(:tiny :full))
+    (format t "~%=== Disputes STF Tests (~(~A~)) ===~%" spec)
+    (let ((dir (format nil "tests/jamtestvectors/stf/disputes/~(~A~)/" spec)))
+      (dolist (path (sort (directory (merge-pathnames "*.json" dir)) #'string<
+                          :key #'namestring))
+        (incf total)
+        (run-disputes-test (namestring path) spec))))
+  (format t "~%  ✅ ψ' (disputes): ~D vectors processed~%" total))

@@ -245,6 +245,18 @@
     (values (nreverse validators) (- pos offset))))
 
 ;;; ==========================================================================
+;;; Null Validator Key — GP (6.14)
+;;; ==========================================================================
+;;; K = [0,0,...] — 336 zero bytes. Used by Φ(k) to blank offending validators.
+
+(defparameter +null-validator-key+
+  (list :bandersnatch (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
+        :ed25519      (make-array +ed25519-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+        :bls          (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+        :metadata     (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0))
+  "K = [0,0,...] — null validator key (336 zero bytes). GP (6.14).")
+
+;;; ==========================================================================
 ;;; Service Account Index (NS)
 ;;; ==========================================================================
 ;;; NS ≡ N232 - Service account index (u32)

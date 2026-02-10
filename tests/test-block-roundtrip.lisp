@@ -143,7 +143,7 @@
         (check-bytes (format nil "~A: HO[0]" label)
                      (first dec-off)
                      (first json-off))))
-    ;; Epoch mark
+    ;; Epoch mark (now a closure or nil)
     (let ((dec-em (funcall h :epoch-mark))
           (json-em (j jh :epoch--mark)))
       (cond
@@ -152,34 +152,47 @@
         ((and dec-em (not (j-null-p json-em)))
          (check (format nil "~A: HE present" label) t)
          (check-bytes (format nil "~A: HE.entropy" label)
-                      (getf dec-em :entropy) (j json-em :entropy))
+                      (funcall dec-em :entropy) (j json-em :entropy))
          (check-bytes (format nil "~A: HE.tickets-entropy" label)
-                      (getf dec-em :tickets-entropy)
+                      (funcall dec-em :tickets-entropy)
                       (j json-em :tickets--entropy))
-         (let ((dec-vals (getf dec-em :validators))
+         (let ((dec-vals (funcall dec-em :validators))
                (json-vals (j json-em :validators)))
            (check-count (format nil "~A: HE.validators count" label)
                         (length dec-vals) (length json-vals))
-           ;; Spot-check first validator
-           (when (and dec-vals json-vals)
-             (let ((dv (first dec-vals))
-                   (jv (first json-vals)))
-               (check-bytes (format nil "~A: HE.validators[0].bandersnatch" label)
+           ;; Validate every validator (bandersnatch + ed25519)
+           (loop for dv in dec-vals
+                 for jv in json-vals
+                 for i from 0
+                 do (check-bytes (format nil "~A: HE.validators[~D].bandersnatch" label i)
                             (getf dv :bandersnatch) (j jv :bandersnatch))
                ;; cl-json converts "ed25519" → :ED-25519 (hyphen before digits)
-               (check-bytes (format nil "~A: HE.validators[0].ed25519" label)
-                            (getf dv :ed25519) (j jv :ed-25519))))))
+                    (check-bytes (format nil "~A: HE.validators[~D].ed25519" label i)
+                                 (getf dv :ed25519) (j jv :ed-25519)))))
         (t
          (check (format nil "~A: HE match" label) nil
                 (format nil "decoded=~A json=~A" (not (null dec-em)) (not (j-null-p json-em)))))))
-    ;; Tickets mark
+    ;; Tickets mark (closure or nil) — validate content
     (let ((dec-tm (funcall h :tickets-mark))
           (json-tm (j jh :tickets--mark)))
       (cond
         ((and (null dec-tm) (j-null-p json-tm))
          (check (format nil "~A: HW (tickets-mark) = None" label) t))
         ((and dec-tm (not (j-null-p json-tm)))
-         (check (format nil "~A: HW present" label) t))
+         (check (format nil "~A: HW present" label) t)
+         (let ((dec-tickets (funcall dec-tm :tickets)))
+           (check-count (format nil "~A: HW ticket count" label)
+                        (length dec-tickets) (length json-tm))
+           ;; Validate every ticket id + attempt
+           (loop for dt in dec-tickets
+                 for jt in json-tm
+                 for i from 0
+                 do (check-bytes (format nil "~A: HW[~D].id" label i)
+                                 (getf dt :id) (j jt :id))
+                    (check (format nil "~A: HW[~D].attempt" label i)
+                           (= (getf dt :attempt) (j jt :attempt))
+                           (format nil "got ~D want ~D"
+                                   (getf dt :attempt) (j jt :attempt))))))
         (t
          (check (format nil "~A: HW match" label) nil
                 (format nil "decoded=~A json=~A" (not (null dec-tm)) (not (j-null-p json-tm)))))))))
@@ -459,30 +472,87 @@
         (check (format nil "~A: decode/encode" label) nil (format nil "~A" e))))))
 
 (defun test-header-file-roundtrip (bin-path label)
-  "Header roundtrip via closure: bin → decode → make-header → :encoded → compare."
+  "Header roundtrip via closure: bin → decode-header → :encoded → compare."
   (let ((bin (load-bin bin-path)))
     (handler-case
-        (multiple-value-bind (h-plist consumed) (decode-header bin 0)
+        (multiple-value-bind (header consumed) (decode-header bin 0)
           (check (format nil "~A: consumed all ~D bytes" label (length bin))
                  (= consumed (length bin))
                  (format nil "consumed ~D / ~D" consumed (length bin)))
-          (let* ((header-closure (apply #'make-header h-plist))
-                 (re-encoded (funcall header-closure :encoded)))
+          (let ((re-encoded (funcall header :encoded)))
             (check (format nil "~A: roundtrip byte-exact" label)
                    (bytes= re-encoded bin))))
       (error (e)
         (check (format nil "~A: header decode/encode" label) nil (format nil "~A" e))))))
 
+(defun test-header-json-crosscheck (bin-path json-path label)
+  "Decode header from .bin, cross-validate field content against .json."
+  (handler-case
+      (let* ((bin (load-bin bin-path))
+             (json (load-json json-path))
+             (jh json))
+        (multiple-value-bind (h consumed) (decode-header bin 0)
+          (declare (ignore consumed))
+          (format t "~%  ── ~A: JSON cross-check ──~%" label)
+          ;; Scalars
+          (check-bytes (format nil "~A: HP" label) (funcall h :parent-hash) (j jh :parent))
+          (check-bytes (format nil "~A: HR" label) (funcall h :state-root) (j jh :parent--state--root))
+          (check-bytes (format nil "~A: HX" label) (funcall h :extrinsic-hash) (j jh :extrinsic--hash))
+          (check (format nil "~A: HT" label) (= (funcall h :slot) (j jh :slot)))
+          (check (format nil "~A: HI" label) (= (funcall h :author-index) (j jh :author--index)))
+          (check-bytes (format nil "~A: HV" label) (funcall h :entropy-source) (j jh :entropy--source))
+          (check-bytes (format nil "~A: HS" label) (funcall h :seal) (j jh :seal))
+          ;; HO
+          (let ((dec-off (funcall h :offenders-mark))
+                (json-off (j jh :offenders--mark)))
+            (check-count (format nil "~A: HO count" label) (length dec-off) (length json-off))
+            (loop for dk in dec-off for jk in json-off for i from 0
+                  do (check-bytes (format nil "~A: HO[~D]" label i) dk jk)))
+          ;; HE — epoch-mark
+          (let ((dec-em (funcall h :epoch-mark))
+                (json-em (j jh :epoch--mark)))
+            (cond
+              ((and (null dec-em) (j-null-p json-em))
+               (check (format nil "~A: HE = None" label) t))
+              ((and dec-em (not (j-null-p json-em)))
+               (check-bytes (format nil "~A: HE.entropy" label)
+                            (funcall dec-em :entropy) (j json-em :entropy))
+               (check-bytes (format nil "~A: HE.tickets-entropy" label)
+                            (funcall dec-em :tickets-entropy) (j json-em :tickets--entropy))
+               (let ((dv (funcall dec-em :validators))
+                     (jv (j json-em :validators)))
+                 (check-count (format nil "~A: HE.validators count" label) (length dv) (length jv))
+                 (loop for d in dv for e in jv for i from 0
+                       do (check-bytes (format nil "~A: HE.v[~D].bn" label i) (getf d :bandersnatch) (j e :bandersnatch))
+                          (check-bytes (format nil "~A: HE.v[~D].ed" label i) (getf d :ed25519) (j e :ed-25519)))))
+              (t (check (format nil "~A: HE mismatch" label) nil))))
+          ;; HW — tickets-mark
+          (let ((dec-tm (funcall h :tickets-mark))
+                (json-tm (j jh :tickets--mark)))
+            (cond
+              ((and (null dec-tm) (j-null-p json-tm))
+               (check (format nil "~A: HW = None" label) t))
+              ((and dec-tm (not (j-null-p json-tm)))
+               (let ((tix (funcall dec-tm :tickets)))
+                 (check-count (format nil "~A: HW count" label) (length tix) (length json-tm))
+                 (loop for dt in tix for jt in json-tm for i from 0
+                       do (check-bytes (format nil "~A: HW[~D].id" label i) (getf dt :id) (j jt :id))
+                          (check (format nil "~A: HW[~D].attempt" label i)
+                                 (= (getf dt :attempt) (j jt :attempt))
+                                 (format nil "got ~D want ~D" (getf dt :attempt) (j jt :attempt))))))
+              (t (check (format nil "~A: HW mismatch" label) nil))))))
+    (error (e)
+      (check (format nil "~A: JSON crosscheck" label) nil (format nil "~A" e)))))
+
 (defun test-extrinsic-file-roundtrip (bin-path label)
-  "Extrinsic roundtrip via closure: bin → decode → make-extrinsic → :encoded → compare."
+  "Extrinsic roundtrip via closure: bin → decode-extrinsic → :encoded → compare."
   (let ((bin (load-bin bin-path)))
     (handler-case
-        (multiple-value-bind (e-plist consumed) (decode-extrinsic bin 0)
+        (multiple-value-bind (extrinsic consumed) (decode-extrinsic bin 0)
           (check (format nil "~A: consumed all ~D bytes" label (length bin))
                  (= consumed (length bin))
                  (format nil "consumed ~D / ~D" consumed (length bin)))
-          (let* ((ex-closure (apply #'make-extrinsic e-plist))
-                 (re-encoded (funcall ex-closure :encoded)))
+          (let ((re-encoded (funcall extrinsic :encoded)))
             (check (format nil "~A: roundtrip byte-exact" label)
                    (bytes= re-encoded bin))))
       (error (e)
@@ -503,12 +573,22 @@
         (format t "~%  ── ~A ──~%" label)
         (with-chain chain
           ;; Headers (2 variants: epoch=Some/tickets=None, epoch=None/tickets=Some)
+          ;; Binary roundtrip
           (test-header-file-roundtrip
            (format nil "~Aheader_0.bin" base)
            (format nil "~A/header_0 (epoch=Some)" label))
           (test-header-file-roundtrip
            (format nil "~Aheader_1.bin" base)
            (format nil "~A/header_1 (tickets=Some)" label))
+          ;; JSON content cross-validation
+          (test-header-json-crosscheck
+           (format nil "~Aheader_0.bin" base)
+           (format nil "~Aheader_0.json" base)
+           (format nil "~A/header_0 JSON" label))
+          (test-header-json-crosscheck
+           (format nil "~Aheader_1.bin" base)
+           (format nil "~Aheader_1.json" base)
+           (format nil "~A/header_1 JSON" label))
 
           ;; Individual extrinsic components
           (test-simple-roundtrip

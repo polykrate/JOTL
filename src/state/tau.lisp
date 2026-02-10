@@ -11,19 +11,18 @@
 ;;;;   :phase             → slot mod E                       (6.2)
 ;;;;   :rotation          → ⌊slot/R⌋                         (11.3)
 ;;;;   :min-allowed-slot  → R·max(0, ⌊slot/R⌋ − 1)          (11.26)
-;;;;   :encoded           → E4(slot)
+;;;;   :encoded           → E4(slot)                          (codec)
+;;;;   :decode bytes off  → (values τ-closure consumed)       (codec)
 ;;;;   :stale? timeout    → slot ≥ timeout + U               (11.17)
 ;;;;   :slot>= other      → slot ≥ other
 ;;;;   :lookup-fresh? s   → slot − s ≤ L                     (11.26)
 ;;;;   :epoch-changed? τ' → ⌊slot/E⌋ ≠ ⌊slot'/E⌋
 ;;;;   :transition :header h → τ' closure                    (4.5)
-;;;;   :decode bytes off  → (values τ-closure consumed)
 
 (in-package #:jotl)
 
 (define-state-closure tau-state
   ((slot 0))
-  (:state-key +C11+)
 
   ;; ── Codec ────────────────────────────────────────────────────
   (:encoded :memo (E4 slot))

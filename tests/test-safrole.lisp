@@ -25,10 +25,10 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun safrole-json-eta (eta-json)
-  "Convert JSON η (list of 4 hex strings) → eta closure."
+  "Convert JSON η (list of 4 hex strings) → eta-state closure."
   (let ((hashes (mapcar #'hex-to-bytes eta-json)))
-    (make-eta :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
-              :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
+    (make-eta-state :eta-0 (nth 0 hashes) :eta-1 (nth 1 hashes)
+                    :eta-2 (nth 2 hashes) :eta-3 (nth 3 hashes))))
 
 (defun safrole-json-tickets (tickets-json)
   "Convert JSON state tickets [{id,attempt},...] → list of plists."
@@ -72,7 +72,7 @@
                   (cdr (assoc :validators em-json))))))
 
 (defun safrole-json-tickets-mark (tm-json)
-  "Convert JSON tickets_mark [{id,attempt},...] → list of plists.
+  "Convert JSON tickets_mark [{id,attempt},...] → list of ticket plists.
    Returns NIL if tm-json is NIL."
   (when tm-json
     (safrole-json-tickets tm-json)))
@@ -144,7 +144,7 @@
     ok))
 
 (defun compare-epoch-mark (label actual expected)
-  "Compare two epoch marks. Returns T if match."
+  "Compare two epoch marks (plists or nil). Returns T if match."
   (cond
     ((and (null actual) (null expected)) t)
     ((or  (null actual) (null expected))
@@ -171,7 +171,7 @@
        ok))))
 
 (defun compare-tickets-mark (label actual expected)
-  "Compare two tickets marks (list of tickets). Returns T if match."
+  "Compare two tickets marks (list of ticket plists or nil). Returns T if match."
   (cond
     ((and (null actual) (null expected)) t)
     ((or  (null actual) (null expected))
@@ -244,47 +244,54 @@
 (defun test-safrole-codec-roundtrip (label state)
   "Encode/decode each segment and re-compare. Returns T if all pass."
   (let ((ok t))
-    ;; τ roundtrip
-    (let* ((tau-cl (make-tau-state :value (getf state :tau)))
-           (encoded (encode-state-tau tau-cl))
-           (decoded (decode-state-tau encoded)))
-      (unless (eql (funcall decoded :value) (getf state :tau))
+    ;; τ roundtrip (via closure messages)
+    (let* ((tau-cl (make-tau-state :slot (getf state :tau)))
+           (encoded (funcall tau-cl :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-tau-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
+      (unless (eql (funcall decoded :slot) (getf state :tau))
         (format t "    ✗ ~A/codec.tau: ~D ≠ ~D~%" label
-                (funcall decoded :value) (getf state :tau))
+                (funcall decoded :slot) (getf state :tau))
         (setf ok nil)))
-    ;; η roundtrip
-    (let* ((encoded (encode-state-eta (getf state :eta)))
-           (decoded (decode-state-eta encoded)))
-      (unless (compare-eta (format nil "~A/codec.eta" label) decoded (getf state :eta))
+    ;; η roundtrip (via closure messages)
+    (let* ((eta-cl (getf state :eta))
+           (encoded (funcall eta-cl :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-eta-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
+      (unless (compare-eta (format nil "~A/codec.eta" label) decoded eta-cl)
         (setf ok nil)))
     ;; κ roundtrip
-    (let* ((kappa-cl (make-kappa :validators (getf state :kappa)))
-           (encoded (encode-state-kappa kappa-cl))
-           (decoded (decode-state-kappa encoded)))
+    (let* ((kappa-cl (make-kappa-state :validators (getf state :kappa)))
+           (encoded (funcall kappa-cl :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-kappa-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
       (unless (compare-validator-list (format nil "~A/codec.kappa" label)
                                        (funcall decoded :validators) (getf state :kappa))
         (setf ok nil)))
     ;; λ roundtrip
     (let* ((lambda-cl (make-lambda-state :validators (getf state :lambda)))
-           (encoded (encode-state-lambda lambda-cl))
-           (decoded (decode-state-lambda encoded)))
+           (encoded (funcall lambda-cl :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-lambda-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
       (unless (compare-validator-list (format nil "~A/codec.lambda" label)
                                        (funcall decoded :validators) (getf state :lambda))
         (setf ok nil)))
     ;; ι roundtrip
-    (let* ((iota-cl (make-iota :validators (getf state :iota)))
-           (encoded (encode-state-iota iota-cl))
-           (decoded (decode-state-iota encoded)))
+    (let* ((iota-cl (make-iota-state :validators (getf state :iota)))
+           (encoded (funcall iota-cl :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-iota-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
       (unless (compare-validator-list (format nil "~A/codec.iota" label)
                                        (funcall decoded :validators) (getf state :iota))
         (setf ok nil)))
     ;; γ roundtrip (full gamma: γk + γz + γs + γa)
-    (let* ((gamma-closure (make-gamma :pending-keys    (getf state :gamma-k)
-                                      :ring-commitment (getf state :gamma-z)
-                                      :sealing         (getf state :gamma-s)
-                                      :accumulator     (getf state :gamma-a)))
-           (encoded (encode-state-gamma gamma-closure))
-           (decoded (decode-state-gamma encoded)))
+    (let* ((gamma-closure (make-gamma-state :pending-keys    (getf state :gamma-k)
+                                            :ring-commitment (getf state :gamma-z)
+                                            :sealing         (getf state :gamma-s)
+                                            :accumulator     (getf state :gamma-a)))
+           (encoded (funcall gamma-closure :encoded))
+           (decoded (multiple-value-bind (obj n) (funcall (make-gamma-state) :decode encoded 0)
+                      (declare (ignore n)) obj)))
       ;; Check γk
       (unless (compare-validator-list (format nil "~A/codec.gamma-k" label)
                                        (funcall decoded :pending-keys)
@@ -330,7 +337,7 @@
    Signals safrole-error or assertion error on invalid blocks."
   (let* (;; ── Pre-state segments ──
          (tau-raw    (getf pre-state :tau))
-         (tau        (make-tau-state :value tau-raw))  ;; closure
+         (tau        (make-tau-state :slot tau-raw))  ;; closure
          (eta        (getf pre-state :eta))
          (kappa-keys (getf pre-state :kappa))
          (lambda-keys (getf pre-state :lambda))
@@ -341,37 +348,51 @@
          (gamma-z    (getf pre-state :gamma-z))
          (offenders  (getf pre-state :post-offenders))
          ;; Wrap raw lists in closures for STF calls
-         (kappa-cl   (make-kappa :validators kappa-keys))
+         (kappa-cl   (make-kappa-state :validators kappa-keys))
          (lambda-cl  (make-lambda-state :validators lambda-keys))
-         (iota-cl    (make-iota :validators iota-keys))
+         (iota-cl    (make-iota-state :validators iota-keys))
          ;; Build gamma closure
-         (gamma      (make-gamma :pending-keys    gamma-k
-                                 :ring-commitment gamma-z
-                                 :sealing         gamma-s
-                                 :accumulator     gamma-a))
+         (gamma      (make-gamma-state :pending-keys    gamma-k
+                                       :ring-commitment gamma-z
+                                       :sealing         gamma-s
+                                       :accumulator     gamma-a))
          ;; ── Input ──
          (slot          (getf input :slot))
          (entropy       (getf input :entropy))
          (tickets       (getf input :tickets))
          ;; Build header
          (header        (make-safrole-test-header slot entropy))
-         ;; ── Wave 1: τ enriched (shadow), η', κ', λ' ──
-         (tau           (transition-tau tau header))           ;; enriched: :value=τ, :prime=τ'
-         (eta-prime     (transition-eta header tau eta))
-         (kappa-prime   (transition-kappa tau kappa-cl gamma))
-         (lambda-prime  (transition-lambda tau lambda-cl kappa-cl))
+         ;; ── Wave 0: τ' < (H) ──
+         (tau-prime     (funcall tau :transition :header header))
+         ;; ── Wave 1: η', κ', λ' ──
+         (eta-prime     (funcall eta :transition
+                                 :header header :tau tau :tau-prime tau-prime))
+         (kappa-prime   (funcall kappa-cl :transition
+                                :tau tau :tau-prime tau-prime :gamma gamma))
+         (lambda-prime  (funcall lambda-cl :transition
+                                 :tau tau :tau-prime tau-prime :kappa kappa-cl))
          ;; psi-prime as closure (offenders provided by test vector)
-         (psi-prime     (make-psi :offenders offenders))
+         (psi-prime     (make-psi-state :offenders offenders))
          ;; ── Wave 2: γ' ≺ (H, τ, ET, γ, ι, η', κ', ψ') ──
-         (gamma-prime   (transition-gamma header tau tickets gamma
-                                          iota-cl eta-prime kappa-prime psi-prime))
-         ;; ── Output markers ──
+         (gamma-prime   (funcall gamma :transition
+                                 :tau tau :tau-prime tau-prime
+                                 :tickets tickets :iota iota-cl
+                                 :eta-prime eta-prime :kappa-prime kappa-prime
+                                 :psi-prime psi-prime))
+         ;; ── Output markers (plists from standalone fns) ──
          (gamma-p-prime (funcall gamma-prime :pending-keys))
-         (epoch-mark    (compute-epoch-mark tau eta gamma-p-prime))
-         (tickets-mark  (compute-winning-tickets-mark tau gamma-a)))
+         (epoch-change  (funcall tau :epoch-changed? tau-prime))
+         (epoch-mark    (compute-epoch-mark epoch-change
+                                            (funcall eta :accumulator)
+                                            (funcall eta :last-epoch-entropy)
+                                            gamma-p-prime))
+         (tickets-mark  (compute-winning-tickets-mark epoch-change
+                                                      (funcall tau :phase)
+                                                      (funcall tau-prime :phase)
+                                                      gamma-a)))
     (values
      ;; Post-state plist — extract raw values for comparison
-     (list :tau             (funcall (funcall tau :prime) :value)
+     (list :tau             (funcall tau-prime :slot)
            :eta             eta-prime
            :lambda          (funcall lambda-prime :validators)
            :kappa           (funcall kappa-prime :validators)

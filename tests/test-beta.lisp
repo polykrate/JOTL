@@ -9,6 +9,8 @@
 
 (in-package #:jotl)
 
+(ql:quickload :cl-json :silent t)
+
 ;; Load shared test helpers
 (load (merge-pathnames "test-utils.lisp" *load-pathname*))
 
@@ -16,7 +18,7 @@
 ;;; BINARY CODEC — History Test Vector Format
 ;;; ═══════════════════════════════════════════════════════════════
 ;;;
-;;; State codec (decode-state-beta, encode-state-beta, etc.) → stf/beta.lisp
+;;; State codec via beta-state closure (:decode, :encoded messages).
 ;;; Below: only test-vector-specific format (Input + TestCase).
 
 ;; -- Input = HeaderHash(32) + StateRoot(32) + OpaqueHash(32) + Seq<ReportedWP> --
@@ -54,10 +56,12 @@
   (let ((offset 0))
     (multiple-value-bind (input consumed) (decode-history-input bytes offset)
       (incf offset consumed)
-      (multiple-value-bind (pre-beta consumed) (decode-state-beta bytes offset)
+      (multiple-value-bind (pre-beta consumed)
+          (funcall (make-beta-state) :decode bytes offset)
         (incf offset consumed)
         ;; Output = NULL (0 bytes)
-        (multiple-value-bind (post-beta consumed) (decode-state-beta bytes offset)
+        (multiple-value-bind (post-beta consumed)
+            (funcall (make-beta-state) :decode bytes offset)
           (incf offset consumed)
           (assert (= offset (length bytes)) ()
                   "Decoded ~D bytes but file has ~D bytes" offset (length bytes))
@@ -67,9 +71,9 @@
   "Encode complete history test vector to binary."
   (concatenate '(vector (unsigned-byte 8))
                (encode-history-input input)
-               (encode-state-beta pre-beta)
+               (funcall pre-beta :encoded)
                ;; Output = NULL (0 bytes)
-               (encode-state-beta post-beta)))
+               (funcall post-beta :encoded)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; JSON PARSING (for cross-validation)
@@ -91,11 +95,11 @@
    :reported     (json-work-packages (cdr (assoc :reported rec)))))
 
 (defun json-beta-to-closure (beta-json)
-  "Parse JSON beta state → make-beta closure."
+  "Parse JSON beta state → make-beta-state closure."
   (let* ((history-json (cdr (assoc :history beta-json)))
          (mmr-json     (cdr (assoc :mmr beta-json)))
          (peaks-json   (cdr (assoc :peaks mmr-json))))
-    (make-beta
+    (make-beta-state
      :history   (mapcar #'json-history-record history-json)
      :mmr-peaks (coerce (mapcar (lambda (p)
                                   (if (or (null p) (eq p :null))
@@ -256,13 +260,31 @@
             (format t "  ✗ ~A: bin post_state ≠ JSON post_state~%" label)
             (setf ok nil))
 
-          ;; ── Step 4: Run STF ──
-          (let ((actual-beta (transition-beta-from-inputs
-                              (getf bin-input :header-hash)
-                              (getf bin-input :parent-state-root)
-                              (getf bin-input :accumulate-root)
-                              (getf bin-input :work-packages)
-                              bin-pre)))
+          ;; ── Step 4: Run STF via closure messages ──
+          (let* ((header-hash (getf bin-input :header-hash))
+                 (parent-state-root (getf bin-input :parent-state-root))
+                 (accumulate-root (getf bin-input :accumulate-root))
+                 (work-packages (getf bin-input :work-packages))
+                 ;; Minimal header stub for the messages β needs
+                 (fake-header (lambda (msg &rest args)
+                                (declare (ignore args))
+                                (case msg
+                                  (:state-root parent-state-root)
+                                  (:hash header-hash)
+                                  (otherwise (error "Test header stub: ~A" msg)))))
+                 ;; Wrap work-packages as fake guarantees
+                 (fake-guarantees
+                   (mapcar (lambda (wp)
+                             (list :report (list :package-spec wp)))
+                           work-packages))
+                 ;; Wave 1: β† via :transition-dagger
+                 (beta-dagger (funcall bin-pre :transition-dagger
+                                       :header fake-header))
+                 ;; Wave 4: β' via :transition (with pre-computed accumulate-root)
+                 (actual-beta (funcall beta-dagger :transition
+                                       :header fake-header
+                                       :guarantees fake-guarantees
+                                       :accumulate-root accumulate-root)))
 
             ;; ── Step 5: Compare STF result vs expected ──
             (unless (compare-beta (format nil "~A/stf" label) actual-beta bin-post)

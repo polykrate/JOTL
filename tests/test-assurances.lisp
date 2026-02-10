@@ -13,6 +13,8 @@
 ;;;; 20 vectors total: 10 tiny + 10 full
 ;;;; Green 🟢 = expected OK, Red 🔴 = expected error
 
+(ql:quickload :cl-json :silent t)
+
 (in-package :jotl)
 
 ;; Load shared test helpers
@@ -110,8 +112,10 @@
   "Verify encode/decode roundtrip for ρ (rho closure).
    Returns T if roundtrip matches."
   (handler-case
-      (let* ((encoded (encode-state-rho rho))
-             (decoded (decode-state-rho encoded)))
+      (let* ((encoded (funcall rho :encoded))
+             (decoded (multiple-value-bind (obj n)
+                          (funcall (make-rho-state) :decode encoded 0)
+                        (declare (ignore n)) obj)))
         (if (compare-assignments (format nil "~A/roundtrip" label)
                                  (funcall decoded :assignments)
                                  (funcall rho :assignments))
@@ -157,14 +161,14 @@
          ;; ── Parse input ──
          (assurances (assurance-json-assurances
                       (cdr (assoc :assurances input-json))))
-         (tau-prime (make-tau-state :value (cdr (assoc :slot input-json))))
+         (tau-prime (make-tau-state :slot (cdr (assoc :slot input-json))))
          (parent-hash (hex-to-bytes (cdr (assoc :parent input-json))))
          ;; ── Parse pre-state ──
-         (pre-rho (make-rho :assignments
+         (pre-rho (make-rho-state :assignments
                    (assurance-json-assignments
                            (or (cdr (assoc :avail--assignments pre-json))
                         (cdr (assoc :avail-assignments pre-json))))))
-         (pre-validators (make-kappa :validators
+         (pre-validators (make-kappa-state :validators
                           (json-validators
                            (or (cdr (assoc :curr--validators pre-json))
                                (cdr (assoc :curr-validators pre-json))))))
@@ -188,28 +192,23 @@
                      (:full +full-chainspec+)
                      (otherwise (error "Unknown chain: ~A" spec)))))
       (handler-case
-          (multiple-value-bind (rho-ddagger r-star err)
-              (transition-rho-ddagger assurances pre-rho
-                                     :tau-prime tau-prime
-                                     :parent-hash parent-hash
-                                     :kappa pre-validators)
-            (if err
-                ;; transition-rho-ddagger returned error via handler-case
-                (if expected-err
-                    (format t "  ✅ ~A (err: ~A)~%" fname
-                            (assurance-error-code err))
-                    (format t "  ❌ ~A — unexpected error: ~A~%" fname err))
-                ;; Success path
-                (if expected-ok
+          (let ((rho-ddagger (funcall pre-rho :transition-ddagger
+                                      :assurances assurances
+                                      :tau-prime tau-prime
+                                      :parent-hash parent-hash
+                                      :kappa pre-validators)))
+            ;; Success — assurance-error signals are caught below
+            (if expected-ok
                     (let* (;; Compare ρ‡ vs expected post-state assignments
                            (assign-ok (compare-assignments
                                         (format nil "~A/ρ‡" fname)
                                         (funcall rho-ddagger :assignments)
                                         post-assignments))
-                           ;; Compare R* (reported) vs expected output
+                           ;; Compare R* (reported) via :reported message
                            (report-ok (compare-reported
                                         (format nil "~A/R*" fname)
-                                        r-star expected-reported))
+                                        (funcall rho-ddagger :reported)
+                                        expected-reported))
                            ;; Compare validators unchanged
                            (val-ok (compare-validator-list
                                      (format nil "~A/κ" fname)
@@ -227,7 +226,7 @@
                                   (if codec-ok "" " codec-fail"))))
                     ;; Expected error but got OK
                     (format t "  ❌ ~A — expected error '~A' but got OK~%"
-                            fname expected-err))))
+                            fname expected-err)))
         ;; Direct error (not returned via 3rd value)
         (assurance-error (e)
           (if expected-err
