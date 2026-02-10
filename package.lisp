@@ -238,6 +238,13 @@
    #:guarantee-error #:guarantee-error-code #:guarantee-error-detail
    
    ;; ═══════════════════════════════════════════
+   ;; State — π Validator Statistics (GP §13)
+   ;; ═══════════════════════════════════════════
+   #:make-pi-state #:decode-pi-state
+   #:encode-validator-activity #:decode-validator-activity
+   #:encode-validators-statistics #:decode-validators-statistics
+   
+   ;; ═══════════════════════════════════════════
    ;; Υ — Orchestrator (GP §4.1)
    ;; ═══════════════════════════════════════════
    #:transition-state

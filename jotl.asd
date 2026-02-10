@@ -69,7 +69,7 @@
      (:file "alpha")      ;; α  — authorizations   ○
      (:file "phi")        ;; ϕ  — auth queue       ○
      (:file "delta")      ;; δ  — services         ○
-     (:file "pi")         ;; π  — statistics       ○
+     (:file "pi")         ;; π  — statistics       ✓ define-state-closure
      (:file "chi")        ;; χ  — privileged IDs   ○
      (:file "omega")      ;; ω  — ready work-reports ○
      (:file "xi")         ;; ξ  — recent accum     ○

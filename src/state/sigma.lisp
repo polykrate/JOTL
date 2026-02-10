@@ -63,12 +63,12 @@
     (:psi    (decode-psi-state bytes 0))
     (:rho    (decode-rho-state bytes 0))
     (:gamma  (decode-gamma-state bytes 0))
+    (:pi     (decode-pi-state bytes 0))
     ;; Placeholders — will be added as components get implemented:
     ;; (:alpha  (decode-alpha-state bytes 0))
     ;; (:phi    (decode-phi-state bytes 0))
     ;; (:delta  (decode-delta-state bytes 0))
     ;; (:chi    (decode-chi-state bytes 0))
-    ;; (:pi     (decode-pi-state bytes 0))
     ;; (:omega  (decode-omega-state bytes 0))
     ;; (:xi     (decode-xi-state bytes 0))
     ;; (:theta  (decode-theta-state bytes 0))
@@ -190,12 +190,12 @@
    :psi    (funcall (make-psi-state) :encoded)
    :rho    (funcall (make-rho-state) :encoded)
    :gamma  (funcall (make-gamma-state) :encoded)
+   :pi*    (funcall (make-pi-state) :encoded)
    ;; ── Placeholders — populated when implemented ──
    ;; :alpha  nil   ;; TODO: make-alpha-state
    ;; :delta  nil   ;; TODO: make-delta-state
    ;; :phi    nil   ;; TODO: make-phi-state
    ;; :chi    nil   ;; TODO: make-chi-state
-   ;; :pi*    nil   ;; TODO: make-pi-state
    ;; :omega  nil   ;; TODO: make-omega-state
    ;; :xi     nil   ;; TODO: make-xi-state
    ;; :theta  nil   ;; TODO: make-theta-state

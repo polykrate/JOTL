@@ -152,26 +152,34 @@
             ;; (4.18) δ'  < (EP, δ†, τ')
             ;; (4.19) α'  < (H, EC, ϕ', α)
             ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
+            (let* ((pi-cl (funcall sigma :load :pi))
+                   ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S)
+                   (pi-prime (funcall pi-cl :transition
+                                      :header h
+                                      :tau tau :tau-prime tau-prime
+                                      :tickets e-t :preimages (funcall block :preimages)
+                                      :assurances e-a :guarantees e-g
+                                      :kappa-prime kappa-prime)))
 
-            ;; ── BUILD σ' — re-encode closures back to bytes ──
-            (make-sigma-state
-             :alpha   (funcall sigma :segment :alpha)    ;; TODO: (4.19)
-             :beta    (funcall beta-dagger :encoded)     ;; TODO: (4.17) needs θ'
-             :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
-             :delta   (funcall sigma :segment :delta)    ;; TODO: (4.18)
-             :eta     (funcall eta-prime :encoded)       ;; ✓ (4.8)
-             :iota    (funcall iota :encoded)            ;; TODO: (4.16) accumulate
-             :kappa   (funcall kappa-prime :encoded)     ;; ✓ (4.9)
-             :lambda* (funcall lambda-prime :encoded)    ;; ✓ (4.10)
-             :rho     (funcall rho-prime :encoded)       ;; ✓ (4.12→4.14) ρ† → ρ‡ → ρ'
-             :tau     (funcall tau-prime :encoded)       ;; ✓ (4.5)
-             :phi     (funcall sigma :segment :phi)      ;; TODO: (4.16) accumulate
-             :chi     (funcall sigma :segment :chi)      ;; TODO: (4.16) accumulate
-             :psi     (funcall psi-prime :encoded)       ;; ✓ (4.11)
-             :pi*     (funcall sigma :segment :pi)       ;; TODO: (4.20)
-             :omega   (funcall sigma :segment :omega)    ;; TODO: (4.16) accumulate
-             :xi      (funcall sigma :segment :xi)       ;; TODO: (4.16) accumulate
-             :theta   nil)))))))                         ;; TODO: (4.16) accumulate
+              ;; ── BUILD σ' — re-encode closures back to bytes ──
+              (make-sigma-state
+               :alpha   (funcall sigma :segment :alpha)    ;; TODO: (4.19)
+               :beta    (funcall beta-dagger :encoded)     ;; TODO: (4.17) needs θ'
+               :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
+               :delta   (funcall sigma :segment :delta)    ;; TODO: (4.18)
+               :eta     (funcall eta-prime :encoded)       ;; ✓ (4.8)
+               :iota    (funcall iota :encoded)            ;; TODO: (4.16) accumulate
+               :kappa   (funcall kappa-prime :encoded)     ;; ✓ (4.9)
+               :lambda* (funcall lambda-prime :encoded)    ;; ✓ (4.10)
+               :rho     (funcall rho-prime :encoded)       ;; ✓ (4.12→4.14) ρ† → ρ‡ → ρ'
+               :tau     (funcall tau-prime :encoded)       ;; ✓ (4.5)
+               :phi     (funcall sigma :segment :phi)      ;; TODO: (4.16) accumulate
+               :chi     (funcall sigma :segment :chi)      ;; TODO: (4.16) accumulate
+               :psi     (funcall psi-prime :encoded)       ;; ✓ (4.11)
+               :pi*     (funcall pi-prime :encoded)        ;; ✓ (4.20)
+               :omega   (funcall sigma :segment :omega)    ;; TODO: (4.16) accumulate
+               :xi      (funcall sigma :segment :xi)       ;; TODO: (4.16) accumulate
+               :theta   nil))))))))                        ;; TODO: (4.16) accumulate
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; IMPLEMENTATION STATUS
@@ -190,7 +198,7 @@
 ;;; ○ α  — state/alpha.lisp   (placeholder)
 ;;; ○ ϕ  — state/phi.lisp     (placeholder)
 ;;; ○ δ  — state/delta.lisp   (placeholder)
-;;; ○ π  — state/pi.lisp      (placeholder)
+;;; ✓ π  — state/pi.lisp      (define-state-closure, :transition)
 ;;; ○ χ  — state/chi.lisp     (placeholder)
 ;;; ○ ω  — state/omega.lisp   (placeholder)
 ;;; ○ ξ  — state/xi.lisp      (placeholder)
