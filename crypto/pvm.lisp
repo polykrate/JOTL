@@ -110,6 +110,42 @@
   (instance :pointer) (out-buf :pointer) (out-cap :uint32))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; CFFI declarations for execution / collapse (still thin C wrappers)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(cffi:defcfun ("jam_run" %jam-run) :uint32
+  "Run PVM from entry point. Returns status code."
+  (instance :pointer) (entry-point :string) (result :pointer))
+
+(cffi:defcfun ("jam_set_gas" %jam-set-gas) :void
+  "Set gas limit." (instance :pointer) (gas :int64))
+
+(cffi:defcfun ("jam_get_gas" %jam-get-gas) :int64
+  "Get remaining gas." (instance :pointer))
+
+(cffi:defcfun ("jam_has_yield_output" %jam-has-yield-output) :uint32
+  "Check yield." (instance :pointer))
+
+(cffi:defcfun ("jam_get_yield_output" %jam-get-yield-output) :uint32
+  "Get yield hash." (instance :pointer) (out-buf :pointer))
+
+(cffi:defcfun ("jam_accumulate_collapse" %jam-accumulate-collapse) :uint32
+  "Collapse dual context (GP B.13)."
+  (instance :pointer) (outcome :uint32) (yield-hash :pointer))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; CFFI declaration for work-item encoding
+;;; ═══════════════════════════════════════════════════════════════════
+
+(cffi:defcfun ("jam_encode_work_item_record" %jam-encode-work-item-record) :uint32
+  "Encode AccumulateItem::WorkItem via jam-types."
+  (package-hash :pointer) (exports-root :pointer) (auth-hash :pointer)
+  (payload-hash :pointer) (gas-limit :uint64)
+  (result-data :pointer) (result-len :uint32)
+  (auth-output-data :pointer) (auth-output-len :uint32)
+  (out-buf :pointer) (out-capacity :uint32))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Lisp-side JAM encoding helpers (for configure blob)
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -506,6 +542,70 @@
           (loop for i below len
                 do (setf (aref bytes i) (cffi:mem-aref buf :uint8 i)))
           (decode-pvm-side-effects bytes))))))
+
+(defun pvm-run (instance entry-point)
+  "Execute PVM from entry point.
+   INSTANCE: raw pointer from pvm-new.
+   ENTRY-POINT: string (\"accumulate_ext\", \"refine_ext\", etc.)
+   Returns: (values status result gas-remaining)
+     status: 0=OK, 5=Trap, 6=OOG, 7=HostError"
+  (cffi:with-foreign-object (result-ptr :uint64)
+    (setf (cffi:mem-ref result-ptr :uint64) 0)
+    (let ((status (%jam-run instance entry-point result-ptr)))
+      (values status
+              (cffi:mem-ref result-ptr :uint64)
+              (%jam-get-gas instance)))))
+
+(defun pvm-collapse (instance status)
+  "Resolve Accumulate dual context (GP B.13).
+   STATUS: PVM exit code from pvm-run (0=OK, 5=Trap, 6=OOG).
+   Detects yield internally and collapses accordingly.
+   Returns: outcome (0=Halt, 1=Panic, 2=OOG, 3=Yield)."
+  (let ((outcome (cond
+                   ((= status 0)
+                    (if (not (zerop (%jam-has-yield-output instance))) 3 0))
+                   ((= status 5) 1)  ;; Trap → Panic
+                   ((= status 6) 2)  ;; OOG
+                   (t 1))))          ;; Other → Panic
+    (if (= outcome 3)
+        ;; Extract yield hash and collapse with it
+        (cffi:with-foreign-pointer (buf 32)
+          (%jam-get-yield-output instance buf)
+          (%jam-accumulate-collapse instance 3 buf))
+        (%jam-accumulate-collapse instance outcome (cffi:null-pointer)))
+    outcome))
+
+(defun pvm-encode-work-item-record (package-hash exports-root auth-hash payload-hash
+                                    gas-limit result-data &optional auth-output)
+  "Encode a WorkItemRecord as AccumulateItem using Rust's jam-types encoder.
+   Returns the encoded bytes, or nil on error."
+  (let* ((result-len (if result-data (length result-data) 0))
+         (auth-len (if auth-output (length auth-output) 0))
+         (out-capacity 1024)
+         (out-buf (cffi:foreign-alloc :uint8 :count out-capacity))
+         (pkg (ensure-octets (or package-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (exp (ensure-octets (or exports-root (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (auth (ensure-octets (or auth-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (pay (ensure-octets (or payload-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (res (ensure-octets (or result-data (make-array 1 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (ao (ensure-octets (or auth-output (make-array 1 :element-type '(unsigned-byte 8) :initial-element 0)))))
+    (unwind-protect
+        (cffi:with-foreign-array (pkg-ptr pkg '(:array :uint8 32))
+          (cffi:with-foreign-array (exp-ptr exp '(:array :uint8 32))
+            (cffi:with-foreign-array (auth-ptr auth '(:array :uint8 32))
+              (cffi:with-foreign-array (pay-ptr pay '(:array :uint8 32))
+                (cffi:with-foreign-array (res-ptr res `(:array :uint8 ,(max 1 result-len)))
+                  (cffi:with-foreign-array (ao-ptr ao `(:array :uint8 ,(max 1 auth-len)))
+                    (let ((encoded-len (%jam-encode-work-item-record
+                                        pkg-ptr exp-ptr auth-ptr pay-ptr
+                                        gas-limit
+                                        (if result-data res-ptr (cffi:null-pointer)) result-len
+                                        (if auth-output ao-ptr (cffi:null-pointer)) auth-len
+                                        out-buf out-capacity)))
+                      (if (zerop encoded-len)
+                          nil
+                          (cffi:foreign-array-to-lisp out-buf `(:array :uint8 ,encoded-len))))))))))
+      (cffi:foreign-free out-buf))))
 
 (defmacro with-pvm ((var blob service-id balance slot) &body body)
   "Execute BODY with a PVM instance, ensuring cleanup.

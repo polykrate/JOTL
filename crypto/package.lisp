@@ -49,32 +49,17 @@
    #:erasure-encode-tiny
    #:erasure-encode-full
    
-   ;; PVM - PolkaVM (GP Section 14)
-   #:*pvm-engine*
-   #:pvm-engine
-   #:pvm-engine-reset
-   #:pvm-prepare
-   #:pvm-context-free
-   #:with-pvm-context
-   ;; PVM configuration (legacy — migrating to pvm-configure)
-   ;; Keep: pvm-encode-work-item-record (encoding helper, still used)
-   ;; PVM execution
-   #:pvm-encode-work-item-record
-   #:pvm-run
-   #:pvm-accumulate-collapse
-   ;; PVM result getters (legacy — migrating to pvm-collect)
-   ;; Keep: pvm-has-yield-output, pvm-get-yield-output (needed for collapse)
-   #:pvm-has-yield-output
-   #:pvm-get-yield-output
-   
-   ;; New JAM-codec PVM API (wire.rs)
-   #:pvm-new
-   #:pvm-free
-   #:pvm-configure
-   #:pvm-collect
-   #:with-pvm
-   #:encode-pvm-config
-   #:decode-pvm-side-effects
+   ;; PVM — JAM-codec API (pvm.lisp + wire.rs)
+   #:pvm-new                       ;; create instance from code blob
+   #:pvm-free                      ;; free instance
+   #:pvm-configure                 ;; load context as one JAM blob
+   #:pvm-run                       ;; execute entry point → (status result gas)
+   #:pvm-collapse                  ;; resolve Accumulate dual context (GP B.13)
+   #:pvm-collect                   ;; read side-effects as one JAM blob
+   #:pvm-encode-work-item-record   ;; encode AccumulateItem (jam-types)
+   #:with-pvm                      ;; (with-pvm (var blob sid bal slot) ...)
+   #:encode-pvm-config             ;; low-level: Lisp → JAM config blob
+   #:decode-pvm-side-effects       ;; low-level: JAM blob → Lisp plist
    
    ;; Library status
    #:*ffi-loaded*))

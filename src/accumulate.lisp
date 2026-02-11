@@ -316,20 +316,12 @@
             (declare (ignorable result))
 
             ;; ── Collapse (resolve dual context per GP B.13) ──
-            (let ((outcome (cond
-                             ((= status 0) ;; OK — check if yield hash set
-                              (if (jam.ffi:pvm-has-yield-output ctx) 3 0))
-                             ((= status 5) 1) ;; Trap -> Panic
-                             ((= status 6) 2) ;; OOG
-                             (t 1))))         ;; Other -> Panic
-              (if (= outcome 3)
-                  (jam.ffi:pvm-accumulate-collapse ctx 3 (jam.ffi:pvm-get-yield-output ctx))
-                  (jam.ffi:pvm-accumulate-collapse ctx outcome))
+            (jam.ffi:pvm-collapse ctx status)
 
-              ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
-              (let ((effects (collect-side-effects ctx))
-                    (gas-used (- gas-limit (or gas-remaining 0))))
-                (values effects gas-used)))))
+            ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
+            (let ((effects (collect-side-effects ctx))
+                  (gas-used (- gas-limit (or gas-remaining 0))))
+              (values effects gas-used))))
 
       (error (e)
         (format *error-output* "~&accumulate-service: PVM error for service ~A: ~A~%" service-id e)
