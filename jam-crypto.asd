@@ -2,7 +2,7 @@
 ;;;; Gray Paper Appendices A, E, F, G, H
 
 (asdf:defsystem #:jam-crypto
-  :description "JAM Cryptography FFI bindings to Rust (Blake2b, Ed25519, Bandersnatch, PVM)"
+  :description "JAM Cryptography FFI to Rust (Blake2b, Ed25519, Bandersnatch, PVM)"
   :author "Polycrate"
   :license "MIT"
   :version "1.0.0"
@@ -13,7 +13,7 @@
                 :components
                 ((:file "package")
                  (:file "utils")              ; Utility functions
-                 (:file "bindings")           ; FFI bindings to Rust
+                 (:file "crypto")             ; Crypto FFI (Blake2b, Ed25519, Bandersnatch, Erasure)
                  (:file "primitives")         ; Types, Y function, constants
                  (:file "pvm"))))             ; Clean JAM-codec PVM bindings
   
