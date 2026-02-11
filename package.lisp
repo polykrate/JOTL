@@ -170,9 +170,9 @@
    ;; ═══════════════════════════════════════════
    ;; State — σ overall (GP §4.4)
    ;; ═══════════════════════════════════════════
-   #:make-sigma-state #:make-genesis-state
-   #:+sigma-segment-order+
-   #:sigma-decode-segment
+   #:make-sigma-state #:load-state-from-keyvals
+   #:+sigma-segment-order+ #:+cn-index-to-keyword+
+   #:sigma-decode-segment #:segment-key-p
    
    ;; ═══════════════════════════════════════════
    ;; State — τ Timeslot (GP §6.1-6.2)
@@ -249,6 +249,17 @@
    ;; ═══════════════════════════════════════════
    #:transition-state
    #:apply-block
+   
+   ;; ═══════════════════════════════════════════
+   ;; Import — M1 Block Importer (GP Milestone 1)
+   ;; ═══════════════════════════════════════════
+   #:decode-raw-state-bin
+   #:decode-genesis-bin
+   #:decode-trace-step-bin
+   #:load-genesis
+   #:load-trace-step
+   #:import-block
+   #:run-trace
    
    ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)

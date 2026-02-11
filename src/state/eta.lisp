@@ -45,15 +45,17 @@
             128))
 
   ;; GP §6.21-6.23
-  ;; (6.21) η'₀ = H(η₀ ⌢ HV)
+  ;; (6.22) η'₀ = H(η₀ ⌢ Y(HV))  — Y extracts 32-byte VRF output from 96-byte HV
   ;; (6.22) epoch change → shift: η'₁=η₀, η'₂=η₁, η'₃=η₂
   ;; (6.23) no change    → keep:  η'₁=η₁, η'₂=η₂, η'₃=η₃
   (:transition (&key header tau tau-prime)
-    (let* ((entropy-source (funcall header :entropy-source))
+    (let* ((entropy-source (funcall header :entropy-source)) ;; HV (96 bytes)
+           (y-hv (jam.ffi:Y entropy-source))                ;; Y(HV) → 32 bytes
            (epoch-change-p (funcall tau :epoch-changed? tau-prime))
            (eta-0-prime (blake2b-256
                          (concatenate '(vector (unsigned-byte 8))
-                                      (or eta-0 +zero-hash+) entropy-source))))
+                                      (or eta-0 +zero-hash+)
+                                      (or y-hv +zero-hash+)))))
       (if epoch-change-p
           (make-eta-state :eta-0 eta-0-prime :eta-1 eta-0 :eta-2 eta-1 :eta-3 eta-2)
           (make-eta-state :eta-0 eta-0-prime :eta-1 eta-1 :eta-2 eta-2 :eta-3 eta-3)))))

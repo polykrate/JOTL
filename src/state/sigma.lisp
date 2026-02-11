@@ -22,6 +22,10 @@
 ;;;;   σ pairs C(n) + raw bytes for each non-nil field → Merkle KV
 ;;;;   No funcall :encoded needed — it's already bytes.
 ;;;;
+;;;; Loading from keyvals (genesis.bin, trace pre/post states):
+;;;;   load-state-from-keyvals maps 31-byte Merkle keys → segment fields
+;;;;   + collects non-segment keys (service accounts) into extra-kvs.
+;;;;
 ;;;; Messages:
 ;;;;   :segment kw          → raw bytes for keyword (e.g. :tau), or NIL
 ;;;;   :load kw             → decoded closure for keyword (lazy decode from bytes)
@@ -75,10 +79,24 @@
     ))
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; C(n) INDEX → KEYWORD reverse mapping (for load-state-from-keyvals)
+;;; ═══════════════════════════════════════════════════════════════
+
+(defparameter +cn-index-to-keyword+
+  '((1  . :alpha)  (2  . :phi)    (3  . :beta)   (4  . :gamma)
+    (5  . :psi)    (6  . :eta)    (7  . :iota)   (8  . :kappa)
+    (9  . :lambda) (10 . :rho)    (11 . :tau)    (12 . :chi)
+    (13 . :pi)     (14 . :omega)  (15 . :xi)     (16 . :theta))
+  "Reverse of +sigma-segment-order+: C(n) index → keyword.")
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — σ (byte store)
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; All fields are raw byte vectors (or NIL for unimplemented components).
 ;;; No closures are stored — sigma is inert data.
+;;;
+;;; extra-kvs holds non-segment Merkle entries (service accounts C(255,s),
+;;; or any future non-fixed-segment keys).  Each entry is (key-31b . bytes).
 
 (define-state-closure sigma-state
   ;; ── 17 component byte fields ──
@@ -86,7 +104,9 @@
   ((alpha nil) (beta nil) (gamma nil) (delta nil)
    (eta nil) (iota nil) (kappa nil) (lambda* nil)
    (rho nil) (tau nil) (phi nil) (chi nil)
-   (psi nil) (pi* nil) (omega nil) (xi nil) (theta nil))
+   (psi nil) (pi* nil) (omega nil) (xi nil) (theta nil)
+   ;; ── Non-segment Merkle entries (service accounts etc.) ──
+   (extra-kvs nil))
 
   ;; ── Segment access — raw bytes ─────────────────────────────
   ;; (funcall sigma :segment :tau) → raw bytes or NIL
@@ -123,16 +143,23 @@
   ;; ── Merkle KV pairs (memoized) ──────────────────────────────
   ;; σ already has bytes — just pair each non-nil field with C(n).
   ;; GP Appendix D — 16 fixed segments + service accounts.
+  ;; Keys are 31-byte (compute-state-root will pad to 32).
   (:merkle-kvs :memo
     (let ((kvs '()))
+      ;; C(1)..C(16) — fixed segments
       (dolist (entry +sigma-segment-order+)
         (let* ((kw (car entry))
                (cn-idx (cdr entry))
                (bytes (self :segment kw)))
           (when bytes
-            (push (cons (state-key cn-idx) bytes) kvs))))
-      ;; Service accounts — δ uses C(255, s) keys
-      ;; TODO: when δ is implemented, append its Merkle KVs
+            ;; Build 31-byte key: [n, 0, 0, ..., 0]
+            (let ((key (make-array 31 :element-type '(unsigned-byte 8)
+                                      :initial-element 0)))
+              (setf (aref key 0) cn-idx)
+              (push (cons key bytes) kvs)))))
+      ;; Non-segment entries (service accounts C(255,s), etc.)
+      (dolist (kv extra-kvs)
+        (push kv kvs))
       (nreverse kvs)))
 
   ;; ── State root (memoized) ──────────────────────────────────
@@ -146,6 +173,9 @@
     (let ((entry (assoc component-kw +sigma-segment-order+)))
       (when entry
         (state-key (cdr entry)))))
+
+  ;; ── Extra KVs accessor ──────────────────────────────────────
+  (:extra-kvs extra-kvs)
 
   ;; ── Active components (non-nil segment keywords) ───────────
   (:components
@@ -172,31 +202,51 @@
     t))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; GENESIS STATE — σ₀
+;;; LOAD STATE FROM KEYVALS — the universal σ constructor
 ;;; ═══════════════════════════════════════════════════════════════
+;;; Used by genesis loader, trace loader, and any future state source.
+;;; Input: list of (31-byte-key . raw-bytes) pairs from Merkle trie.
+;;; Output: σ closure with all segments populated.
 
-(defun make-genesis-state ()
-  "σ₀ — Genesis state: all implemented components at default encoded bytes.
-   Every component that transition-state expects MUST be present here.
-   Components still at placeholder stage (nil) will be populated as
-   they get implemented."
-  (make-sigma-state
-   :tau    (funcall (make-tau-state) :encoded)
-   :eta    (funcall (make-eta-state) :encoded)
-   :kappa  (funcall (make-kappa-state) :encoded)
-   :lambda* (funcall (make-lambda-state) :encoded)
-   :iota   (funcall (make-iota-state) :encoded)
-   :beta   (funcall (make-beta-state) :encoded)
-   :psi    (funcall (make-psi-state) :encoded)
-   :rho    (funcall (make-rho-state) :encoded)
-   :gamma  (funcall (make-gamma-state) :encoded)
-   :pi*    (funcall (make-pi-state) :encoded)
-   ;; ── Placeholders — populated when implemented ──
-   ;; :alpha  nil   ;; TODO: make-alpha-state
-   ;; :delta  nil   ;; TODO: make-delta-state
-   ;; :phi    nil   ;; TODO: make-phi-state
-   ;; :chi    nil   ;; TODO: make-chi-state
-   ;; :omega  nil   ;; TODO: make-omega-state
-   ;; :xi     nil   ;; TODO: make-xi-state
-   ;; :theta  nil   ;; TODO: make-theta-state
-   ))
+(defun segment-key-p (key-31)
+  "Is KEY-31 a fixed segment key C(n) (first byte 1-16, rest zero)?"
+  (and (>= (length key-31) 1)
+       (<= 1 (aref key-31 0) 16)
+       (loop for i from 1 below (length key-31) always (zerop (aref key-31 i)))))
+
+(defun load-state-from-keyvals (keyvals)
+  "Build σ from a list of (31-byte-key . raw-bytes) Merkle key-value pairs.
+   Segment keys C(1)..C(16) are mapped to their component fields.
+   Non-segment keys (service accounts C(255,s), etc.) go into extra-kvs.
+   Returns: σ closure."
+  (let ((segments (make-hash-table))
+        (extra '()))
+    ;; Classify keyvals
+    (dolist (kv keyvals)
+      (let* ((key (car kv))
+             (val (cdr kv))
+             (cn (aref key 0)))
+        (if (segment-key-p key)
+            (setf (gethash cn segments) val)
+            (push (cons key val) extra))))
+    ;; Map C(n) → keyword → make-sigma-state argument
+    (flet ((seg (cn)
+             (gethash cn segments)))
+      (make-sigma-state
+       :alpha    (seg 1)
+       :phi      (seg 2)
+       :beta     (seg 3)
+       :gamma    (seg 4)
+       :psi      (seg 5)
+       :eta      (seg 6)
+       :iota     (seg 7)
+       :kappa    (seg 8)
+       :lambda*  (seg 9)
+       :rho      (seg 10)
+       :tau      (seg 11)
+       :chi      (seg 12)
+       :pi*      (seg 13)
+       :omega    (seg 14)
+       :xi       (seg 15)
+       :theta    (seg 16)
+       :extra-kvs (nreverse extra)))))

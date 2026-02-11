@@ -4,26 +4,34 @@ Pure Functional JAM Protocol implementation in Common Lisp.
 
 Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
-## What Works — 290+ tests
+## What Works — M1 Block Importer: 100/100 fallback blocks
 
+- **M1 Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
+  - Chain mode: genesis → block 1 → block 2 → ... (our σ' becomes next σ)
+  - Step mode: each block independently verified from trace pre_state
+  - 100/100 fallback trace blocks pass (both modes)
 - **Block codec** — Full decode/encode of B = (H, ET, ED, EP, EA, EG)
   - Header H is a state closure (hash, seal, genesis sovereignty)
   - Extrinsic data (ET, ED, EP, EA, EG) is open — consumed directly
   - WorkReport, RefineContext, WorkResult structures
   - Header hash H(E(H)) = blake2b(sealed header)
   - Extrinsic hash HX = H(H(ET)‖H(EP)‖H(g)‖H(EA)‖H(ED))
-- **State σ** — Immutable closure with 17 segments (GP §4.4)
+- **State σ** — Immutable byte store with 17 segments + extra-kvs for service accounts (GP §4.4)
 - **Υ(σ, B) → σ'** — Block-level STF with 4-wave dependency graph (GP §4.2.1)
 - **Safrole γ** — Seal/entropy VRF, tickets, epoch rotation (GP §6) — 42/42
 - **Disputes ψ** — Verdicts, culprits, faults, offenders (GP §10) — 56/56
 - **Timeslot τ** — STF with epoch/phase derivation (GP §6)
-- **Entropy η** — Randomness accumulator (GP §6.21-23) — 42/42
-- **Recent History β** — MMR peaks + query protocol (GP §7.5) — 8/8
+- **Entropy η** — Randomness accumulator with Y(HV) extraction (GP §6.21-23) — 42/42
+- **Recent History β** — Full 2-phase transition: β† (wave 1) + β' (wave 4) with MMR (GP §7.5-7.8) — 8/8
+- **Statistics π** — Validator activity tracking (GP §13) — codec + transition
 - **Validator keys κ, λ, ι** — Epoch rotation, offender filtering, fallback keys, non-banned indices (GP §6.14-16)
 - **Assignments ρ** — 3-wave transition: invalidation, assurances, guarantees (GP §10-12)
 - **Structural validation** — HX, HP, HT checks (GP §5)
 - **Crypto FFI** — Blake2b, Keccak, Ed25519, Bandersnatch VRF (Ring VRF + SRS)
 - **Chainspec** — tiny/full configs switchable at runtime
+- **Codec roundtrip** — 10 components: decode → encode → byte-exact across 201 states
+- **State Merklization HR** — Merkle trie (GP Appendix D) verified on genesis + 100 blocks
+- **Binary import API** — `decode-genesis-bin`, `decode-trace-step-bin`, `load-state-from-keyvals`
 
 ## Architecture
 
@@ -66,13 +74,14 @@ src/
 │   ├── alpha.lisp      α   authorizations     ○ placeholder
 │   ├── phi.lisp        ϕ   auth queue         ○ placeholder
 │   ├── delta.lisp      δ   services           ○ placeholder
-│   ├── pi.lisp         π   statistics         ○ placeholder
+│   ├── pi.lisp         π   statistics         ✓ define-state-closure
 │   ├── chi.lisp        χ   privileged IDs     ○ placeholder
 │   ├── omega.lisp      ω   accum queue        ○ placeholder
 │   ├── xi.lisp         ξ   accum history      ○ placeholder
 │   └── theta.lisp      θ   accum outputs      ○ placeholder
 │
-└── upsilon.lisp        Υ(σ,B)→σ' orchestrator (GP §4.2.1)
+├── upsilon.lisp        Υ(σ,B)→σ' orchestrator (GP §4.2.1)
+└── import.lisp         M1 Block Importer: binary parsers + chain runner
 
 crypto/                 FFI to Rust (jam-crypto)
 tests/                  Test vectors (w3f/jamtestvectors)
@@ -216,6 +225,35 @@ sbcl --eval '(push (truename ".") asdf:*central-registry*)' \
      --eval '(asdf:load-system :jotl)'
 ```
 
+## M1 Block Importer
+
+```bash
+# Run 100 fallback blocks (chain mode — genesis → sequential blocks)
+sbcl --noinform --non-interactive \
+  --eval '(push (truename ".") asdf:*central-registry*)' \
+  --eval '(asdf:load-system :jotl)' \
+  --eval '(in-package :jotl)' \
+  --eval '(with-chain :tiny
+            (run-trace "tests/jamtestvectors/traces/fallback/"
+                       :from 1 :to 100 :mode :chain))'
+```
+
+The block importer API:
+
+```lisp
+;; Load genesis from binary
+(load-genesis "path/to/genesis.bin")    ;; → (values header σ₀ state-root)
+
+;; Load a trace step (pre-state + block + post-state)
+(load-trace-step "path/to/00000001.bin") ;; → (values pre-σ block post-σ pre-root post-root)
+
+;; Import a block: Υ(σ, B) → σ' with state_root
+(import-block sigma block)              ;; → (values σ' state-root)
+
+;; Run full trace directory
+(run-trace dir :from 1 :to 100 :mode :chain) ;; → (values pass fail)
+```
+
 ## Tests
 
 ```bash
@@ -251,24 +289,28 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 - [x] Block B = (H, ET, ED, EP, EA, EG) — message with open extrinsic data
 - [x] Header hash H(E(H))
 - [x] Extrinsic hash HX
-- [x] State sigma closure (17 segments)
+- [x] State sigma closure (17 segments + extra-kvs)
 - [x] Upsilon dependency graph (4 waves)
 - [x] Timeslot tau STF (§6)
 - [x] Entropy eta STF (§6.21-23) — 42/42
-- [x] Recent History beta STF (§7.5) — 8/8
+- [x] Recent History beta STF (§7.5-7.8) — full 2-phase transition — 8/8
 - [x] Disputes psi STF (§10) — 56/56
 - [x] Safrole gamma STF (§6) — 42/42
 - [x] Validator keys kappa, lambda, iota (§6.14-16)
 - [x] Assignments rho: 3-wave transition (§10-12)
+- [x] Statistics pi (§13) — codec + transition
 - [x] Structural validation (§5)
-- [x] State closure architecture — closures as actors, message-passing, lazy σ decode, protocol-based dispatch
+- [x] State closure architecture — closures as actors, message-passing, lazy σ decode
 - [x] Bandersnatch Ring VRF — seal + ticket validation with SRS
-- [ ] Preimages delta' (§7) — 16 vectors
-- [ ] Authorizations alpha' (§13) — 6 vectors
-- [ ] Statistics pi' (§15) — 6 vectors
-- [ ] Accumulate STF (§8) + PVM — 60 vectors
+- [x] State Merklization HR (Appendix D) — verified on genesis + 100 blocks
+- [x] Codec roundtrip — 10 components byte-exact across 201 states
+- [x] **M1 Block Importer** — 100/100 fallback blocks (chain + step modes)
+- [x] Binary import API — `genesis.bin` → σ₀, trace steps, `import-block`, `run-trace`
+- [ ] Accumulate STF (§8) + PVM — required for fuzzy traces
 - [ ] Refine STF (§9) + PVM
-- [ ] State Merklization HR (Appendix D)
+- [ ] Preimages delta' (§7)
+- [ ] Authorizations alpha' (§13)
+- [ ] Service accounts delta (§14)
 
 ## Dependencies
 

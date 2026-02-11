@@ -161,10 +161,17 @@
                                       :assurances e-a :guarantees e-g
                                       :kappa-prime kappa-prime)))
 
+              ;; ── β' (4.17): β'H < (H, EC, β†H, θ') ─────────────
+              ;; For now: θ' = nil (no accumulate), EG passed for reported WPs.
+              (let ((beta-prime (funcall beta-dagger :transition
+                                        :header h
+                                        :guarantees e-g
+                                        :theta-prime nil)))
+
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
                :alpha   (funcall sigma :segment :alpha)    ;; TODO: (4.19)
-               :beta    (funcall beta-dagger :encoded)     ;; TODO: (4.17) needs θ'
+               :beta    (funcall beta-prime :encoded)      ;; ✓ (4.17)
                :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
                :delta   (funcall sigma :segment :delta)    ;; TODO: (4.18)
                :eta     (funcall eta-prime :encoded)       ;; ✓ (4.8)
@@ -179,7 +186,9 @@
                :pi*     (funcall pi-prime :encoded)        ;; ✓ (4.20)
                :omega   (funcall sigma :segment :omega)    ;; TODO: (4.16) accumulate
                :xi      (funcall sigma :segment :xi)       ;; TODO: (4.16) accumulate
-               :theta   nil))))))))                        ;; TODO: (4.16) accumulate
+               :theta   (funcall sigma :segment :theta)    ;; TODO: (4.16) accumulate
+               ;; Propagate non-segment Merkle entries (service accounts etc.)
+               :extra-kvs (funcall sigma :extra-kvs))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; IMPLEMENTATION STATUS

@@ -77,4 +77,7 @@
      (:file "sigma")))    ;; σ  — overall state (last — needs all components)
    
    ;; 5. Υ — Top-level STF orchestrator (GP §4.2.1)
-   (:file "upsilon" :pathname "src/upsilon")))
+   (:file "upsilon" :pathname "src/upsilon")
+   
+   ;; 6. Block Importer — M1 API (parse binary, import block, run traces)
+   (:file "import" :pathname "src/import")))

@@ -300,6 +300,48 @@ FULL (production, must match Gray Paper):
 (defconstant +transfer-memo-size+ 128
   "WT — Size of a transfer memo in octets (GP §12.14).")
 
+;;; ─── PVM Host-Call Result Constants (GP B.1) ─────────────────
+;;; These are u64 values returned in register A0 to the guest PVM.
+;;; They live near 2^64 so they cannot be confused with valid lengths.
+
+(defconstant +hc-ok+   0
+  "OK: general success (GP B.1).")
+
+(defconstant +hc-none+ (1- (expt 2 64))
+  "NONE = 2^64−1: item does not exist (GP B.1).")
+
+(defconstant +hc-what+ (- (expt 2 64) 2)
+  "WHAT = 2^64−2: name unknown (GP B.1).")
+
+(defconstant +hc-oob+  (- (expt 2 64) 3)
+  "OOB = 2^64−3: inner PVM memory index not accessible (GP B.1).")
+
+(defconstant +hc-who+  (- (expt 2 64) 4)
+  "WHO = 2^64−4: index unknown (GP B.1).")
+
+(defconstant +hc-full+ (- (expt 2 64) 5)
+  "FULL = 2^64−5: storage full or resource already allocated (GP B.1).")
+
+(defconstant +hc-core+ (- (expt 2 64) 6)
+  "CORE = 2^64−6: core index unknown (GP B.1).")
+
+(defconstant +hc-cash+ (- (expt 2 64) 7)
+  "CASH = 2^64−7: insufficient funds (GP B.1).")
+
+(defconstant +hc-low+  (- (expt 2 64) 8)
+  "LOW = 2^64−8: gas limit too low (GP B.1).")
+
+(defconstant +hc-huh+  (- (expt 2 64) 9)
+  "HUH = 2^64−9: already solicited / cannot forget / privilege invalid (GP B.1).")
+
+;;; Inner PVM invocation result codes (GP B.1)
+
+(defconstant +pvm-halt+  0 "HALT: invocation halted normally (GP B.1).")
+(defconstant +pvm-panic+ 1 "PANIC: invocation panicked (GP B.1).")
+(defconstant +pvm-fault+ 2 "FAULT: page fault (GP B.1).")
+(defconstant +pvm-host+  3 "HOST: host-call fault (GP B.1).")
+(defconstant +pvm-oog+   4 "OOG: out of gas (GP B.1).")
+
 ;;; ─── PVM constants ────────────────────────────────────────────
 
 (defconstant +pvm-address-alignment+ 2

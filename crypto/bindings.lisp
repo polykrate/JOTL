@@ -1208,6 +1208,273 @@
             'vector)))
 
 ;;; --------------------------------------------------------------------------
+;;; Upgrades (ΩU side-effects)
+;;; --------------------------------------------------------------------------
+
+(cffi:defcfun ("jam_get_upgrade_count" %jam-get-upgrade-count) :uint32
+  "Get number of code upgrades recorded during execution."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_upgrade_service" %jam-get-upgrade-service) :uint32
+  "Get upgraded service ID at index."
+  (instance :pointer)
+  (index :uint32))
+
+(cffi:defcfun ("jam_get_upgrade_code_hash" %jam-get-upgrade-code-hash) :uint32
+  "Get upgraded service code hash at index."
+  (instance :pointer)
+  (index :uint32)
+  (out-buf :pointer))
+
+(defun pvm-get-upgrade-count (ctx)
+  "Get number of code upgrades recorded during PVM execution."
+  (%jam-get-upgrade-count (pvm-context-instance ctx)))
+
+(defun pvm-get-upgrade (ctx index)
+  "Get upgrade at index. Returns (sid . code-hash) or nil."
+  (let* ((inst (pvm-context-instance ctx))
+         (sid (%jam-get-upgrade-service inst index)))
+    (when (< sid #xFFFFFFFF)
+      (cffi:with-foreign-pointer (buf 32)
+        (when (zerop (%jam-get-upgrade-code-hash inst index buf))
+          (cons sid (cffi:foreign-array-to-lisp buf '(:array :uint8 32))))))))
+
+(defun pvm-get-all-upgrades (ctx)
+  "Get all upgrades as a list of (sid . code-hash)."
+  (loop for i below (pvm-get-upgrade-count ctx)
+        for entry = (pvm-get-upgrade ctx i)
+        when entry collect entry))
+
+;;; --------------------------------------------------------------------------
+;;; Empower State (ΩB / ΩA / ΩD side-effects)
+;;; --------------------------------------------------------------------------
+
+(cffi:defcfun ("jam_has_empower" %jam-has-empower) :uint32
+  "Check if empower state was set."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_manager" %jam-get-empower-manager) :uint32
+  "Get empower manager service index."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_validator" %jam-get-empower-validator) :uint32
+  "Get empower validator service index."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_staker" %jam-get-empower-staker) :uint32
+  "Get empower staker service index."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_auth_agent_count" %jam-get-empower-auth-agent-count) :uint32
+  "Get number of authorization agents."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_auth_agent" %jam-get-empower-auth-agent) :uint32
+  "Get authorization agent at index."
+  (instance :pointer)
+  (index :uint32))
+
+(cffi:defcfun ("jam_get_empower_gas_map_count" %jam-get-empower-gas-map-count) :uint32
+  "Get number of entries in the empower gas map."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_gas_map_entry" %jam-get-empower-gas-map-entry) :uint32
+  "Get gas map entry at index."
+  (instance :pointer)
+  (index :uint32)
+  (out-service :pointer)
+  (out-gas :pointer))
+
+(cffi:defcfun ("jam_get_empower_queue_count" %jam-get-empower-queue-count) :uint32
+  "Get number of core authorization queues."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_queue_len" %jam-get-empower-queue-len) :uint32
+  "Get queue length for a specific core."
+  (instance :pointer)
+  (core :uint32))
+
+(cffi:defcfun ("jam_get_empower_queue_entry" %jam-get-empower-queue-entry) :uint32
+  "Get authorization queue hash at (core, slot)."
+  (instance :pointer)
+  (core :uint32)
+  (slot :uint32)
+  (out-buf :pointer))
+
+(cffi:defcfun ("jam_get_empower_validator_count" %jam-get-empower-validator-count) :uint32
+  "Get number of designated validator keys."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_empower_validator_key" %jam-get-empower-validator-key) :uint32
+  "Get designated validator key at index."
+  (instance :pointer)
+  (index :uint32)
+  (out-buf :pointer)
+  (out-len :uint32))
+
+(defun pvm-has-empower (ctx)
+  "Check if the PVM set empower state during execution."
+  (not (zerop (%jam-has-empower (pvm-context-instance ctx)))))
+
+(defun pvm-get-empower (ctx)
+  "Get empower state as a plist, or nil if not set.
+   Returns: (:manager m :validator v :staker r :auth-agents (a0 a1 ...)
+             :gas-map ((sid . gas) ...) :queues ((core0-hashes) (core1-hashes) ...)
+             :validators (key0 key1 ...))"
+  (let ((inst (pvm-context-instance ctx)))
+    (when (pvm-has-empower ctx)
+      (let ((manager (%jam-get-empower-manager inst))
+            (validator (%jam-get-empower-validator inst))
+            (staker (%jam-get-empower-staker inst))
+            ;; auth agents
+            (agent-count (%jam-get-empower-auth-agent-count inst))
+            ;; gas map
+            (gas-count (%jam-get-empower-gas-map-count inst))
+            ;; queues
+            (queue-count (%jam-get-empower-queue-count inst))
+            ;; validators
+            (val-count (%jam-get-empower-validator-count inst)))
+        (list
+         :manager manager
+         :validator validator
+         :staker staker
+         :auth-agents (loop for i below agent-count
+                            collect (%jam-get-empower-auth-agent inst i))
+         :gas-map (cffi:with-foreign-objects ((sid-ptr :uint32)
+                                              (gas-ptr :uint64))
+                    (loop for i below gas-count
+                          when (zerop (%jam-get-empower-gas-map-entry
+                                       inst i sid-ptr gas-ptr))
+                          collect (cons (cffi:mem-ref sid-ptr :uint32)
+                                        (cffi:mem-ref gas-ptr :uint64))))
+         :queues (loop for c below queue-count
+                       collect (let ((qlen (%jam-get-empower-queue-len inst c)))
+                                 (cffi:with-foreign-pointer (buf 32)
+                                   (loop for s below qlen
+                                         when (zerop (%jam-get-empower-queue-entry
+                                                       inst c s buf))
+                                         collect (cffi:foreign-array-to-lisp
+                                                  buf '(:array :uint8 32))))))
+         :validators (loop for i below val-count
+                           collect (let ((klen (%jam-get-empower-validator-key
+                                                inst i (cffi:null-pointer) 0)))
+                                     (when (< klen #xFFFFFFFF)
+                                       (cffi:with-foreign-pointer (buf klen)
+                                         (%jam-get-empower-validator-key
+                                          inst i buf klen)
+                                         (cffi:foreign-array-to-lisp
+                                          buf `(:array :uint8 ,klen)))))))))))
+
+;;; --------------------------------------------------------------------------
+;;; Provided Preimages (Ωψ side-effects)
+;;; --------------------------------------------------------------------------
+
+(cffi:defcfun ("jam_get_provided_preimage_count" %jam-get-provided-preimage-count) :uint32
+  "Get number of provided preimages."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_provided_preimage_service" %jam-get-provided-preimage-service) :uint32
+  "Get provided preimage service ID at index."
+  (instance :pointer)
+  (index :uint32))
+
+(cffi:defcfun ("jam_get_provided_preimage_data" %jam-get-provided-preimage-data) :uint32
+  "Get provided preimage data at index."
+  (instance :pointer)
+  (index :uint32)
+  (out-buf :pointer)
+  (out-len :uint32))
+
+(defun pvm-get-provided-preimage-count (ctx)
+  "Get number of provided preimages recorded during PVM execution."
+  (%jam-get-provided-preimage-count (pvm-context-instance ctx)))
+
+(defun pvm-get-provided-preimage (ctx index)
+  "Get provided preimage at index. Returns (service-id . data-bytes) or nil."
+  (let* ((inst (pvm-context-instance ctx))
+         (sid (%jam-get-provided-preimage-service inst index)))
+    (when (< sid #xFFFFFFFF)
+      (let ((data-len (%jam-get-provided-preimage-data
+                        inst index (cffi:null-pointer) 0)))
+        (when (< data-len #xFFFFFFFF)
+          (if (zerop data-len)
+              (cons sid #())
+              (cffi:with-foreign-pointer (buf data-len)
+                (%jam-get-provided-preimage-data inst index buf data-len)
+                (cons sid (cffi:foreign-array-to-lisp
+                           buf `(:array :uint8 ,data-len))))))))))
+
+(defun pvm-get-all-provided-preimages (ctx)
+  "Get all provided preimages as a list of (service-id . data-bytes)."
+  (loop for i below (pvm-get-provided-preimage-count ctx)
+        for entry = (pvm-get-provided-preimage ctx i)
+        when entry collect entry))
+
+;;; --------------------------------------------------------------------------
+;;; Lookup Table a_l (preimage metadata)
+;;; --------------------------------------------------------------------------
+
+(cffi:defcfun ("jam_instance_add_lookup_entry" %jam-instance-add-lookup-entry) :uint32
+  "Add a preimage lookup table entry before execution."
+  (instance :pointer)
+  (hash-ptr :pointer)
+  (length :uint32)
+  (status-ptr :pointer)
+  (status-count :uint32))
+
+(cffi:defcfun ("jam_get_lookup_count" %jam-get-lookup-count) :uint32
+  "Get number of lookup table entries."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_get_lookup_entry" %jam-get-lookup-entry) :uint32
+  "Get lookup table entry at index."
+  (instance :pointer)
+  (index :uint32)
+  (out-hash :pointer)
+  (out-length :pointer)
+  (out-status :pointer)
+  (max-status :uint32))
+
+(defun pvm-add-lookup-entry (ctx hash length status-list)
+  "Add a preimage lookup table entry. HASH is a 32-byte vector, LENGTH is u32,
+   STATUS-LIST is a list of 0-3 u32 values."
+  (let ((inst (pvm-context-instance ctx))
+        (sc (length status-list)))
+    (cffi:with-foreign-pointer (hash-buf 32)
+      (loop for i below 32
+            do (setf (cffi:mem-aref hash-buf :uint8 i) (aref hash i)))
+      (if (zerop sc)
+          (%jam-instance-add-lookup-entry inst hash-buf length (cffi:null-pointer) 0)
+          (cffi:with-foreign-object (status-buf :uint32 sc)
+            (loop for val in status-list
+                  for i from 0
+                  do (setf (cffi:mem-aref status-buf :uint32 i) val))
+            (%jam-instance-add-lookup-entry inst hash-buf length status-buf sc))))))
+
+(defun pvm-get-lookup-count (ctx)
+  "Get number of preimage lookup table entries after execution."
+  (%jam-get-lookup-count (pvm-context-instance ctx)))
+
+(defun pvm-get-lookup-entry (ctx index)
+  "Get lookup table entry at index. Returns (hash length . status-list) or nil."
+  (let ((inst (pvm-context-instance ctx)))
+    (cffi:with-foreign-objects ((hash-buf :uint8 32)
+                                (len-ptr :uint32)
+                                (status-buf :uint32 3))
+      (let ((sc (%jam-get-lookup-entry inst index hash-buf len-ptr status-buf 3)))
+        (when (< sc #xFFFFFFFF)
+          (list (cffi:foreign-array-to-lisp hash-buf '(:array :uint8 32))
+                (cffi:mem-ref len-ptr :uint32)
+                (loop for i below sc
+                      collect (cffi:mem-aref status-buf :uint32 i))))))))
+
+(defun pvm-get-all-lookup-entries (ctx)
+  "Get all lookup table entries as a list of (hash length . status-list)."
+  (loop for i below (pvm-get-lookup-count ctx)
+        for entry = (pvm-get-lookup-entry ctx i)
+        when entry collect entry))
+
+;;; --------------------------------------------------------------------------
 ;;; Convenience Macros
 ;;; --------------------------------------------------------------------------
 
