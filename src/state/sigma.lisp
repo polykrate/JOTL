@@ -68,14 +68,14 @@
     (:rho    (decode-rho-state bytes 0))
     (:gamma  (decode-gamma-state bytes 0))
     (:pi     (decode-pi-state bytes 0))
-    ;; Placeholders — will be added as components get implemented:
-    ;; (:alpha  (decode-alpha-state bytes 0))
-    ;; (:phi    (decode-phi-state bytes 0))
-    ;; (:delta  (decode-delta-state bytes 0))
-    ;; (:chi    (decode-chi-state bytes 0))
-    ;; (:omega  (decode-omega-state bytes 0))
-    ;; (:xi     (decode-xi-state bytes 0))
-    ;; (:theta  (decode-theta-state bytes 0))
+    ;; Codec-only closures (no :transition — modified by accumulate.lisp):
+    (:alpha  (decode-alpha-state bytes 0))
+    (:phi    (decode-phi-state bytes 0))
+    (:chi    (decode-chi-state bytes 0))
+    (:omega  (decode-omega-state bytes 0))
+    (:xi     (decode-xi-state bytes 0))
+    (:theta  (decode-theta-state bytes 0))
+    ;; δ uses C(255,s) extra-kvs, not a fixed segment — see load-delta-from-extra-kvs.
     ))
 
 ;;; ═══════════════════════════════════════════════════════════════

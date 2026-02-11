@@ -245,6 +245,47 @@
    #:encode-validators-statistics #:decode-validators-statistics
    
    ;; ═══════════════════════════════════════════
+   ;; State — α Authorizations (GP §8.1)
+   ;; ═══════════════════════════════════════════
+   #:make-alpha-state #:decode-alpha-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ϕ Authorization Queue (GP §8.1-8.2)
+   ;; ═══════════════════════════════════════════
+   #:make-phi-state #:decode-phi-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — δ Service Accounts (GP §9)
+   ;; ═══════════════════════════════════════════
+   #:make-delta-state #:decode-delta-state
+   #:load-delta-from-extra-kvs
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — χ Privileged IDs (GP §9.4)
+   ;; ═══════════════════════════════════════════
+   #:make-chi-state #:decode-chi-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ω Accumulation Queue (GP §12.3)
+   ;; ═══════════════════════════════════════════
+   #:make-omega-state #:decode-omega-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — ξ Accumulation History (GP §12.1)
+   ;; ═══════════════════════════════════════════
+   #:make-xi-state #:decode-xi-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; State — θ Accumulation Outputs (GP §12.25)
+   ;; ═══════════════════════════════════════════
+   #:make-theta-state #:decode-theta-state
+   
+   ;; ═══════════════════════════════════════════
+   ;; §12 Accumulate Orchestrator (GP §12)
+   ;; ═══════════════════════════════════════════
+   #:transition-accumulate
+   
+   ;; ═══════════════════════════════════════════
    ;; Υ — Orchestrator (GP §4.1)
    ;; ═══════════════════════════════════════════
    #:transition-state

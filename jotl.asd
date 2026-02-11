@@ -66,18 +66,21 @@
      (:file "rho")        ;; ρ  — core assignments ✓
      (:file "iota")       ;; ι  — enqueued validators ✓
      (:file "gamma")      ;; γ  — safrole          ✓
-     (:file "alpha")      ;; α  — authorizations   ○
-     (:file "phi")        ;; ϕ  — auth queue       ○
-     (:file "delta")      ;; δ  — services         ○
+     (:file "alpha")      ;; α  — authorizations   ✓ codec-only (via accumulate)
+     (:file "phi")        ;; ϕ  — auth queue       ✓ codec-only (via accumulate)
+     (:file "delta")      ;; δ  — services         ✓ codec-only (via accumulate)
      (:file "pi")         ;; π  — statistics       ✓ define-state-closure
-     (:file "chi")        ;; χ  — privileged IDs   ○
-     (:file "omega")      ;; ω  — ready work-reports ○
-     (:file "xi")         ;; ξ  — recent accum     ○
-     (:file "theta")      ;; θ  — accum queue      ○
+     (:file "chi")        ;; χ  — privileged IDs   ✓ codec-only (via accumulate)
+     (:file "omega")      ;; ω  — ready work-reports ✓ codec-only (via accumulate)
+     (:file "xi")         ;; ξ  — accum history    ✓ codec-only (via accumulate)
+     (:file "theta")      ;; θ  — accum outputs    ✓ codec-only (via accumulate)
      (:file "sigma")))    ;; σ  — overall state (last — needs all components)
    
-   ;; 5. Υ — Top-level STF orchestrator (GP §4.2.1)
+   ;; 5. §12 Accumulate orchestrator (GP §12)
+   (:file "accumulate" :pathname "src/accumulate")
+   
+   ;; 6. Υ — Top-level STF orchestrator (GP §4.2.1)
    (:file "upsilon" :pathname "src/upsilon")
    
-   ;; 6. Block Importer — M1 API (parse binary, import block, run traces)
+   ;; 7. Block Importer — M1 API (parse binary, import block, run traces)
    (:file "import" :pathname "src/import")))

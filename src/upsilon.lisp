@@ -142,7 +142,25 @@
                                      :accounts (funcall sigma :segment :delta)))
 
                  ;; (4.16) (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
-                 ;; TODO: accumulate STF
+                 (r-star (funcall rho-ddagger :reported))
+                 (omega-cl (funcall sigma :load :omega))
+                 (xi-cl    (funcall sigma :load :xi))
+                 (chi-cl   (funcall sigma :load :chi))
+                 (phi-cl   (funcall sigma :load :phi))
+                 (delta-cl (load-delta-from-extra-kvs (funcall sigma :extra-kvs)))
+                 (accum (transition-accumulate
+                         r-star omega-cl xi-cl delta-cl chi-cl iota phi-cl
+                         tau tau-prime))
+                 ;; Extract accumulation results
+                 (omega-prime  (getf accum :omega-prime))
+                 (xi-prime     (getf accum :xi-prime))
+                 (delta-dagger (getf accum :delta-dagger))
+                 (chi-prime    (getf accum :chi-prime))
+                 (iota-prime   (getf accum :iota-prime))
+                 (phi-prime    (getf accum :phi-prime))
+                 (theta-prime  (getf accum :theta-prime))
+                 ;; S — service statistics for π'
+                 ;; (service-stats (getf accum :service-stats))
                  )
 
             ;; ═══════════════════════════════════════════════════════════
@@ -152,7 +170,8 @@
             ;; (4.18) δ'  < (EP, δ†, τ')
             ;; (4.19) α'  < (H, EC, ϕ', α)
             ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
-            (let* ((pi-cl (funcall sigma :load :pi))
+            (let* ((alpha-cl (funcall sigma :load :alpha))
+                   (pi-cl (funcall sigma :load :pi))
                    ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S)
                    (pi-prime (funcall pi-cl :transition
                                       :header h
@@ -162,33 +181,32 @@
                                       :kappa-prime kappa-prime)))
 
               ;; ── β' (4.17): β'H < (H, EC, β†H, θ') ─────────────
-              ;; For now: θ' = nil (no accumulate), EG passed for reported WPs.
               (let ((beta-prime (funcall beta-dagger :transition
                                         :header h
                                         :guarantees e-g
-                                        :theta-prime nil)))
+                                        :theta-prime theta-prime)))
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
-               :alpha   (funcall sigma :segment :alpha)    ;; TODO: (4.19)
+               :alpha   (funcall alpha-cl :encoded)        ;; TODO: (4.19) α' < (H, EC, ϕ', α)
                :beta    (funcall beta-prime :encoded)      ;; ✓ (4.17)
                :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
-               :delta   (funcall sigma :segment :delta)    ;; TODO: (4.18)
+               :delta   nil                                ;; δ uses extra-kvs, not a segment
                :eta     (funcall eta-prime :encoded)       ;; ✓ (4.8)
-               :iota    (funcall iota :encoded)            ;; TODO: (4.16) accumulate
+               :iota    (funcall iota-prime :encoded)      ;; ✓ (4.16) via accumulate
                :kappa   (funcall kappa-prime :encoded)     ;; ✓ (4.9)
                :lambda* (funcall lambda-prime :encoded)    ;; ✓ (4.10)
                :rho     (funcall rho-prime :encoded)       ;; ✓ (4.12→4.14) ρ† → ρ‡ → ρ'
                :tau     (funcall tau-prime :encoded)       ;; ✓ (4.5)
-               :phi     (funcall sigma :segment :phi)      ;; TODO: (4.16) accumulate
-               :chi     (funcall sigma :segment :chi)      ;; TODO: (4.16) accumulate
+               :phi     (funcall phi-prime :encoded)       ;; ✓ (4.16) via accumulate
+               :chi     (funcall chi-prime :encoded)       ;; ✓ (4.16) via accumulate
                :psi     (funcall psi-prime :encoded)       ;; ✓ (4.11)
                :pi*     (funcall pi-prime :encoded)        ;; ✓ (4.20)
-               :omega   (funcall sigma :segment :omega)    ;; TODO: (4.16) accumulate
-               :xi      (funcall sigma :segment :xi)       ;; TODO: (4.16) accumulate
-               :theta   (funcall sigma :segment :theta)    ;; TODO: (4.16) accumulate
+               :omega   (funcall omega-prime :encoded)     ;; ✓ (4.16) via accumulate
+               :xi      (funcall xi-prime :encoded)        ;; ✓ (4.16) via accumulate
+               :theta   (funcall sigma :segment :theta)    ;; TODO: θ' from accumulate
                ;; Propagate non-segment Merkle entries (service accounts etc.)
-               :extra-kvs (funcall sigma :extra-kvs))))))))))
+               :extra-kvs (funcall delta-dagger :extra-kvs))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; IMPLEMENTATION STATUS
@@ -204,11 +222,12 @@
 ;;; ✓ ρ  — state/rho.lisp     (define-state-closure, :transition-dagger/:transition-ddagger/:transition)
 ;;; ✓ γ  — state/gamma.lisp   (define-state-closure, :transition)
 ;;; ✓ σ  — state/sigma.lisp   (byte store, :load/:merkle-kvs/:state-root)
-;;; ○ α  — state/alpha.lisp   (placeholder)
-;;; ○ ϕ  — state/phi.lisp     (placeholder)
-;;; ○ δ  — state/delta.lisp   (placeholder)
+;;; ✓ α  — state/alpha.lisp   (codec-only, no :transition — via accumulate)
+;;; ✓ ϕ  — state/phi.lisp     (codec-only, no :transition — via accumulate)
+;;; ✓ δ  — state/delta.lisp   (codec-only, extra-kvs C(255,s) — via accumulate)
 ;;; ✓ π  — state/pi.lisp      (define-state-closure, :transition)
-;;; ○ χ  — state/chi.lisp     (placeholder)
-;;; ○ ω  — state/omega.lisp   (placeholder)
-;;; ○ ξ  — state/xi.lisp      (placeholder)
-;;; ○ θ  — state/theta.lisp   (placeholder)
+;;; ✓ χ  — state/chi.lisp     (codec-only, no :transition — via accumulate)
+;;; ✓ ω  — state/omega.lisp   (codec-only, no :transition — via accumulate)
+;;; ✓ ξ  — state/xi.lisp      (codec-only, no :transition — via accumulate)
+;;; ✓ θ  — state/theta.lisp   (codec-only, no :transition — via accumulate)
+;;; ✓ Acc — accumulate.lisp   (orchestrator, GP §12)

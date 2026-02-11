@@ -1,16 +1,28 @@
-;;;; state/chi.lisp — χ Privileged Service Indices (GP §9.9)
+;;;; state/chi.lisp — χ Privileged Service Indices (GP §9.4)
 ;;;;
-;;;; χ = (χM, χA, χV, χR, χZ)
-;;;; χM : blessed service index
-;;;; χA : core authorizer queue assignment services
-;;;; χV : designate service
-;;;; χR : registrar service
-;;;; χZ : always-accumulate services + gas
+;;;; χ = (χ_m, χ_a, χ_v, χ_r, χ_z)
+;;;; χ_m : manager (blessed) service index
+;;;; χ_a : authorizer-assignment service index
+;;;; χ_v : designate service index
+;;;; χ_r : (reserved)
+;;;; χ_z : always-accumulate services + gas map
 ;;;;
-;;;; Transitions via accumulate (4.16)
+;;;; No :transition — modified by transition-accumulate (accumulate.lisp).
+;;;; Merkle key: C(12).
 ;;;;
-;;;; TODO: implement with define-state-closure
+;;;; Messages:
+;;;;   :raw              → raw segment bytes (skeleton mode)
+;;;;   :encoded          → binary encoding
+;;;;   :decode           → reconstruct from bytes
 
 (in-package #:jotl)
 
-;;; PLACEHOLDER — will be implemented as state closure
+;;; Raw-bytes wrapper — will be replaced with real codec when §12.2 is implemented.
+(define-state-closure chi-state
+  ((raw nil))
+
+  (:encoded raw)
+
+  (:decode (bytes offset)
+    (values (make-chi-state :raw (subseq bytes offset))
+            (- (length bytes) offset))))
