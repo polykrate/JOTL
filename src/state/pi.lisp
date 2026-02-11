@@ -94,20 +94,160 @@
     (values (nreverse records) (- pos offset))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; CORE / SERVICE STATS — compact-encoded, passthrough for now
+;;; CORE ACTIVITY STATS — π_C  (GP §13.2)
 ;;; ═══════════════════════════════════════════════════════════════
-;;; Core stats (π_C) and service stats (π_S) use compact encoding.
-;;; For now we store them as raw bytes and pass them through.
-;;; They're updated by accumulate (§14), not by the statistics STF.
+;;; CoreActivityRecord: 8 compact fields per core
+;;;   da-load, popularity, imports, extrinsic-count,
+;;;   extrinsic-size, exports, bundle-size, gas-used
+;;;
+;;; Per-block: computed fresh each block from E_G + E_A.
+
+(defparameter +core-activity-fields+
+  '(:da-load :popularity :imports :extrinsic-count
+    :extrinsic-size :exports :bundle-size :gas-used))
+
+(defun make-zero-core-activity ()
+  "Zero-initialized CoreActivityRecord."
+  (list :da-load 0 :popularity 0 :imports 0 :extrinsic-count 0
+        :extrinsic-size 0 :exports 0 :bundle-size 0 :gas-used 0))
+
+(defun encode-core-activity (record)
+  "Encode one CoreActivityRecord: 8 compact fields."
+  (apply #'concatenate '(vector (unsigned-byte 8))
+         (mapcar (lambda (f) (encode-compact (or (getf record f) 0)))
+                 +core-activity-fields+)))
+
+(defun encode-cores-statistics (records)
+  "Encode C CoreActivityRecords (no length prefix)."
+  (apply #'concatenate '(vector (unsigned-byte 8))
+         (mapcar #'encode-core-activity records)))
 
 (defun encode-zero-cores-stats ()
-  "Encode C zero-initialized CoreActivityRecords.
-   Each field is compact(0) = 0x00. 8 fields × C cores."
+  "Encode C zero-initialized CoreActivityRecords."
   (make-array (* (num-cores) 8) :element-type '(unsigned-byte 8) :initial-element 0))
+
+(defun compute-cores-statistics (guarantees assurances)
+  "Compute π'_C fresh from this block's E_G and E_A.
+   Returns: list of C CoreActivityRecord plists."
+  (let ((c (num-cores))
+        (cores (loop repeat (num-cores) collect (make-zero-core-activity))))
+    ;; ── Popularity from assurances ──
+    ;; Each assurance has a bitfield: bit c set → core c assured.
+    (dolist (a (or assurances '()))
+      (let ((bf (getf a :bitfield)))
+        (when bf
+          (dotimes (ci c)
+            (let ((byte-idx (floor ci 8))
+                  (bit-idx (mod ci 8)))
+              (when (and (< byte-idx (length bf))
+                         (logbitp bit-idx (aref bf byte-idx)))
+                (incf (getf (nth ci cores) :popularity))))))))
+    ;; ── Refinement stats from guarantees ──
+    (dolist (g (or guarantees '()))
+      (let* ((report (getf g :report))
+             (ci (getf report :core-index))
+             (core-stat (when (< ci c) (nth ci cores))))
+        (when core-stat
+          (let ((total-gas 0) (total-imports 0) (total-exports 0)
+                (total-ext-count 0) (total-ext-size 0))
+            (dolist (r (getf report :results))
+              (let ((rl (getf r :refine-load)))
+                (incf total-gas (or (getf rl :gas-used) 0))
+                (incf total-imports (or (getf rl :imports) 0))
+                (incf total-exports (or (getf rl :exports) 0))
+                (incf total-ext-count (or (getf rl :extrinsic-count) 0))
+                (incf total-ext-size (or (getf rl :extrinsic-size) 0))))
+            (incf (getf core-stat :imports) total-imports)
+            (incf (getf core-stat :extrinsic-count) total-ext-count)
+            (incf (getf core-stat :extrinsic-size) total-ext-size)
+            (incf (getf core-stat :exports) total-exports)
+            (incf (getf core-stat :bundle-size)
+                  (or (getf (getf report :package-spec) :length) 0))
+            (incf (getf core-stat :gas-used) total-gas)))))
+    cores))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; SERVICE ACTIVITY STATS — π_S  (GP §13.2)
+;;; ═══════════════════════════════════════════════════════════════
+;;; ServiceActivityRecord: 10 compact fields
+;;;   provided-count, provided-size, refinement-count, refinement-gas-used,
+;;;   imports, extrinsic-count, extrinsic-size, exports,
+;;;   accumulate-count, accumulate-gas-used
+;;;
+;;; Per-block: computed fresh from E_G + E_P + S.
+;;; Sorted by service-id ascending.
+
+(defparameter +service-activity-fields+
+  '(:provided-count :provided-size :refinement-count :refinement-gas-used
+    :imports :extrinsic-count :extrinsic-size :exports
+    :accumulate-count :accumulate-gas-used))
+
+(defun make-zero-service-activity ()
+  "Zero-initialized ServiceActivityRecord."
+  (list :provided-count 0 :provided-size 0
+        :refinement-count 0 :refinement-gas-used 0
+        :imports 0 :extrinsic-count 0 :extrinsic-size 0 :exports 0
+        :accumulate-count 0 :accumulate-gas-used 0))
+
+(defun encode-service-activity-entry (entry)
+  "Encode one ServicesStatisticsMapEntry: ServiceId(u32) + 10 compact fields."
+  (let ((sid (getf entry :id))
+        (rec (getf entry :record)))
+    (apply #'concatenate '(vector (unsigned-byte 8))
+           (E4 sid)
+           (mapcar (lambda (f) (encode-compact (or (getf rec f) 0)))
+                   +service-activity-fields+))))
+
+(defun encode-services-statistics (entries)
+  "Encode ServicesStatistics: compact(count) + entries."
+  (apply #'concatenate '(vector (unsigned-byte 8))
+         (encode-compact (length entries))
+         (mapcar #'encode-service-activity-entry entries)))
 
 (defun encode-zero-services-stats ()
   "Encode empty ServicesStatistics: compact(0) = 1 byte."
   (encode-compact 0))
+
+(defun compute-services-statistics (guarantees preimages accum-stats)
+  "Compute π'_S fresh from this block's E_G, E_P, and S.
+   GUARANTEES: list of guarantee plists (from E_G)
+   PREIMAGES:  list of preimage plists (from E_P) — each has :service-id, :blob
+   ACCUM-STATS: list of (service-id . gas-used) pairs from accumulate (S)
+   Returns: sorted list of (:id sid :record plist) entries."
+  (let ((ht (make-hash-table :test 'eql)))
+    (flet ((ensure-entry (sid)
+             (or (gethash sid ht)
+                 (setf (gethash sid ht) (make-zero-service-activity)))))
+      ;; ── Refinement stats from guarantees ──
+      (dolist (g (or guarantees '()))
+        (dolist (r (getf (getf g :report) :results))
+          (let* ((sid (getf r :service-id))
+                 (rl (getf r :refine-load))
+                 (entry (ensure-entry sid)))
+            (incf (getf entry :refinement-count) 1)
+            (incf (getf entry :refinement-gas-used) (or (getf rl :gas-used) 0))
+            (incf (getf entry :imports) (or (getf rl :imports) 0))
+            (incf (getf entry :extrinsic-count) (or (getf rl :extrinsic-count) 0))
+            (incf (getf entry :extrinsic-size) (or (getf rl :extrinsic-size) 0))
+            (incf (getf entry :exports) (or (getf rl :exports) 0)))))
+      ;; ── Preimage stats from E_P ──
+      (dolist (p (or preimages '()))
+        (let* ((sid (getf p :service-id))
+               (blob (getf p :blob))
+               (entry (ensure-entry sid)))
+          (incf (getf entry :provided-count) 1)
+          (incf (getf entry :provided-size) (if blob (length blob) 0))))
+      ;; ── Accumulation stats from S ──
+      (dolist (pair (or accum-stats '()))
+        (let* ((sid (car pair))
+               (gas (cdr pair))
+               (entry (ensure-entry sid)))
+          (incf (getf entry :accumulate-count) 1)
+          (incf (getf entry :accumulate-gas-used) (or gas 0)))))
+    ;; Build sorted result
+    (let ((result '()))
+      (maphash (lambda (sid rec) (push (list :id sid :record rec) result)) ht)
+      (sort result #'< :key (lambda (x) (getf x :id))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — π (validator statistics)
@@ -176,15 +316,15 @@
   (:validator-stat (index)
     (nth index (or vals-curr (make-zero-validator-stats))))
 
-  ;; ── Transition: GP §13.4-13.5 ───────────────────────────────
+  ;; ── Transition: GP §13 ──────────────────────────────────────
   ;; π' < (EG, EP, EA, ET, τ, κ', π, H, S)
   ;;
-  ;; For now: validator stats only (§13.5).
-  ;; Core stats (π_C) and service stats (π_S) are updated by accumulate.
-  ;; S (accumulate result) is not yet implemented.
+  ;; §13.4-13.5: π'_V, π'_L — validator stats (epoch rotation)
+  ;; §13.2:      π'_C       — per-block core activity (fresh from E_G + E_A)
+  ;; §13.2:      π'_S       — per-block service activity (fresh from E_G + E_P + S)
   (:transition (&key header tau tau-prime
                      tickets preimages assurances guarantees
-                     kappa-prime)
+                     kappa-prime accum-stats r-star)
     (let* ((v (num-validators))
            (e (epoch-duration))
            (epoch-old (floor (funcall tau :slot) e))
@@ -218,24 +358,29 @@
                 (dolist (sig (getf g :signatures))
                   (setf (gethash (getf sig :validator-index) set) t)))
               set)))
-      ;; (13.5) Build π'_V
-      (let ((new-curr
-             (loop for vi from 0 below v
-                   for ai in a
-                   collect
-                   (list :blocks         (+ (getf ai :blocks)
-                                            (if (= vi author) 1 0))
-                         :tickets        (+ (getf ai :tickets)
-                                            (if (= vi author) num-tickets 0))
-                         :preimages      (+ (getf ai :preimages)
-                                            (if (= vi author) num-preimages 0))
-                         :preimages-size (+ (getf ai :preimages-size)
-                                            (if (= vi author) preimage-bytes 0))
-                         :guarantees     (+ (getf ai :guarantees)
-                                            (if (gethash vi guarantor-set) 1 0))
-                         :assurances     (+ (getf ai :assurances)
-                                            (if (member vi assuring-validators) 1 0))))))
+      ;; ── (13.5) Build π'_V ──
+      (let* ((new-curr
+              (loop for vi from 0 below v
+                    for ai in a
+                    collect
+                    (list :blocks         (+ (getf ai :blocks)
+                                             (if (= vi author) 1 0))
+                          :tickets        (+ (getf ai :tickets)
+                                             (if (= vi author) num-tickets 0))
+                          :preimages      (+ (getf ai :preimages)
+                                             (if (= vi author) num-preimages 0))
+                          :preimages-size (+ (getf ai :preimages-size)
+                                             (if (= vi author) preimage-bytes 0))
+                          :guarantees     (+ (getf ai :guarantees)
+                                             (if (gethash vi guarantor-set) 1 0))
+                          :assurances     (+ (getf ai :assurances)
+                                             (if (member vi assuring-validators) 1 0)))))
+             ;; ── (13.2) π'_C: per-block core activity ──
+             (new-cores (compute-cores-statistics guarantees assurances))
+             ;; ── (13.2) π'_S: per-block service activity ──
+             (new-services (compute-services-statistics
+                            guarantees preimages accum-stats)))
         (make-pi-state :vals-curr new-curr
                        :vals-last new-last
-                       :cores-raw (or cores-raw (encode-zero-cores-stats))
-                       :services-raw (or services-raw (encode-zero-services-stats)))))))
+                       :cores-raw (encode-cores-statistics new-cores)
+                       :services-raw (encode-services-statistics new-services))))))

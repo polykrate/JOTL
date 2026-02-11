@@ -278,139 +278,421 @@
    SERVICE-ID: the service to accumulate
    ITEMS:      list of U-plists (operand tuples for this service)
    GAS-LIMIT:  gas budget for this invocation
-   STATE:      mutable accumulation state (plist with :delta :entropy :timeslot :header-hash etc.)
+   STATE:      mutable accumulation state (plist with :delta-kvs :entropy :timeslot :header-hash etc.)
 
    Returns: (values side-effects-plist gas-used) or (values nil 0) on failure."
   (let* ((delta-kvs (getf state :delta-kvs))
          (timeslot  (getf state :timeslot))
-         ;; Try to find service code blob from delta extra-kvs.
-         ;; Service accounts are stored under Merkle key C(255, s).
-         ;; For now, we can't decode them — gracefully skip.
-         (service-code nil))
-    (declare (ignorable delta-kvs))
+         ;; ── Parse service account from delta extra-kvs (GP D.1) ──
+         (svc-data  (classify-service-sub-keys service-id delta-kvs))
+         (metadata  (getf svc-data :metadata))
+         (code-blob (getf svc-data :code-blob)))
 
-    ;; TODO: Extract service code from delta when service account codec is available.
-    ;; For now, skip PVM execution if we can't load code.
-    (unless service-code
+    ;; No code blob found → skip PVM execution
+    (unless code-blob
       (return-from accumulate-service (values nil 0)))
 
-    ;; ── Create PVM instance + Configure + Run + Collect (new wire API) ──
+    ;; ── Create PVM instance + Configure + Run + Collect ──
     (handler-case
-        (jam.ffi:with-pvm (ctx service-code service-id 0 timeslot)
-          ;; Configure context in one blob (replaces ~8 individual setter calls)
-          (jam.ffi:pvm-configure ctx
-            :invocation 2  ;; Accumulate
-            :service-id service-id
-            :balance 0
-            :timeslot timeslot
-            :entropy (or (getf state :entropy)
-                         (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))
-            :header-hash (or (getf state :header-hash)
-                             (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
-            :gas gas-limit
-            :accumulate-items (encode-accumulate-items items nil))
+        (let* ((balance       (or (getf metadata :balance) 0))
+               (code-hash     (or (getf metadata :code-hash)
+                                  (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
+               (min-accum-gas (or (getf metadata :min-item-gas) 0))
+               (min-memo-gas  (or (getf metadata :min-memo-gas) 0))
+               (items-count   (or (getf metadata :items) 0))
+               (total-bytes   (or (getf metadata :bytes) 0))
+               (deposit-off   (or (getf metadata :deposit-offset) 0)))
+          (jam.ffi:with-pvm (ctx code-blob service-id balance timeslot)
+            ;; Configure context as one JAM blob
+            (jam.ffi:pvm-configure ctx
+              :invocation      2  ;; Accumulate
+              :service-id      service-id
+              :balance         balance
+              :timeslot        timeslot
+              :entropy         (or (getf state :entropy)
+                                   (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))
+              :header-hash     (or (getf state :header-hash)
+                                   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
+              :code-hash       code-hash
+              :threshold       deposit-off
+              :min-accum-gas   min-accum-gas
+              :min-item-gas    min-accum-gas
+              :min-on-transfer-gas min-memo-gas
+              :items-count     items-count
+              :footprint       total-bytes
+              :gas             gas-limit
+              ;; Service account data (storage, preimages, lookup)
+              :storage         (getf svc-data :storage)
+              :preimages       (getf svc-data :preimages)
+              :lookup          (getf svc-data :lookup)
+              ;; Accumulate items (work results for this service)
+              :accumulate-items (encode-accumulate-items items nil))
 
-          ;; ── Run PVM accumulate_ext ──
-          (multiple-value-bind (status result gas-remaining)
-              (jam.ffi:pvm-run ctx "accumulate_ext")
-            (declare (ignorable result))
+            ;; ── Run PVM accumulate_ext ──
+            (multiple-value-bind (status result gas-remaining)
+                (jam.ffi:pvm-run ctx "accumulate_ext")
+              (declare (ignorable result))
 
-            ;; ── Collapse (resolve dual context per GP B.13) ──
-            (jam.ffi:pvm-collapse ctx status)
+              ;; ── Collapse (resolve dual context per GP B.13) ──
+              (jam.ffi:pvm-collapse ctx status)
 
-            ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
-            (let ((effects (collect-side-effects ctx))
-                  (gas-used (- gas-limit (or gas-remaining 0))))
-              (values effects gas-used))))
+              ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
+              (let ((effects (collect-side-effects ctx))
+                    (gas-used (- gas-limit (or gas-remaining 0))))
+                (values effects gas-used)))))
 
       (error (e)
-        (format *error-output* "~&accumulate-service: PVM error for service ~A: ~A~%" service-id e)
+        (format *error-output* "~&accumulate-service: PVM error for service ~D: ~A~%"
+                service-id e)
         (values nil 0)))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; §12.2 DELTA LOOPS — Δ* (per-report) and Δ+ (sequential)
+;;; §12.2 DELTA LOOPS — Δ* (per-report, GP 12.19) and Δ+ (sequential)
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun apply-service-effects (effects service-id state)
-  "Apply side-effects from one service's accumulation back to the mutable state S.
-   Mutates STATE in-place (plist with :commitments, :gas-usage, etc.).
-   Returns: updated STATE."
-  (when effects
-    ;; ── B: Commitments (service-id, yield-hash) ──
-    (let ((yield-hash (getf effects :yield-output)))
-      (when yield-hash
-        (push (cons service-id yield-hash) (getf state :commitments))))
+;;; ── R(o, a, b) — Privilege ownership function (GP 12.20) ────
+;;; "If the manager changed it (a≠o), use the manager's choice (a).
+;;;  If the manager didn't change it (a=o), use the service's choice (b)."
+(defun privilege-resolve (original manager-choice service-choice)
+  "GP (12.20): R(o, a, b) = b if a = o, else a."
+  (if (eql manager-choice original)
+      service-choice
+      manager-choice))
 
-    ;; ── Deferred transfers (for subsequent services) ──
-    (let ((transfers (getf effects :transfers)))
-      (when (and transfers (plusp (length transfers)))
-        (loop for xfer across transfers
-              do (push (list :sender      service-id
-                             :destination (gethash :destination xfer)
-                             :amount      (gethash :amount xfer)
-                             :memo        (gethash :memo xfer)
-                             :gas-limit   (or (gethash :gas-limit xfer) 0))
-                       (getf state :pending-transfers)))))
+(defun compute-service-set (reports transfers free-accum)
+  "Compute s = { d_s | r ∈ r, d ∈ r_d } ∪ K(f) ∪ { t_d | t ∈ t }.
+   REPORTS:      list of work-reports
+   TRANSFERS:    list of deferred-transfer plists (:destination ...)
+   FREE-ACCUM:   alist of (service-id . gas) from χ_Z
+   Returns: sorted list of unique service IDs."
+  (let ((sids (make-hash-table :test 'eql)))
+    ;; Service IDs from work items in reports
+    (dolist (r reports)
+      (dolist (w (getf r :results))
+        (setf (gethash (getf w :service-id) sids) t)))
+    ;; Keys of f (always-accumulate services)
+    (dolist (entry free-accum)
+      (setf (gethash (car entry) sids) t))
+    ;; Destination service IDs from deferred transfers
+    (dolist (x transfers)
+      (setf (gethash (getf x :destination) sids) t))
+    ;; Return sorted unique list
+    (sort (loop for k being the hash-keys of sids collect k) #'<)))
 
-    ;; ── Created services ──
-    (dolist (entry (getf effects :created))
-      (push entry (getf state :created-services)))
-
-    ;; ── Ejected services ──
-    (dolist (entry (getf effects :ejected))
-      (push entry (getf state :ejected-services)))
-
-    ;; ── Upgrades ──
-    (dolist (entry (getf effects :upgrades))
-      (push entry (getf state :upgrade-list)))
-
-    ;; ── Empower (bless) ──
-    (when (getf effects :empower)
-      (setf (getf state :empower) (getf effects :empower))))
-
-  state)
-
-(defun accumulate-report (report state)
-  "GP §12.2 Δ*: Accumulate one work-report (service-aggregated, non-sequential).
-   Groups operand tuples by service and invokes PVM for each.
-   STATE is the mutable accumulation state.
-   Returns: updated STATE."
-  (let* ((tuples (extract-operand-tuples report))
-         (by-service (group-by-service tuples))
+(defun accumulate-star (state transfers reports free-accum)
+  "GP §12.19 Δ*: Parallel service-aggregated accumulation.
+   STATE:        S = (d, i, q, m, a, v, r, z, ...) — mutable accum-state plist
+   TRANSFERS:    list of deferred-transfer plists (from prior round)
+   REPORTS:      list of work-reports
+   FREE-ACCUM:   alist of (service-id . gas) from χ_Z
+   Returns: (values state' new-transfers commitments gas-usage)"
+  (let* (;; ── s: set of services to accumulate ──
+         (s (compute-service-set reports transfers free-accum))
+         ;; ── Collect operand tuples from all reports ──
+         (all-tuples (mapcan #'extract-operand-tuples reports))
+         (by-service (group-by-service all-tuples))
+         ;; ── Run Δ_1 for each service s ∈ s ──
+         ;; results: alist of (sid . effects-plist)
+         (delta-results (make-hash-table :test 'eql))
+         (gas-usage nil)       ;; u = [(sid, gas-used)]
+         (commitments nil)     ;; b = {(sid, yield-hash) | yield ≠ ∅}
+         (new-transfers nil)   ;; t' = concat of all transfers
          (remaining-gas (getf state :remaining-gas)))
 
-    ;; Process each service in deterministic order (ascending service ID)
-    (let ((service-ids (sort (loop for k being the hash-keys of by-service collect k) #'<)))
-      (dolist (sid service-ids)
-        (when (<= remaining-gas 0)
-          (return))  ;; No gas left
-        (let* ((items (gethash sid by-service))
-               ;; Gas for this service = min(advertised accumulate-gas, remaining block gas)
-               (advertised-gas (reduce #'+ items :key (lambda (u) (or (getf u :gas) 0))))
-               (gas-limit (min advertised-gas remaining-gas)))
-          (when (plusp gas-limit)
-            (multiple-value-bind (effects gas-used)
-                (accumulate-service sid items gas-limit state)
-              ;; Track gas usage: U = [(service_id, gas_used)]
-              (push (cons sid gas-used) (getf state :gas-usage))
-              ;; Apply side-effects
-              (apply-service-effects effects sid state)
-              ;; Deduct gas
-              (decf remaining-gas gas-used)
-              (setf (getf state :remaining-gas) remaining-gas)))))))
-  state)
+    (dolist (sid s)
+      (when (<= remaining-gas 0) (return))
+
+      (let* ((items (or (gethash sid by-service) nil))
+             ;; Gas: max of (sum of advertised, free-accum gas, transfer gas)
+             (work-gas (if items
+                           (reduce #'+ items :key (lambda (u) (or (getf u :gas) 0)))
+                           0))
+             (free-gas (or (cdr (assoc sid free-accum)) 0))
+             (xfer-gas (reduce #'+ (remove-if-not
+                                    (lambda (x) (= (getf x :destination) sid))
+                                    transfers)
+                               :key (lambda (x) (or (getf x :gas-limit) 0))
+                               :initial-value 0))
+             (total-gas (+ work-gas free-gas xfer-gas))
+             (gas-limit (min total-gas remaining-gas)))
+
+        (when (plusp gas-limit)
+          (multiple-value-bind (effects gas-used)
+              (accumulate-service sid items gas-limit state)
+
+            ;; Store Δ(s) result
+            (setf (gethash sid delta-results) effects)
+
+            ;; u: gas usage
+            (push (cons sid gas-used) gas-usage)
+
+            ;; b: commitments (yield output)
+            (when (and effects (getf effects :yield-output))
+              (push (cons sid (getf effects :yield-output)) commitments))
+
+            ;; t': new deferred transfers from this service
+            (when (and effects (getf effects :transfers))
+              (dolist (xfer (getf effects :transfers))
+                (push (list :sender      sid
+                            :destination (getf xfer :to)
+                            :amount      (getf xfer :amount)
+                            :memo        (getf xfer :memo)
+                            :gas-limit   (or (getf xfer :gas-limit) 0))
+                      new-transfers)))
+
+            ;; Track for delta† construction
+            (let ((svc-effects (or (getf state :service-effects) nil)))
+              (push (cons sid effects) svc-effects)
+              (setf (getf state :service-effects) svc-effects))
+
+            ;; Deduct gas
+            (decf remaining-gas gas-used)
+            (setf (getf state :remaining-gas) remaining-gas)))))
+
+    ;; ── Privilege updates (GP 12.19) ──
+    ;; e = (d, i, q, m, a, v, r, z) — unpack current state
+    (let* ((m-mgr  (getf state :chi-manager))
+           (v-des  (getf state :chi-designate))
+           (r-stk  (getf state :chi-creation))
+           (a-auth (getf state :chi-authorizers))
+           (z-gas  (getf state :chi-always-accum))
+           ;; e* = Δ(m)_e — manager service's empower output
+           (mgr-effects (gethash m-mgr delta-results))
+           (e-star (when mgr-effects (getf mgr-effects :empower))))
+
+      ;; (m', z') = e*_{(m,z)}
+      (when e-star
+        (setf (getf state :chi-manager)      (getf e-star :manager))
+        (setf (getf state :chi-always-accum) (getf e-star :gas-map)))
+
+      ;; v' = R(v, e*_v, (Δ(v)_e)_v)
+      (let* ((des-effects (gethash v-des delta-results))
+             (des-empower (when des-effects (getf des-effects :empower))))
+        (when (and e-star des-empower)
+          (setf (getf state :chi-designate)
+                (privilege-resolve v-des
+                                  (getf e-star :validator)
+                                  (getf des-empower :validator))))
+        ;; i' = (Δ(v)_e)_i — validator keys from designate service
+        (when des-empower
+          (setf (getf state :iota-validators) (getf des-empower :validators))))
+
+      ;; r' = R(r, e*_r, (Δ(r)_e)_r)
+      (let* ((stk-effects (gethash r-stk delta-results))
+             (stk-empower (when stk-effects (getf stk-effects :empower))))
+        (when (and e-star stk-empower)
+          (setf (getf state :chi-creation)
+                (privilege-resolve r-stk
+                                  (getf e-star :staker)
+                                  (getf stk-empower :staker)))))
+
+      ;; ∀c ∈ N_C: a'_c = R(a_c, (e*_a)_c, ((Δ(a_c)_e)_a)_c)
+      ;; ∀c ∈ N_C: q'_c = ((Δ(a_c)_e)_q)_c
+      (when a-auth
+        (let ((new-auth (copy-list a-auth))
+              (new-queues (getf state :phi-queues)))
+          (loop for c from 0 below (num-cores)
+                for a-c = (nth c a-auth)
+                do (let* ((ac-effects (gethash a-c delta-results))
+                          (ac-empower (when ac-effects (getf ac-effects :empower))))
+                     ;; a'_c
+                     (when (and e-star ac-empower)
+                       (let ((e-star-ac (nth c (getf e-star :auth-agents)))
+                             (self-ac   (nth c (getf ac-empower :auth-agents))))
+                         (when (and e-star-ac self-ac)
+                           (setf (nth c new-auth)
+                                 (privilege-resolve a-c e-star-ac self-ac)))))
+                     ;; q'_c
+                     (when (and ac-empower new-queues)
+                       (let ((q-c (nth c (getf ac-empower :queues))))
+                         (when q-c
+                           (setf (nth c new-queues) q-c))))))
+          (setf (getf state :chi-authorizers) new-auth)
+          (when new-queues
+            (setf (getf state :phi-queues) new-queues)))))
+
+    (values state
+            (nreverse new-transfers)
+            (nreverse commitments)
+            (nreverse gas-usage))))
 
 (defun accumulate-all (r-star state)
-  "GP §12.2 Δ+: Sequential accumulation of all work-reports in R*.
-   For the first report, deferred transfers from prior accumulation are integrated.
-   STATE is the mutable accumulation state.
-   Returns: updated STATE."
-  ;; Process each work-report sequentially (gas-limited)
-  (dolist (report r-star)
-    (when (<= (getf state :remaining-gas) 0)
-      (return))
-    (setf state (accumulate-report report state)))
-  state)
+  "GP §12.2 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
+   Recursive definition:
+     Δ+(g, t, [],    e, f) = Δ*(e, t, [], f)         — base case
+     Δ+(g, t, r:R*, e, f) = let (e',t',b,u) = Δ*(e, t, [r], f)
+                              in (n+1, Δ+(g', t', R*, e', f))
+   f (always-accumulate) is passed to EVERY Δ* call.
+   After the last report, one final Δ* call processes residual
+   deferred transfers + always-accumulate services.
+
+   STATE is the mutable accumulation state (includes χ fields, f).
+   Returns: updated STATE with :commitments, :gas-usage, :pending-transfers populated."
+  (let ((all-commitments nil)
+        (all-gas-usage nil)
+        (pending-transfers (getf state :pending-transfers))
+        (free-accum (getf state :chi-always-accum))
+        (first-round t))
+
+    ;; Track n = number of reports actually accumulated (GP 12.25)
+    (let ((n 0))
+
+      ;; ── Process each work-report: Δ*(e, t, [r], f) ──
+      (dolist (report r-star)
+        (when (<= (getf state :remaining-gas) 0)
+          (return))
+
+        (multiple-value-bind (state* new-transfers commitments gas-usage)
+            (accumulate-star state
+                            (if first-round pending-transfers nil)
+                            (list report)
+                            free-accum)  ;; f passed EVERY round
+          (setf state state*)
+          (setf pending-transfers new-transfers)
+          (setf all-commitments (nconc all-commitments commitments))
+          (setf all-gas-usage (nconc all-gas-usage gas-usage))
+          (setf first-round nil)
+          (incf n)))
+
+      ;; ── Base case: Δ*(e, t, [], f) — final round ──
+      ;; Process residual deferred transfers + always-accumulate
+      (when (and (plusp (getf state :remaining-gas))
+                 (or pending-transfers free-accum))
+        (multiple-value-bind (state* new-transfers commitments gas-usage)
+            (accumulate-star state
+                            pending-transfers
+                            nil    ;; no reports
+                            free-accum)
+          (setf state state*)
+          (setf pending-transfers new-transfers)
+          (setf all-commitments (nconc all-commitments commitments))
+          (setf all-gas-usage (nconc all-gas-usage gas-usage))))
+
+      ;; Store results back in state
+      (setf (getf state :commitments) all-commitments)
+      (setf (getf state :gas-usage) all-gas-usage)
+      (setf (getf state :pending-transfers) pending-transfers)
+      (setf (getf state :n-accumulated) n)
+      state)))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; §12.3 DELTA† CONSTRUCTION — apply PVM side-effects to trie
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun build-delta-dagger (accum-state delta-kvs timeslot)
+  "Construct δ† from the accumulated PVM side-effects.
+   Surgically updates only what changed:
+   1. ServiceInfo metadata (last-accumulation-slot ← τ')
+   2. Storage entries (remove old, add new from PVM)
+   3. Lookup entries (replace with PVM's updated table)
+   4. Preimage entries (add new from provided-preimages, keep existing)
+
+   ACCUM-STATE: the mutable accumulation state after Δ+
+   DELTA-KVS:   the original delta extra-kvs
+   TIMESLOT:    τ' (post-transition timeslot)
+
+   Returns: a new delta-state closure."
+  (let ((new-kvs (copy-alist delta-kvs))
+        (accumulated-sids nil)
+        (svc-effects (getf accum-state :service-effects)))
+
+    ;; Collect unique accumulated service IDs
+    (dolist (se svc-effects)
+      (let ((sid (car se)))
+        (unless (member sid accumulated-sids)
+          (push sid accumulated-sids))))
+
+    ;; ── Update each accumulated service ──
+    (dolist (sid accumulated-sids)
+      ;; Find the metadata KV entry for this service
+      (let ((meta-entry (find-if (lambda (kv)
+                                   (and (service-metadata-key-p (car kv))
+                                        (= (service-id-from-metadata-key (car kv)) sid)))
+                                 new-kvs)))
+        (when meta-entry
+          (let ((info (decode-service-info (cdr meta-entry))))
+            ;; Update last-accumulation-slot to τ'
+            (setf (getf info :last-accumulation-slot) timeslot)
+
+            ;; Find the LAST effects for this service (most recent invocation)
+            ;; (effects are pushed in order, so first in list = last invocation)
+            (let ((last-effects nil))
+              (dolist (se svc-effects)
+                (when (= (car se) sid)
+                  (unless last-effects
+                    (setf last-effects (cdr se)))))
+
+              (when last-effects
+                ;; Update balance from PVM
+                (let ((new-balance (getf last-effects :balance)))
+                  (when new-balance
+                    (setf (getf info :balance) new-balance)))
+
+                ;; ── Storage: remove old storage entries, add PVM's ──
+                ;; Classify original sub-keys to identify which are storage
+                (let ((orig-classified (classify-service-sub-keys sid delta-kvs)))
+                  ;; Remove ONLY old storage trie entries (not preimages or lookup)
+                  (let ((old-storage-h27s
+                         (mapcar #'car (getf orig-classified :storage))))
+                    (when old-storage-h27s
+                      (setf new-kvs
+                            (remove-if (lambda (kv)
+                                         (and (not (service-metadata-key-p (car kv)))
+                                              (not (segment-key-p (car kv)))
+                                              (= (service-id-from-sub-key (car kv)) sid)
+                                              (member (extract-sub-key-h (car kv))
+                                                      old-storage-h27s :test #'equalp)))
+                                       new-kvs)))))
+
+                ;; Add new storage entries from PVM
+                (dolist (s-entry (getf last-effects :storage))
+                  (let* ((raw-key (car s-entry))
+                         (val     (cdr s-entry))
+                         (h-27    (storage-trie-h raw-key))
+                         (trie-key (interleave-sub-key sid h-27)))
+                    (push (cons trie-key (ensure-bytes val)) new-kvs)))
+
+                ;; ── Lookup: replace lookup entries with PVM's ──
+                ;; Remove old lookup trie entries
+                (let ((orig-classified (classify-service-sub-keys sid delta-kvs)))
+                  (let ((old-lookup-h27s
+                         (mapcar (lambda (l)
+                                   (lookup-trie-h (first l) (second l)))
+                                 (getf orig-classified :lookup))))
+                    (when old-lookup-h27s
+                      (setf new-kvs
+                            (remove-if (lambda (kv)
+                                         (and (not (service-metadata-key-p (car kv)))
+                                              (not (segment-key-p (car kv)))
+                                              (= (service-id-from-sub-key (car kv)) sid)
+                                              (member (extract-sub-key-h (car kv))
+                                                      old-lookup-h27s :test #'equalp)))
+                                       new-kvs)))))
+
+                ;; Add PVM's lookup entries
+                (dolist (l-entry (getf last-effects :lookup))
+                  (let* ((hash-32  (first l-entry))
+                         (length   (second l-entry))
+                         (statuses (cddr l-entry))
+                         (h-27     (lookup-trie-h hash-32 length))
+                         (trie-key (interleave-sub-key sid h-27))
+                         (val      (encode-lookup-value statuses)))
+                    (push (cons trie-key val) new-kvs)))
+
+                ;; ── Preimages: add new from provided-preimages ──
+                ;; Existing preimage blobs are kept (not removed).
+                (dolist (pp (getf last-effects :provided-preimages))
+                  (let* ((pp-sid  (car pp))
+                         (pp-data (cdr pp))
+                         (pp-hash (jam.ffi:blake2b-256 pp-data))
+                         (h-27    (preimage-trie-h pp-hash))
+                         (trie-key (interleave-sub-key pp-sid h-27)))
+                    (push (cons trie-key (ensure-bytes pp-data)) new-kvs)))))
+
+            ;; Re-encode and replace the metadata entry
+            (setf (cdr meta-entry) (encode-service-info info))))))
+
+    (make-delta-state :raw-kvs new-kvs)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; transition-accumulate — GP (4.16) top-level entry
@@ -448,63 +730,105 @@
     ;; ── §12.1: Compute R* via queue editing and priority ordering ──
     (multiple-value-bind (r-star new-omega-queues accumulated-hashes)
         (compute-r-star r-star-input omega-queues xi-flattened timeslot)
+      (declare (ignorable accumulated-hashes))
 
-      ;; ── ω' (12.10): update omega with new queues ──
-      (let ((omega-prime (make-omega-state :queues new-omega-queues)))
+      ;; ── Decode χ (GP 9.9) for privilege fields ──
+      (let* ((chi-mgr  (funcall chi :manager))
+             (chi-des  (funcall chi :designate))
+             (chi-stk  (funcall chi :creation))
+             (chi-auth (funcall chi :authorizers))
+             (chi-az   (funcall chi :always-accum))
 
-        ;; ── ξ' (12.11-12.12): update xi with accumulated package hashes ──
-        (let ((xi-entries (copy-list (funcall xi :entries))))
-          (when (null xi-entries)
-            (setq xi-entries (make-list e :initial-element nil)))
-          (setf (nth m xi-entries) accumulated-hashes)
-          (let ((xi-prime (make-xi-state :entries xi-entries)))
+             ;; ── §12.2 Execution ──
+             ;; Build mutable accumulation state S = (d, i, q, m, a, v, r, z, ...)
+             (original-kvs (funcall delta :extra-kvs))
+             (accum-state
+              (list :delta-kvs        original-kvs
+                    :timeslot         timeslot
+                    :entropy          nil ;; TODO: pass η from sigma
+                    :header-hash      nil ;; TODO: pass H_T from header
+                    :remaining-gas    (max-block-gas)
+                    ;; ── GP §12.16 S fields ──
+                    :chi-manager      chi-mgr    ;; m = χ_M
+                    :chi-designate    chi-des    ;; v = χ_V
+                    :chi-creation     chi-stk    ;; r = χ_R
+                    :chi-authorizers  chi-auth   ;; a = χ_A
+                    :chi-always-accum chi-az     ;; z = χ_Z
+                    :iota-validators  nil        ;; i = ι (set by Δ*)
+                    :phi-queues       nil        ;; q = ϕ (set by Δ*)
+                    ;; ── Accumulators ──
+                    :commitments      nil        ;; B: (sid . yield-hash)
+                    :gas-usage        nil        ;; U: (sid . gas-used)
+                    :pending-transfers nil       ;; X: deferred transfers
+                    :service-effects  nil)))     ;; Per-service PVM effects
 
-            ;; ── §12.2 Execution ──
-            ;; Build mutable accumulation state S
-            (let ((accum-state (list :delta-kvs       (funcall delta :extra-kvs)
-                                     :timeslot        timeslot
-                                     :entropy         nil ;; TODO: pass η from sigma
-                                     :header-hash     nil ;; TODO: pass H_T from header
-                                     :remaining-gas   (max-block-gas)
-                                     :commitments     nil ;; B: (service-id . yield-hash) pairs
-                                     :gas-usage       nil ;; U: (service-id . gas-used) pairs
-                                     :pending-transfers nil ;; X: deferred transfers
-                                     :created-services nil
-                                     :ejected-services nil
-                                     :upgrade-list    nil
-                                     :empower         nil)))
+        ;; Run Δ+ (sequential over R*) — GP (12.25)
+        (setf accum-state (accumulate-all r-star accum-state))
 
-              ;; Run Δ+ (sequential over R*)
-              (setf accum-state (accumulate-all r-star accum-state))
+        ;; ── §12.3 Final State Integration ──
 
-              ;; ── §12.3 Final State Integration ──
-              ;; Build θ' (commitments for β')
-              (let ((theta-prime (when (getf accum-state :commitments)
-                                   (make-theta-state
-                                    :raw (apply #'concatenate '(vector (unsigned-byte 8))
-                                                (mapcar (lambda (c)
-                                                          (let ((sid (car c))
-                                                                (yh  (cdr c)))
-                                                            (concatenate '(vector (unsigned-byte 8))
-                                                                         (vector (ldb (byte 8  0) sid)
-                                                                                 (ldb (byte 8  8) sid)
-                                                                                 (ldb (byte 8 16) sid)
-                                                                                 (ldb (byte 8 24) sid))
-                                                                         (coerce yh '(vector (unsigned-byte 8))))))
-                                                        (nreverse (getf accum-state :commitments)))))))
-                    ;; Build S (service statistics for π')
-                    (service-stats (nreverse (getf accum-state :gas-usage))))
+        (let* ((n (or (getf accum-state :n-accumulated) 0))
 
-                ;; Note: χ', ι', ϕ' are only mutated by PVM host calls (Ω_B, Ω_A, Ω_D).
-                ;; Until service code can be loaded, they pass through unchanged.
-                ;; The empower field in accum-state would update χ', and
-                ;; created/ejected would update δ†.
+               ;; ── ξ' (12.32-12.33): shift register ──
+               ;; ξ'_{E-1} = P(R*_{...n}) — package hashes of actually accumulated reports
+               ;; ∀i ∈ N_{E-1}: ξ'_i = ξ_{i+1} — shift left
+               (old-xi (let ((entries (funcall xi :entries)))
+                         (if (and entries (listp entries) (= (length entries) e))
+                             entries
+                             (make-list e :initial-element nil))))
+               (accumulated-n-hashes
+                (accum-package-hashes (subseq r-star 0 (min n (length r-star)))))
+               (new-xi (let ((nxi (make-list e :initial-element nil)))
+                         ;; Shift left: ξ'[i] = ξ[i+1]
+                         (loop for i from 0 below (1- e)
+                               do (setf (nth i nxi) (nth (1+ i) old-xi)))
+                         ;; ξ'[E-1] = P(R*_{...n})
+                         (setf (nth (1- e) nxi) accumulated-n-hashes)
+                         nxi))
+               (xi-prime (make-xi-state :entries new-xi))
 
-                (list :omega-prime   omega-prime
-                      :xi-prime      xi-prime
-                      :delta-dagger  delta   ;; δ† (mutated by PVM, passthrough for now)
-                      :chi-prime     chi     ;; χ' (set by Ω_B via empower)
-                      :iota-prime    iota    ;; ι' (set by Ω_A via auth agents)
-                      :phi-prime     phi     ;; ϕ' (set by Ω_D via auth queues)
-                      :theta-prime   theta-prime
-                      :service-stats service-stats)))))))))
+               ;; ── ω' (12.34): update omega ──
+               ;; For now, use the queue-edited omega from compute-r-star
+               ;; TODO: implement full 12.34 with slot clearing for τ'-τ gaps
+               (omega-prime (make-omega-state :queues new-omega-queues))
+
+               ;; ── δ† (12.30-12.31): apply PVM side-effects back to trie ──
+               (delta-dagger (build-delta-dagger accum-state original-kvs timeslot))
+
+               ;; ── χ' (12.27): updated privilege fields ──
+               (chi-prime
+                (make-chi-state
+                 :raw (encode-chi-fields
+                       (list :manager    (or (getf accum-state :chi-manager) chi-mgr)
+                             :designate  (or (getf accum-state :chi-designate) chi-des)
+                             :creation   (or (getf accum-state :chi-creation) chi-stk)
+                             :authorizers (or (getf accum-state :chi-authorizers) chi-auth)
+                             :always-accum (or (getf accum-state :chi-always-accum) chi-az)))))
+
+               ;; ── θ' (12.26): accumulation output log ──
+               (theta-prime
+                (when (getf accum-state :commitments)
+                  (make-theta-state
+                   :raw (apply #'concatenate '(vector (unsigned-byte 8))
+                               (mapcar (lambda (c)
+                                         (let ((sid (car c))
+                                               (yh  (cdr c)))
+                                           (concatenate '(vector (unsigned-byte 8))
+                                                        (vector (ldb (byte 8  0) sid)
+                                                                (ldb (byte 8  8) sid)
+                                                                (ldb (byte 8 16) sid)
+                                                                (ldb (byte 8 24) sid))
+                                                        (coerce yh '(vector (unsigned-byte 8))))))
+                                       (getf accum-state :commitments))))))
+
+               ;; ── S (12.28-12.29): service statistics for π' ──
+               (service-stats (getf accum-state :gas-usage)))
+
+          (list :omega-prime   omega-prime
+                :xi-prime      xi-prime
+                :delta-dagger  delta-dagger
+                :chi-prime     chi-prime
+                :iota-prime    iota    ;; ι' (updated via Δ* if designate ran)
+                :phi-prime     phi     ;; ϕ' (updated via Δ* if auth agents ran)
+                :theta-prime   theta-prime
+                :service-stats service-stats))))))

@@ -19,7 +19,7 @@
 ;;;;   :transition-ddagger (&key assurances tau-prime parent-hash kappa)
 ;;;;       → ρ‡  (R* via :reported message)
 ;;;;   :transition (&key guarantees tau-prime kappa lambda-prev eta
-;;;;                     offenders recent-blocks auth-pools accounts)
+;;;;                     psi-prime recent-blocks alpha delta) 
 
 (in-package #:jotl)
 
@@ -324,25 +324,28 @@
                (not (funcall find-record anchor)))
       (reject-guarantee :lookup-anchor-not-recent))))
 
-(defun validate-guarantee-service-ids (report accounts)
+(defun validate-guarantee-service-ids (report delta)
+  "Each work result's service must exist in δ."
   (dolist (r (getf report :results))
-    (unless (find (getf r :service-id) accounts :key (lambda (a) (getf a :id)))
+    (unless (funcall delta :account (getf r :service-id))
       (reject-guarantee :bad-service-id))))
 
-(defun validate-guarantee-code-hashes (report accounts)
+(defun validate-guarantee-code-hashes (report delta)
+  "Each work result's code hash must match δ[s].code_hash."
   (dolist (r (getf report :results))
     (let* ((sid (getf r :service-id))
            (code-hash (ensure-bytes (getf r :code-hash)))
-           (account (find sid accounts :key (lambda (a) (getf a :id))))
+           (account (funcall delta :account sid))
            (expected (when account
                        (ensure-bytes (getf (getf account :service) :code-hash)))))
       (when (and expected (not (equalp code-hash expected)))
         (reject-guarantee :bad-code-hash)))))
 
-(defun validate-guarantee-authorization (report auth-pools)
+(defun validate-guarantee-authorization (report alpha)
+  "Authorizer hash must be in α[core]."
   (let* ((ci (getf report :core-index))
          (auth-hash (ensure-bytes (getf report :authorizer-hash)))
-         (pool (when (< ci (length auth-pools)) (nth ci auth-pools))))
+         (pool (funcall alpha :pool-for-core ci)))
     (unless (member auth-hash pool :test #'equalp)
       (reject-guarantee :core-unauthorized))))
 
@@ -353,11 +356,12 @@
     (when (> total +accumulation-gas+)
       (reject-guarantee :work-report-gas-too-high))))
 
-(defun validate-guarantee-item-gas (report accounts)
+(defun validate-guarantee-item-gas (report delta)
+  "Each work result's gas must meet δ[s].min_item_gas."
   (dolist (r (getf report :results))
     (let* ((sid (getf r :service-id))
            (gas (getf r :accumulate-gas))
-           (account (find sid accounts :key (lambda (a) (getf a :id))))
+           (account (funcall delta :account sid))
            (min-gas (when account (getf (getf account :service) :min-item-gas))))
       (when (and min-gas (< gas min-gas))
         (reject-guarantee :service-item-gas-too-low)))))
@@ -414,11 +418,11 @@
             (if (equalp expected-root r)
                   (setf found t)
                 (reject-guarantee :segment-root-lookup-invalid)))))
-      (unless found
+        (unless found
         (let ((rp (funcall find-reported-wp wp-hash)))
           (when rp
             (if (equalp expected-root (ensure-bytes (getf rp :exports-root)))
-                (setf found t)
+                    (setf found t)
                 (reject-guarantee :segment-root-lookup-invalid)))))
         (unless found
         (reject-guarantee :segment-root-lookup-invalid)))))
@@ -537,63 +541,64 @@
   ;;
   ;; All-or-nothing: signals guarantee-error on any failure.
   (:transition (&key guarantees tau-prime kappa lambda-prev eta
-                     offenders recent-blocks auth-pools accounts)
+                     psi-prime recent-blocks alpha delta)
     (let* ((tau-prime-val (funcall tau-prime :slot))
-           (block-epoch   (floor tau-prime-val (epoch-duration))))
-      (when (null guarantees)
+           (block-epoch   (floor tau-prime-val (epoch-duration)))
+           (offenders (when psi-prime (funcall psi-prime :offenders))))
+    (when (null guarantees)
         (return-from self #'self))
       ;; Phase 1: EG-level structural checks
-      (validate-guarantees-sorted-unique guarantees)
+    (validate-guarantees-sorted-unique guarantees)
       ;; Phase 2: per-guarantee validation + registration
       ;; Pre-extract + build pure callbacks for β queries
-      (let ((seen-hashes '())
+    (let ((seen-hashes '())
             (known-packages (funcall recent-blocks :known-package-hashes))
             (find-record     (lambda (h) (funcall recent-blocks :find-record h)))
             (find-reported-wp (lambda (h) (funcall recent-blocks :find-reported-wp h)))
-            (rho-prime (copy-list assignments)))
-        (dolist (g guarantees)
-          (let* ((report (getf g :report))
-                 (guarantee-slot (getf g :slot))
-                 (signatures (getf g :signatures))
-                 (core-index (getf report :core-index))
-                 (report-bytes (encode-work-report report))
-                 (report-hash (blake2b-256 report-bytes))
-                 (core-assignments
-                   (assignments-for-guarantee
+          (rho-prime (copy-list assignments)))
+      (dolist (g guarantees)
+        (let* ((report (getf g :report))
+               (guarantee-slot (getf g :slot))
+               (signatures (getf g :signatures))
+               (core-index (getf report :core-index))
+               (report-bytes (encode-work-report report))
+               (report-hash (blake2b-256 report-bytes))
+               (core-assignments
+                 (assignments-for-guarantee
                     tau-prime-val guarantee-slot
                     eta kappa lambda-prev offenders)))
             ;; Report checks
-            (validate-guarantee-core-index report)
-            (validate-guarantee-results-present report)
-            (validate-guarantee-core-not-engaged core-index assignments)
+          (validate-guarantee-core-index report)
+          (validate-guarantee-results-present report)
+          (validate-guarantee-core-not-engaged core-index assignments)
             (validate-guarantee-slot-age guarantee-slot tau-prime-val)
             ;; Signature checks
-            (validate-guarantee-sufficient-signatures signatures)
-            (validate-guarantee-signatures-sorted-unique signatures)
-            (dolist (sig signatures)
-              (validate-guarantee-validator-index sig)
+          (validate-guarantee-sufficient-signatures signatures)
+          (validate-guarantee-signatures-sorted-unique signatures)
+          (dolist (sig signatures)
+            (validate-guarantee-validator-index sig)
               (validate-guarantee-not-banned sig kappa offenders)
-              (validate-guarantee-core-assignment sig core-index core-assignments)
-              (validate-guarantee-signature
+            (validate-guarantee-core-assignment sig core-index core-assignments)
+            (validate-guarantee-signature
                sig report-hash kappa guarantee-slot lambda-prev
                block-epoch))
             ;; Content checks
             (validate-guarantee-anchor report find-record)
             (validate-guarantee-lookup-anchor report tau-prime-val find-record)
-            (validate-guarantee-service-ids report accounts)
-            (validate-guarantee-code-hashes report accounts)
-            (validate-guarantee-authorization report auth-pools)
-            (validate-guarantee-gas report)
-            (validate-guarantee-item-gas report accounts)
-            (validate-guarantee-dependencies-count report)
-            (validate-guarantee-output-size report)
-            (validate-guarantee-not-duplicate report known-packages seen-hashes)
+            (validate-guarantee-service-ids report delta)
+            (validate-guarantee-code-hashes report delta)
+            (validate-guarantee-authorization report alpha)
+          (validate-guarantee-gas report)
+            (validate-guarantee-item-gas report delta)
+          (validate-guarantee-dependencies-count report)
+          (validate-guarantee-output-size report)
+          (validate-guarantee-not-duplicate report known-packages seen-hashes)
             (validate-guarantee-dependencies report known-packages guarantees)
             (validate-guarantee-segment-root-lookup report find-reported-wp guarantees)
             ;; All passed: register
-            (push (ensure-bytes (getf (getf report :package-spec) :hash))
-                  seen-hashes)
-            (setf (nth core-index rho-prime)
+          (push (ensure-bytes (getf (getf report :package-spec) :hash))
+                seen-hashes)
+          (setf (nth core-index rho-prime)
                   (list :report report :timeout tau-prime-val))))
         (make-rho-state :assignments rho-prime)))))
 
@@ -634,74 +639,5 @@
                             (ensure-bytes (getf b :work-package-hash)))))))
       (values sorted-reported sorted-reporters))))
 
-(defun update-cores-statistics (cores-statistics guarantees)
-  "Update cores statistics with data from validated guarantees."
-  (let ((result (mapcar #'copy-list (or cores-statistics '()))))
-    (loop while (< (length result) (num-cores))
-          do (push (list :da-load 0 :popularity 0 :imports 0
-                         :extrinsic-count 0 :extrinsic-size 0
-                         :exports 0 :bundle-size 0 :gas-used 0)
-                   result))
-    (setf result (nreverse result))
-    (dolist (g guarantees)
-      (let* ((report (getf g :report))
-             (core-index (getf report :core-index))
-             (results (getf report :results))
-             (spec (getf report :package-spec))
-             (core-stat (nth core-index result))
-             (total-gas 0) (total-imports 0) (total-exports 0)
-             (total-ext-count 0) (total-ext-size 0))
-        (dolist (r results)
-          (let ((rl (getf r :refine-load)))
-            (incf total-gas (or (getf rl :gas-used) 0))
-            (incf total-imports (or (getf rl :imports) 0))
-            (incf total-exports (or (getf rl :exports) 0))
-            (incf total-ext-count (or (getf rl :extrinsic-count) 0))
-            (incf total-ext-size (or (getf rl :extrinsic-size) 0))))
-        (when core-stat
-          (incf (getf core-stat :imports) total-imports)
-          (incf (getf core-stat :extrinsic-count) total-ext-count)
-          (incf (getf core-stat :extrinsic-size) total-ext-size)
-          (incf (getf core-stat :exports) total-exports)
-          (incf (getf core-stat :bundle-size) (or (getf spec :length) 0))
-          (incf (getf core-stat :gas-used) total-gas))))
-    result))
-
-(defun update-services-statistics (services-statistics guarantees)
-  "Update services statistics with data from validated guarantees."
-  (let ((accum (make-hash-table :test 'equal)))
-    (dolist (ss (or services-statistics '()))
-      (let ((id (getf ss :id))
-            (rec (getf ss :record)))
-        (setf (gethash id accum)
-              (list :provided-count (or (getf rec :provided-count) 0)
-                    :provided-size (or (getf rec :provided-size) 0)
-                    :refinement-count (or (getf rec :refinement-count) 0)
-                    :refinement-gas-used (or (getf rec :refinement-gas-used) 0)
-                    :imports (or (getf rec :imports) 0)
-                    :extrinsic-count (or (getf rec :extrinsic-count) 0)
-                    :extrinsic-size (or (getf rec :extrinsic-size) 0)
-                    :exports (or (getf rec :exports) 0)
-                    :accumulate-count (or (getf rec :accumulate-count) 0)
-                    :accumulate-gas-used (or (getf rec :accumulate-gas-used) 0)))))
-    (dolist (g guarantees)
-      (let ((results (getf (getf g :report) :results)))
-        (dolist (r results)
-          (let* ((sid (getf r :service-id))
-                 (rl (getf r :refine-load))
-                 (entry (or (gethash sid accum)
-                            (setf (gethash sid accum)
-                                  (list :provided-count 0 :provided-size 0
-                                        :refinement-count 0 :refinement-gas-used 0
-                                        :imports 0 :extrinsic-count 0
-                                        :extrinsic-size 0 :exports 0
-                                        :accumulate-count 0 :accumulate-gas-used 0)))))
-            (incf (getf entry :refinement-count) 1)
-            (incf (getf entry :refinement-gas-used) (or (getf rl :gas-used) 0))
-            (incf (getf entry :imports) (or (getf rl :imports) 0))
-            (incf (getf entry :extrinsic-count) (or (getf rl :extrinsic-count) 0))
-            (incf (getf entry :extrinsic-size) (or (getf rl :extrinsic-size) 0))
-            (incf (getf entry :exports) (or (getf rl :exports) 0))))))
-    (let ((result '()))
-      (maphash (lambda (id rec) (push (list :id id :record rec) result)) accum)
-      (sort result #'< :key (lambda (x) (getf x :id))))))
+;;; NOTE: Core/service statistics computation moved to state/pi.lisp
+;;; (compute-cores-statistics, compute-services-statistics)

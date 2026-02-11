@@ -4,12 +4,17 @@ Pure Functional JAM Protocol implementation in Common Lisp.
 
 Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
-## What Works — M1 Block Importer: 100/100 fallback blocks
+## What Works
+
+| Trace | Score | Notes |
+|-------|-------|-------|
+| fallback | 100/100 | Chain + step modes |
+| safrole | 10/10 | Chain + step modes |
+| storage | 5/10 | Blocks 1-5 pass; 6-10 need PVM accumulate |
 
 - **M1 Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
   - Chain mode: genesis → block 1 → block 2 → ... (our σ' becomes next σ)
   - Step mode: each block independently verified from trace pre_state
-  - 100/100 fallback trace blocks pass (both modes)
 - **Block codec** — Full decode/encode of B = (H, ET, ED, EP, EA, EG)
   - Header H is a state closure (hash, seal, genesis sovereignty)
   - Extrinsic data (ET, ED, EP, EA, EG) is open — consumed directly
@@ -23,11 +28,15 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 - **Timeslot τ** — STF with epoch/phase derivation (GP §6)
 - **Entropy η** — Randomness accumulator with Y(HV) extraction (GP §6.21-23) — 42/42
 - **Recent History β** — Full 2-phase transition: β† (wave 1) + β' (wave 4) with MMR (GP §7.5-7.8) — 8/8
-- **Statistics π** — Validator activity tracking (GP §13) — codec + transition
+- **Statistics π** — Full 4-component transition: π_V, π_L (validator), π_C (cores), π_S (services) (GP §13)
 - **Validator keys κ, λ, ι** — Epoch rotation, offender filtering, fallback keys, non-banned indices (GP §6.14-16)
 - **Assignments ρ** — 3-wave transition: invalidation, assurances, guarantees (GP §10-12)
+- **Authorizations α** — Epoch rotation with ϕ' head, offender filtering (GP §8.1)
+- **Accumulate orchestrator** — R* computation, queue editing, priority ordering (GP §12.1-12.12)
+- **Service accounts δ** — ServiceInfo codec (89 bytes), sub-key classification, Merkle trie integration
 - **Structural validation** — HX, HP, HT checks (GP §5)
 - **Crypto FFI** — Blake2b, Keccak, Ed25519, Bandersnatch VRF (Ring VRF + SRS)
+- **PVM FFI** — PolkaVM engine, host calls (GP Appendix B), JAM-codec wire protocol
 - **Chainspec** — tiny/full configs switchable at runtime
 - **Codec roundtrip** — 10 components: decode → encode → byte-exact across 201 states
 - **State Merklization HR** — Merkle trie (GP Appendix D) verified on genesis + 100 blocks
@@ -71,15 +80,16 @@ src/
 │   ├── rho.lisp        ρ   core assignments   ✓ define-state-closure
 │   ├── iota.lisp       ι   enqueued validators ✓ define-state-closure
 │   ├── gamma.lisp      γ   safrole            ✓ define-state-closure
-│   ├── alpha.lisp      α   authorizations     ○ placeholder
-│   ├── phi.lisp        ϕ   auth queue         ○ placeholder
-│   ├── delta.lisp      δ   services           ○ placeholder
-│   ├── pi.lisp         π   statistics         ✓ define-state-closure
-│   ├── chi.lisp        χ   privileged IDs     ○ placeholder
-│   ├── omega.lisp      ω   accum queue        ○ placeholder
-│   ├── xi.lisp         ξ   accum history      ○ placeholder
-│   └── theta.lisp      θ   accum outputs      ○ placeholder
+│   ├── alpha.lisp      α   authorizations     ✓ define-state-closure
+│   ├── phi.lisp        ϕ   auth queue         ✓ define-state-closure (codec)
+│   ├── delta.lisp      δ   services           ✓ define-state-closure + sub-key parsing
+│   ├── pi.lisp         π   statistics         ✓ define-state-closure (V+L+C+S)
+│   ├── chi.lisp        χ   privileged IDs     ✓ define-state-closure (codec)
+│   ├── omega.lisp      ω   accum queue        ✓ define-state-closure (codec)
+│   ├── xi.lisp         ξ   accum history      ✓ define-state-closure (codec)
+│   └── theta.lisp      θ   accum outputs      ✓ define-state-closure (codec)
 │
+├── accumulate.lisp     §12 Accumulate orchestrator (R*, queues, PVM)
 ├── upsilon.lisp        Υ(σ,B)→σ' orchestrator (GP §4.2.1)
 └── import.lisp         M1 Block Importer: binary parsers + chain runner
 
@@ -298,7 +308,11 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 - [x] Safrole gamma STF (§6) — 42/42
 - [x] Validator keys kappa, lambda, iota (§6.14-16)
 - [x] Assignments rho: 3-wave transition (§10-12)
-- [x] Statistics pi (§13) — codec + transition
+- [x] Statistics pi (§13) — full 4-component transition (π_V, π_L, π_C, π_S)
+- [x] Authorizations alpha (§8.1) — epoch rotation + offender filtering
+- [x] Accumulate orchestrator (§12.1-12.12) — R*, queue editing, priority ordering
+- [x] Service accounts delta — ServiceInfo codec, sub-key parsing, Merkle trie
+- [x] PVM FFI — PolkaVM engine, host calls (Appendix B), JAM-codec wire protocol
 - [x] Structural validation (§5)
 - [x] State closure architecture — closures as actors, message-passing, lazy σ decode
 - [x] Bandersnatch Ring VRF — seal + ticket validation with SRS
@@ -306,11 +320,10 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 - [x] Codec roundtrip — 10 components byte-exact across 201 states
 - [x] **M1 Block Importer** — 100/100 fallback blocks (chain + step modes)
 - [x] Binary import API — `genesis.bin` → σ₀, trace steps, `import-block`, `run-trace`
-- [ ] Accumulate STF (§8) + PVM — required for fuzzy traces
+- [ ] **Accumulate PVM execution** (§12.2) — service code loading + PVM run + side-effects → storage 10/10
+- [ ] Preimage integration delta' (§7.4)
 - [ ] Refine STF (§9) + PVM
-- [ ] Preimages delta' (§7)
-- [ ] Authorizations alpha' (§13)
-- [ ] Service accounts delta (§14)
+- [ ] On-transfer invocations (§12.3)
 
 ## Dependencies
 

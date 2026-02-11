@@ -365,13 +365,11 @@ pub fn decode_pvm_config(data: &[u8], ctx: &mut JamHostContext) -> Result<usize,
     pos += n; ctx.preimage_pages = v;
 
     // gas: i64
-    let (v, n) = read_i64(data, pos).ok_or("gas")?;
+    let (gas_val, n) = read_i64(data, pos).ok_or("gas")?;
     pos += n;
-    // gas is set on the polkavm instance, not on ctx — store in a field
-    // We return it in the Ok result so the caller can set_gas()
     // Gas is set on the polkavm instance, not the context.
-    // The FFI wrapper (jam_pvm_configure) handles this.
-    let _ = v;
+    // Store it in the context temporarily so jam_pvm_configure can set it.
+    ctx.gas_from_config = gas_val;
 
     // own storage: seq[(blob, blob)]
     let (count, n) = compact_from(data, pos).ok_or("storage count")?;
@@ -728,7 +726,14 @@ pub unsafe extern "C" fn jam_pvm_configure(
     let jam = &mut (*instance);
 
     match decode_pvm_config(data, &mut jam.context) {
-        Ok(_) => 0,
+        Ok(_) => {
+            // Set gas on the PVM instance from the config blob
+            let gas = jam.context.gas_from_config;
+            if gas > 0 {
+                jam.instance.set_gas(gas);
+            }
+            0
+        }
         Err(e) => {
             log::debug!("jam_pvm_configure: decode error: {}", e);
             2

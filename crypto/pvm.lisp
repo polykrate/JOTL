@@ -579,7 +579,10 @@
                                     gas-limit result-data &optional auth-output)
   "Encode a WorkItemRecord as AccumulateItem using Rust's jam-types encoder.
    Returns the encoded bytes, or nil on error."
-  (let* ((result-len (if result-data (length result-data) 0))
+  ;; Normalize: treat zero-length arrays as nil (avoids CFFI bounds errors)
+  (let* ((result-data (when (and result-data (plusp (length result-data))) result-data))
+         (auth-output (when (and auth-output (plusp (length auth-output))) auth-output))
+         (result-len (if result-data (length result-data) 0))
          (auth-len (if auth-output (length auth-output) 0))
          (out-capacity 1024)
          (out-buf (cffi:foreign-alloc :uint8 :count out-capacity))

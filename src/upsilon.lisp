@@ -30,7 +30,7 @@
 ;;;;     (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
 ;;;;
 ;;;;   Wave 4 (merge — depends on Wave 3):
-;;;;     β'H < (H, EC, β†H, θ')
+;;;;     β'  < (H, EC, β†H, θ')
 ;;;;     δ'  < (EP, δ†, τ')
 ;;;;     α'  < (H, EC, ϕ', α)
 ;;;;     π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
@@ -58,23 +58,22 @@
    (funcall sigma :load :kw), then re-encoded back into σ' bytes."
   (let* (;; ── Block is a message, not an actor ──
          ;; H is a closure (sovereignty: hash, EU(H), genesis).
-         ;; ET, ED, EA, EG are raw data — consumed directly.
+         ;; Extrinsics are raw data — consumed directly by closures.
          (h   (funcall block :header))
          (e-t (funcall block :tickets))        ;; ET
          (e-d (funcall block :disputes))       ;; ED
+         (e-p (funcall block :preimages))      ;; EP
          (e-a (funcall block :assurances))     ;; EA
          (e-g (funcall block :guarantees)))    ;; EG
 
     ;; ═══════════════════════════════════════════════════════════
     ;; WAVE 0 — τ' < (H)
-    ;; Decode: τ
     ;; ═══════════════════════════════════════════════════════════
     (let* ((tau       (funcall sigma :load :tau))
            (tau-prime (funcall tau :transition :header h)))
 
       ;; ═══════════════════════════════════════════════════════════
       ;; WAVE 1 — independent, all depend on prior σ + B only
-      ;; Decode: β, η, κ, λ, γ, ψ, ρ
       ;; ═══════════════════════════════════════════════════════════
       (let* ((beta        (funcall sigma :load :beta))
              (eta         (funcall sigma :load :eta))
@@ -95,7 +94,6 @@
              (lambda-prime (funcall lambda-prev :transition
                                     :tau tau :tau-prime tau-prime :kappa kappa))
              ;; (4.11) ψ'  < (ED, ψ)  [+τ,κ,λ for §10.3 signing]
-             ;; v-list accessible via (funcall psi-prime :v-list)
              (psi-prime    (funcall psi :transition
                                     :disputes e-d
                                     :tau tau
@@ -106,8 +104,7 @@
                                     :v-list (funcall psi-prime :v-list))))
 
         ;; ═══════════════════════════════════════════════════════════
-        ;; WAVE 2 — depends on Wave 1 results
-        ;; Decode: ι
+        ;; WAVE 2 — depends on Wave 1
         ;; ═══════════════════════════════════════════════════════════
         (let* ((iota (funcall sigma :load :iota))
                ;; (4.7)  γ'  < (H, T, ET, γ, ι, η', κ', ψ')
@@ -125,56 +122,50 @@
                                      :kappa kappa)))
 
           ;; ═══════════════════════════════════════════════════════════
-          ;; WAVE 3 — depends on Wave 2 (parallelizable)
+          ;; WAVE 3 — depends on Wave 2
           ;; ═══════════════════════════════════════════════════════════
-          (let* (;; (4.14) ρ'  < (EG, ρ‡, κ, τ')
-                 ;; FIXME: wrap in handler-case for guarantee-error
+          (let* (;; Load closures needed by Wave 3
+                 (alpha (funcall sigma :load :alpha))
+                 (delta (load-delta-from-extra-kvs (funcall sigma :extra-kvs)))
+
+                 ;; (4.14) ρ'  < (EG, ρ‡, κ, τ', ψ', α, δ, β†, λ, η)
                  (rho-prime (funcall rho-ddagger :transition
                                      :guarantees e-g
                                      :tau-prime tau-prime
                                      :kappa kappa
                                      :lambda-prev lambda-prev
                                      :eta eta-prime
-                                     :offenders (when psi-prime
-                                                  (funcall psi-prime :offenders))
+                                     :psi-prime psi-prime
                                      :recent-blocks beta-dagger
-                                     :auth-pools (funcall sigma :segment :alpha)
-                                     :accounts (funcall sigma :segment :delta)))
+                                     :alpha alpha
+                                     :delta delta))
 
                  ;; (4.16) (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
                  (r-star (funcall rho-ddagger :reported))
-                 (omega-cl (funcall sigma :load :omega))
-                 (xi-cl    (funcall sigma :load :xi))
-                 (chi-cl   (funcall sigma :load :chi))
-                 (phi-cl   (funcall sigma :load :phi))
-                 (delta-cl (load-delta-from-extra-kvs (funcall sigma :extra-kvs)))
-                 (accum (transition-accumulate
-                         r-star omega-cl xi-cl delta-cl chi-cl iota phi-cl
-                         tau tau-prime))
-                 ;; Extract accumulation results
-                 (omega-prime  (getf accum :omega-prime))
-                 (xi-prime     (getf accum :xi-prime))
-                 (delta-dagger (getf accum :delta-dagger))
-                 (chi-prime    (getf accum :chi-prime))
-                 (iota-prime   (getf accum :iota-prime))
-                 (phi-prime    (getf accum :phi-prime))
-                 (theta-prime  (getf accum :theta-prime))
-                 ;; S — service statistics for π'
-                 ;; (service-stats (getf accum :service-stats))
-                 )
+                 (omega  (funcall sigma :load :omega))
+                 (xi     (funcall sigma :load :xi))
+                 (chi    (funcall sigma :load :chi))
+                 (phi    (funcall sigma :load :phi))
+                 (accum  (transition-accumulate
+                          r-star omega xi delta chi iota phi
+                          tau tau-prime))
+                 ;; Destructure accumulation results
+                 (omega-prime   (getf accum :omega-prime))
+                 (xi-prime      (getf accum :xi-prime))
+                 (delta-dagger  (getf accum :delta-dagger))
+                 (chi-prime     (getf accum :chi-prime))
+                 (iota-prime    (getf accum :iota-prime))
+                 (phi-prime     (getf accum :phi-prime))
+                 (theta-prime   (getf accum :theta-prime))
+                 (service-stats (getf accum :service-stats)))
 
             ;; ═══════════════════════════════════════════════════════════
             ;; WAVE 4 — merge / join
             ;; ═══════════════════════════════════════════════════════════
-            ;; (4.17) β'H < (H, EC, β†H, θ')
-            ;; (4.18) δ'  < (EP, δ†, τ')
-            ;; (4.19) α'  < (H, EC, ϕ', α)
-            ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
-            (let* ((alpha-cl (funcall sigma :load :alpha))
-                   (pi-cl (funcall sigma :load :pi))
+            (let* ((pi-stats (funcall sigma :load :pi))
 
                    ;; (4.19) α' < (H, EC, ϕ', α)
-                   (alpha-prime (funcall alpha-cl :transition
+                   (alpha-prime (funcall alpha :transition
                                         :tau tau
                                         :tau-prime tau-prime
                                         :phi-prime phi-prime
@@ -182,65 +173,44 @@
 
                    ;; (4.18) δ' < (EP, δ†, τ')
                    (delta-prime (funcall delta-dagger :transition
-                                        :preimages (funcall block :preimages)
+                                        :preimages e-p
                                         :tau-prime tau-prime))
 
                    ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S)
-                   (pi-prime (funcall pi-cl :transition
+                   (pi-prime (funcall pi-stats :transition
                                       :header h
                                       :tau tau :tau-prime tau-prime
-                                      :tickets e-t :preimages (funcall block :preimages)
+                                      :tickets e-t :preimages e-p
                                       :assurances e-a :guarantees e-g
-                                      :kappa-prime kappa-prime)))
+                                      :kappa-prime kappa-prime
+                                      :accum-stats service-stats
+                                      :r-star r-star))
 
-              ;; ── β' (4.17): β'H < (H, EC, β†H, θ') ─────────────
-              (let ((beta-prime (funcall beta-dagger :transition
+                   ;; (4.17) β' < (H, EC, β†H, θ')
+                   (beta-prime (funcall beta-dagger :transition
                                         :header h
                                         :guarantees e-g
                                         :theta-prime theta-prime)))
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
-               :alpha   (funcall alpha-prime :encoded)     ;; ✓ (4.19) α' < (H, EC, ϕ', α)
-               :beta    (funcall beta-prime :encoded)      ;; ✓ (4.17)
-               :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
-               :delta   nil                                ;; δ uses extra-kvs, not a segment
-               :eta     (funcall eta-prime :encoded)       ;; ✓ (4.8)
-               :iota    (funcall iota-prime :encoded)      ;; ✓ (4.16) via accumulate
-               :kappa   (funcall kappa-prime :encoded)     ;; ✓ (4.9)
-               :lambda* (funcall lambda-prime :encoded)    ;; ✓ (4.10)
-               :rho     (funcall rho-prime :encoded)       ;; ✓ (4.12→4.14) ρ† → ρ‡ → ρ'
-               :tau     (funcall tau-prime :encoded)       ;; ✓ (4.5)
-               :phi     (funcall phi-prime :encoded)       ;; ✓ (4.16) via accumulate
-               :chi     (funcall chi-prime :encoded)       ;; ✓ (4.16) via accumulate
-               :psi     (funcall psi-prime :encoded)       ;; ✓ (4.11)
-               :pi*     (funcall pi-prime :encoded)        ;; ✓ (4.20)
-               :omega   (funcall omega-prime :encoded)     ;; ✓ (4.16) via accumulate
-               :xi      (funcall xi-prime :encoded)        ;; ✓ (4.16) via accumulate
-               :theta   (funcall sigma :segment :theta)    ;; TODO: θ' from accumulate
-               ;; Propagate non-segment Merkle entries (service accounts etc.)
-               :extra-kvs (funcall delta-prime :extra-kvs))))))))))
-
-;;; ═════════════════════════════════════════════════════════════════
-;;; IMPLEMENTATION STATUS
-;;; ═════════════════════════════════════════════════════════════════
-;;;
-;;; ✓ τ  — state/tau.lisp     (define-state-closure, :transition)
-;;; ✓ η  — state/eta.lisp     (define-state-closure, :transition)
-;;; ✓ κ  — state/kappa.lisp   (define-state-closure, :transition)
-;;; ✓ λ  — state/lambda.lisp  (define-state-closure, :transition)
-;;; ✓ ι  — state/iota.lisp    (define-state-closure, codec — no transition, via accumulate)
-;;; ✓ β  — state/beta.lisp    (define-state-closure, :transition-dagger/:transition)
-;;; ✓ ψ  — state/psi.lisp     (define-state-closure, :transition)
-;;; ✓ ρ  — state/rho.lisp     (define-state-closure, :transition-dagger/:transition-ddagger/:transition)
-;;; ✓ γ  — state/gamma.lisp   (define-state-closure, :transition)
-;;; ✓ σ  — state/sigma.lisp   (byte store, :load/:merkle-kvs/:state-root)
-;;; ✓ α  — state/alpha.lisp   (codec-only, no :transition — via accumulate)
-;;; ✓ ϕ  — state/phi.lisp     (codec-only, no :transition — via accumulate)
-;;; ✓ δ  — state/delta.lisp   (codec-only, extra-kvs C(255,s) — via accumulate)
-;;; ✓ π  — state/pi.lisp      (define-state-closure, :transition)
-;;; ✓ χ  — state/chi.lisp     (codec-only, no :transition — via accumulate)
-;;; ✓ ω  — state/omega.lisp   (codec-only, no :transition — via accumulate)
-;;; ✓ ξ  — state/xi.lisp      (codec-only, no :transition — via accumulate)
-;;; ✓ θ  — state/theta.lisp   (codec-only, no :transition — via accumulate)
-;;; ✓ Acc — accumulate.lisp   (orchestrator, GP §12)
+               :alpha   (funcall alpha-prime :encoded)
+               :beta    (funcall beta-prime :encoded)
+               :gamma   (funcall gamma-prime :encoded)
+               :delta   nil                              ;; δ uses extra-kvs
+               :eta     (funcall eta-prime :encoded)
+               :iota    (funcall iota-prime :encoded)
+               :kappa   (funcall kappa-prime :encoded)
+               :lambda* (funcall lambda-prime :encoded)
+               :rho     (funcall rho-prime :encoded)
+               :tau     (funcall tau-prime :encoded)
+               :phi     (funcall phi-prime :encoded)
+               :chi     (funcall chi-prime :encoded)
+               :psi     (funcall psi-prime :encoded)
+               :pi*     (funcall pi-prime :encoded)
+               :omega   (funcall omega-prime :encoded)
+               :xi      (funcall xi-prime :encoded)
+               :theta   (if theta-prime
+                            (funcall theta-prime :encoded)
+                            (funcall sigma :segment :theta))
+               :extra-kvs (funcall delta-prime :extra-kvs)))))))))

@@ -421,6 +421,10 @@ pub struct JamHostContext {
     /// Default: 6 (TINY chainspec).
     pub val_count: u16,
 
+    // ── Gas from wire config ──────────────────────────────
+    /// Gas value from decode_pvm_config, so jam_pvm_configure can set_gas().
+    pub gas_from_config: i64,
+
     // ── Accumulate privileged outputs (ΩB / ΩA / ΩD) ─────
     /// x_e — empower state, set by ΩB (bless), mutated by ΩA and ΩD.
     pub empower: Option<EmpowerState>,
@@ -494,6 +498,7 @@ impl Default for JamHostContext {
             core_count: 2,        // TINY chainspec default (C)
             auth_queue_len: 80,   // GP Q — same for full and tiny
             val_count: 6,         // TINY chainspec default (V)
+            gas_from_config: 0,
             empower: None,
         }
     }
