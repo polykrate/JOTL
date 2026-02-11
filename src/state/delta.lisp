@@ -7,23 +7,23 @@
 ;;;; They live in sigma's extra-kvs, not in a segment field.
 ;;;;
 ;;;; GP (4.18): δ' < (EP, δ†, τ')
-;;;; δ† is the post-accumulation intermediate from (4.16).
+;;;; δ† is the post-accumulation intermediate (from 4.16).
+;;;; EP is the preimages extrinsic from the block.
+;;;; τ' is the post-transition timeslot.
 ;;;;
-;;;; For the skeleton: delta-state wraps the raw extra-kvs data.
-;;;; No :transition — modified by transition-accumulate + wave 4.
+;;;; The transition integrates on-chain preimages into service accounts:
+;;;; For each (s, blob) in EP where δ†[s] exists and H(blob) is solicited:
+;;;;   - Store the preimage in δ†[s].preimages
+;;;;   - Update the lookup status from [] to [τ']
 ;;;;
 ;;;; Messages:
-;;;;   :raw              → raw extra-kvs list (skeleton mode)
-;;;;   :encoded          → NOT a single segment — returns nil
-;;;;   :extra-kvs        → the underlying key-value pairs for Merkle
-;;;;   :decode           → reconstruct from extra-kvs
+;;;;   :raw-kvs          → the underlying key-value pairs for Merkle
+;;;;   :extra-kvs        → alias for :raw-kvs
+;;;;   :encoded          → nil (delta doesn't encode to a single segment)
+;;;;   :decode           → reconstruct from bytes (fallback)
+;;;;   :transition       → GP (4.18): δ' < (EP, δ†, τ')
 
 (in-package #:jotl)
-
-;;; Raw extra-kvs wrapper — will be replaced with real codec when §9 is implemented.
-;;; delta is NOT a regular segment — it uses C(255,s) keys in extra-kvs.
-;;; :encoded returns nil (delta doesn't encode to a single segment).
-;;; The actual Merkle data lives in :extra-kvs.
 
 (define-state-closure delta-state
   ((raw-kvs nil))
@@ -38,7 +38,32 @@
   (:decode (bytes offset)
     ;; delta is not decoded from segment bytes — this is a fallback.
     ;; Real loading happens via load-delta-from-extra-kvs.
-    (values (make-delta-state :raw-kvs nil) (- (length bytes) offset))))
+    (values (make-delta-state :raw-kvs nil) (- (length bytes) offset)))
+
+  ;; ── Transition: δ' < (EP, δ†, τ') ────────────────────────
+  ;; GP (4.18) — Preimage Integration
+  ;; For now: passthrough. Full implementation requires decoding
+  ;; individual service accounts from extra-kvs, which depends on
+  ;; the §9 service account codec.
+  ;; When EP is empty (no preimage extrinsic), this is a no-op.
+  (:transition (&key preimages tau-prime)
+    ;; tau-prime will be used for §12.4 preimage integration
+    (let ((_timeslot (when tau-prime (funcall tau-prime :slot))))
+      (if (or (null preimages) (zerop (length preimages))
+              (not _timeslot))
+        ;; No preimages to integrate → passthrough
+        (make-delta-state :raw-kvs raw-kvs)
+        ;; TODO (§12.4): For each (s, blob) in EP:
+        ;;   1. Look up service s in δ† (by C(255,s) key)
+        ;;   2. Decode the service account
+        ;;   3. h = blake2b-256(blob), l = |blob|
+        ;;   4. If a_l[(h,l)] = [] (solicited, not yet provided):
+        ;;      a. Store a_p[h] = blob (add preimage)
+        ;;      b. Set a_l[(h,l)] = [τ'] (mark as provided)
+        ;;      c. Update footprint (balance, item count, byte count)
+        ;;   5. Re-encode and update the extra-kvs entry
+        ;; For now: passthrough (preimage integration is a no-op)
+        (make-delta-state :raw-kvs raw-kvs)))))
 
 (defun load-delta-from-extra-kvs (extra-kvs)
   "Build δ from sigma's extra-kvs (C(255,s) entries).

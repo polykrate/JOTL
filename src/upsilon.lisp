@@ -172,6 +172,19 @@
             ;; (4.20) π'  < (EG, EP, EA, ET, τ, κ', π, H, S)
             (let* ((alpha-cl (funcall sigma :load :alpha))
                    (pi-cl (funcall sigma :load :pi))
+
+                   ;; (4.19) α' < (H, EC, ϕ', α)
+                   (alpha-prime (funcall alpha-cl :transition
+                                        :tau tau
+                                        :tau-prime tau-prime
+                                        :phi-prime phi-prime
+                                        :offender-auth-hashes nil)) ;; TODO: derive from EC
+
+                   ;; (4.18) δ' < (EP, δ†, τ')
+                   (delta-prime (funcall delta-dagger :transition
+                                        :preimages (funcall block :preimages)
+                                        :tau-prime tau-prime))
+
                    ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S)
                    (pi-prime (funcall pi-cl :transition
                                       :header h
@@ -188,7 +201,7 @@
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
-               :alpha   (funcall alpha-cl :encoded)        ;; TODO: (4.19) α' < (H, EC, ϕ', α)
+               :alpha   (funcall alpha-prime :encoded)     ;; ✓ (4.19) α' < (H, EC, ϕ', α)
                :beta    (funcall beta-prime :encoded)      ;; ✓ (4.17)
                :gamma   (funcall gamma-prime :encoded)     ;; ✓ (4.7)
                :delta   nil                                ;; δ uses extra-kvs, not a segment
@@ -206,7 +219,7 @@
                :xi      (funcall xi-prime :encoded)        ;; ✓ (4.16) via accumulate
                :theta   (funcall sigma :segment :theta)    ;; TODO: θ' from accumulate
                ;; Propagate non-segment Merkle entries (service accounts etc.)
-               :extra-kvs (funcall delta-dagger :extra-kvs))))))))))
+               :extra-kvs (funcall delta-prime :extra-kvs))))))))))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; IMPLEMENTATION STATUS
