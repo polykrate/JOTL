@@ -284,6 +284,12 @@
    ;; §12 Accumulate Orchestrator (GP §12)
    ;; ═══════════════════════════════════════════
    #:transition-accumulate
+   #:extract-operand-tuples
+   #:group-by-service
+   #:deferred-transfers-for-service
+   #:accumulate-service
+   #:accumulate-report
+   #:accumulate-all
    
    ;; ═══════════════════════════════════════════
    ;; Υ — Orchestrator (GP §4.1)

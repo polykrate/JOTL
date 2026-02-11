@@ -14,8 +14,8 @@
                 ((:file "package")
                  (:file "utils")              ; Utility functions
                  (:file "bindings")           ; FFI bindings to Rust
-                 (:file "primitives")         ; High-level wrappers
-                 (:file "shuffle"))))         ; Deterministic shuffle
+                 (:file "primitives")         ; Types, Y function, constants
+                 (:file "pvm"))))             ; Clean JAM-codec PVM bindings
   
   :perform (asdf:load-op :after (o c)
              (declare (ignore o c))

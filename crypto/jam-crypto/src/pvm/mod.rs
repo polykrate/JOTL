@@ -14,12 +14,14 @@ pub mod engine;
 pub mod run;
 pub mod ffi;
 pub mod encode;
+pub mod wire;
 
 // Re-export all public FFI symbols so `pub use pvm::*` in lib.rs works.
 pub use engine::*;
 pub use run::*;
 pub use ffi::*;
 pub use encode::*;
+pub use wire::*;
 
 // Re-export key types for external use.
 pub use context::{

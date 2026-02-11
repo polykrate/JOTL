@@ -436,8 +436,8 @@
   (proof :pointer)
   (proof-len :size))
 
-;; NOTE: %bandersnatch-vrf-output-hash already defined above (L153)
-;; NOTE: %bandersnatch-verify-ring-vrf-with-commitment already defined above (L209)
+;; NOTE: %bandersnatch-vrf-output-hash already defined above
+;; NOTE: %bandersnatch-verify-ring-vrf-with-commitment already defined above
 
 (defun bandersnatch-verify-vrf (public-key vrf-input vrf-output proof)
   "Verify a Bandersnatch IETF VRF proof.
@@ -458,8 +458,8 @@
                                     output-ptr
                                     proof-ptr (length proof)))))))
 
-;; NOTE: bandersnatch-vrf-output-hash already defined above (L160)
-;; NOTE: bandersnatch-verify-ring-vrf already defined above (L222)
+;; NOTE: bandersnatch-vrf-output-hash already defined above
+;; NOTE: bandersnatch-verify-ring-vrf already defined above
 
 ;;; ==========================================================================
 ;;; Compute Ring Commitment (GP 6.15)
@@ -525,7 +525,7 @@
 ;;;
 ;;; PVM execution pipeline:
 ;;;   1. pvm-engine-new → engine (singleton recommended)
-;;;   2. pvm-module-load-jam → module (compiled service code)
+;;;   2. pvm-module-load-jam → module (compiled JAM service blob)
 ;;;   3. jam-instance-pre-new → pre-instance (linker setup)
 ;;;   4. jam-instance-new → instance (per-execution)
 ;;;   5. Configure: jam-instance-add-storage, set-entropy, etc.
@@ -569,12 +569,6 @@
 ;;; --------------------------------------------------------------------------
 ;;; Module Management
 ;;; --------------------------------------------------------------------------
-
-(cffi:defcfun ("pvm_module_load" %pvm-module-load) :pointer
-  "Load a PVM module from raw .polkavm blob"
-  (engine :pointer)
-  (blob :pointer)
-  (blob-len :size))
 
 (cffi:defcfun ("pvm_module_load_jam" %pvm-module-load-jam) :pointer
   "Load a PVM module from JAM service blob format"
@@ -660,12 +654,6 @@
   (item :pointer)
   (item-len :size))
 
-(cffi:defcfun ("jam_instance_set_work_package" %jam-instance-set-work-package) :uint32
-  "Set work package for JAM instance"
-  (instance :pointer)
-  (data :pointer)
-  (data-len :size))
-
 (cffi:defcfun ("jam_instance_set_protocol_params" %jam-instance-set-protocol-params) :uint32
   "Set protocol parameters for JAM instance"
   (instance :pointer)
@@ -686,19 +674,6 @@
   (out-buf :pointer)
   (out-capacity :uint32))
 
-(cffi:defcfun ("jam_encode_work_item_v21" %jam-encode-work-item-v21) :uint32
-  "Encode AccumulateItem in v0.1.21 format (struct without enum discriminant, auth_output before payload)"
-  (package-hash :pointer)
-  (exports-root :pointer)
-  (auth-hash :pointer)
-  (payload-hash :pointer)
-  (result-data :pointer)
-  (result-len :uint32)
-  (auth-output-data :pointer)
-  (auth-output-len :uint32)
-  (out-buf :pointer)
-  (out-capacity :uint32))
-
 ;;; --------------------------------------------------------------------------
 ;;; Execution
 ;;; --------------------------------------------------------------------------
@@ -707,11 +682,6 @@
   "Run a JAM instance from entry point"
   (instance :pointer)
   (entry-point :string)
-  (result :pointer))
-
-(cffi:defcfun ("jam_continue" %jam-continue) :uint32
-  "Continue execution of a JAM instance after a host call"
-  (instance :pointer)
   (result :pointer))
 
 (cffi:defcfun ("jam_set_gas" %jam-set-gas) :void
@@ -897,44 +867,6 @@
                           (cffi:foreign-array-to-lisp out-buf `(:array :uint8 ,encoded-len))))))))))
       (cffi:foreign-free out-buf))))
 
-(defun pvm-encode-work-item-v21 (package-hash exports-root auth-hash payload-hash
-                                  result-data &optional auth-output)
-  "Encode AccumulateItem in v0.1.21 format (compatible with old service blobs).
-   
-   v0.1.21 format differences from v0.1.26:
-   - No enum discriminant (struct directly)
-   - auth_output comes BEFORE payload
-   - No gas_limit field
-   
-   Returns the encoded bytes, or nil on error."
-  (let* ((result-len (if result-data (length result-data) 0))
-         (auth-len (if auth-output (length auth-output) 0))
-         (out-capacity 1024)
-         (out-buf (cffi:foreign-alloc :uint8 :count out-capacity))
-         ;; Ensure we have valid 32-byte arrays
-         (pkg (or package-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
-         (exp (or exports-root (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
-         (auth (or auth-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
-         (pay (or payload-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
-         (res (or result-data (make-array 1 :element-type '(unsigned-byte 8) :initial-element 0)))
-         (ao (or auth-output (make-array 1 :element-type '(unsigned-byte 8) :initial-element 0))))
-    (unwind-protect
-        (cffi:with-foreign-array (pkg-ptr pkg '(:array :uint8 32))
-          (cffi:with-foreign-array (exp-ptr exp '(:array :uint8 32))
-            (cffi:with-foreign-array (auth-ptr auth '(:array :uint8 32))
-              (cffi:with-foreign-array (pay-ptr pay '(:array :uint8 32))
-                (cffi:with-foreign-array (res-ptr res `(:array :uint8 ,(max 1 result-len)))
-                  (cffi:with-foreign-array (ao-ptr ao `(:array :uint8 ,(max 1 auth-len)))
-                    (let ((encoded-len (%jam-encode-work-item-v21
-                                        pkg-ptr exp-ptr auth-ptr pay-ptr
-                                        (if result-data res-ptr (cffi:null-pointer)) result-len
-                                        (if auth-output ao-ptr (cffi:null-pointer)) auth-len
-                                        out-buf out-capacity)))
-                      (if (zerop encoded-len)
-                          nil
-                          (cffi:foreign-array-to-lisp out-buf `(:array :uint8 ,encoded-len))))))))))
-      (cffi:foreign-free out-buf))))
-
 (defun pvm-run (ctx entry-point)
   "Execute PVM from entry point.
    
@@ -957,6 +889,10 @@
 (defun pvm-get-balance (ctx)
   "Get final balance after execution."
   (%jam-get-balance (pvm-context-instance ctx)))
+
+(defun pvm-get-gas (ctx)
+  "Get remaining gas from PVM instance."
+  (%jam-get-gas (pvm-context-instance ctx)))
 
 (defun pvm-get-transfer-count (ctx)
   "Get number of transfers made."
@@ -1473,6 +1409,200 @@
   (loop for i below (pvm-get-lookup-count ctx)
         for entry = (pvm-get-lookup-entry ctx i)
         when entry collect entry))
+
+;;; --------------------------------------------------------------------------
+;;; Accumulate Context Setup (missing FFI wrappers for Rust-side functions)
+;;; --------------------------------------------------------------------------
+
+;;; ── Invocation Context ──────────────────────────────────────────
+
+(cffi:defcfun ("jam_set_invocation_context" %jam-set-invocation-context) :uint32
+  "Set invocation context: 0=IsAuthorized, 1=Refine, 2=Accumulate, 3=OnTransfer"
+  (instance :pointer)
+  (context :uint32))
+
+(defun pvm-set-invocation-context (ctx context-id)
+  "Set PVM invocation context: 0=IsAuthorized, 1=Refine, 2=Accumulate, 3=OnTransfer."
+  (%jam-set-invocation-context (pvm-context-instance ctx) context-id))
+
+;;; ── Header Hash ──────────────────────────────────────────────────
+
+(cffi:defcfun ("jam_instance_set_header_hash" %jam-instance-set-header-hash) :uint32
+  "Set header hash H_T (32 bytes) for Accumulate host calls."
+  (instance :pointer)
+  (hash :pointer))
+
+(defun pvm-set-header-hash (ctx hash)
+  "Set header hash H_T (32 bytes) for Accumulate context."
+  (let ((h (ensure-octets hash)))
+    (cffi:with-pointer-to-vector-data (h-ptr h)
+      (%jam-instance-set-header-hash (pvm-context-instance ctx) h-ptr))))
+
+;;; ── Next Service ID / Existing Services ──────────────────────────
+
+(cffi:defcfun ("jam_compute_initial_service_id" %jam-compute-initial-service-id) :uint32
+  "Compute and set next_service_id per GP B.10."
+  (instance :pointer))
+
+(cffi:defcfun ("jam_add_existing_service" %jam-add-existing-service) :uint32
+  "Add an existing service ID to K(e_d) for B.14 collision checking."
+  (instance :pointer)
+  (service-id :uint32))
+
+(defun pvm-compute-initial-service-id (ctx)
+  "Compute and set next_service_id per GP B.10. Returns the ID."
+  (%jam-compute-initial-service-id (pvm-context-instance ctx)))
+
+(defun pvm-add-existing-service (ctx service-id)
+  "Register an existing service ID for collision avoidance (GP B.14)."
+  (%jam-add-existing-service (pvm-context-instance ctx) service-id))
+
+;;; ── Cross-Service Accounts (d) ──────────────────────────────────
+
+(cffi:defcfun ("jam_instance_add_service_storage" %jam-instance-add-service-storage) :uint32
+  "Add a storage entry to another service's account (d[service_id])."
+  (instance :pointer)
+  (service-id :uint32)
+  (key :pointer)
+  (key-len :size)
+  (value :pointer)
+  (value-len :size))
+
+(cffi:defcfun ("jam_instance_add_service_preimage" %jam-instance-add-service-preimage) :uint32
+  "Add a preimage to another service's account (d[service_id])."
+  (instance :pointer)
+  (service-id :uint32)
+  (hash :pointer)
+  (blob :pointer)
+  (blob-len :size))
+
+(cffi:defcfun ("jam_instance_set_service_balance" %jam-instance-set-service-balance) :uint32
+  "Set balance for another service's account."
+  (instance :pointer)
+  (service-id :uint32)
+  (balance :uint64))
+
+(cffi:defcfun ("jam_instance_set_service_info" %jam-instance-set-service-info) :uint32
+  "Set full info fields for another service's account."
+  (instance :pointer)
+  (service-id :uint32)
+  (code-hash :pointer)
+  (balance :uint64)
+  (threshold :uint64)
+  (min-accum-gas :uint64)
+  (min-item-gas :uint64)
+  (min-on-transfer-gas :uint64)
+  (items-count :uint32)
+  (footprint :uint64)
+  (recent-count :uint32)
+  (accum-gas-limit :uint32)
+  (preimage-pages :uint32))
+
+(defun pvm-add-service-storage (ctx service-id key value)
+  "Add a storage entry to another service's account."
+  (let ((k (ensure-octets key))
+        (v (ensure-octets value)))
+    (cffi:with-pointer-to-vector-data (k-ptr k)
+      (cffi:with-pointer-to-vector-data (v-ptr v)
+        (%jam-instance-add-service-storage (pvm-context-instance ctx)
+                                            service-id
+                                            k-ptr (length k)
+                                            v-ptr (length v))))))
+
+(defun pvm-add-service-preimage (ctx service-id hash blob)
+  "Add a preimage to another service's account."
+  (let ((h (ensure-octets hash))
+        (b (ensure-octets blob)))
+    (cffi:with-pointer-to-vector-data (h-ptr h)
+      (cffi:with-pointer-to-vector-data (b-ptr b)
+        (%jam-instance-add-service-preimage (pvm-context-instance ctx)
+                                             service-id
+                                             h-ptr b-ptr (length b))))))
+
+(defun pvm-set-service-balance (ctx service-id balance)
+  "Set balance for another service's account."
+  (%jam-instance-set-service-balance (pvm-context-instance ctx) service-id balance))
+
+;;; ── Own Service Info ─────────────────────────────────────────────
+
+(cffi:defcfun ("jam_instance_set_own_service_info" %jam-instance-set-own-service-info) :uint32
+  "Set our own service's info fields."
+  (instance :pointer)
+  (code-hash :pointer)
+  (threshold :uint64)
+  (min-accum-gas :uint64)
+  (min-item-gas :uint64)
+  (min-on-transfer-gas :uint64)
+  (items-count :uint32)
+  (footprint :uint64)
+  (recent-count :uint32)
+  (accum-gas-limit :uint32)
+  (preimage-pages :uint32))
+
+(defun pvm-set-own-service-info (ctx &key code-hash threshold
+                                          min-accum-gas min-item-gas
+                                          min-on-transfer-gas items-count
+                                          footprint recent-count
+                                          accum-gas-limit preimage-pages)
+  "Set our own service's info fields for Omega_I and Omega_W."
+  (let ((ch (ensure-octets (or code-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))))
+    (cffi:with-pointer-to-vector-data (ch-ptr ch)
+      (%jam-instance-set-own-service-info (pvm-context-instance ctx)
+                                           ch-ptr
+                                           (or threshold 0)
+                                           (or min-accum-gas 0)
+                                           (or min-item-gas 0)
+                                           (or min-on-transfer-gas 0)
+                                           (or items-count 0)
+                                           (or footprint 0)
+                                           (or recent-count 0)
+                                           (or accum-gas-limit 0)
+                                           (or preimage-pages 0)))))
+
+;;; ── Work Item Info ───────────────────────────────────────────────
+
+(cffi:defcfun ("jam_instance_add_work_item_info" %jam-instance-add-work-item-info) :uint32
+  "Add work item metadata to JAM instance."
+  (instance :pointer)
+  (service-id :uint32)
+  (code-hash :pointer)
+  (gas-limit :uint64)
+  (gas-limit-accum :uint64)
+  (payload :pointer)
+  (payload-len :size))
+
+(defun pvm-add-work-item-info (ctx service-id code-hash gas-limit gas-limit-accum
+                               &optional payload)
+  "Add work item metadata for Accumulate context."
+  (let ((ch (ensure-octets code-hash))
+        (pl (if payload (ensure-octets payload) (make-array 0 :element-type '(unsigned-byte 8)))))
+    (cffi:with-pointer-to-vector-data (ch-ptr ch)
+      (if (zerop (length pl))
+          (%jam-instance-add-work-item-info (pvm-context-instance ctx)
+                                             service-id ch-ptr gas-limit gas-limit-accum
+                                             (cffi:null-pointer) 0)
+          (cffi:with-pointer-to-vector-data (pl-ptr pl)
+            (%jam-instance-add-work-item-info (pvm-context-instance ctx)
+                                               service-id ch-ptr gas-limit gas-limit-accum
+                                               pl-ptr (length pl)))))))
+
+;;; ── Accumulate Collapse ──────────────────────────────────────────
+
+(cffi:defcfun ("jam_accumulate_collapse" %jam-accumulate-collapse) :uint32
+  "Collapse accumulate dual context (GP B.13).
+   outcome: 0=Halt, 1=Panic, 2=OOG, 3=HaltWithYield"
+  (instance :pointer)
+  (outcome :uint32)
+  (yield-hash :pointer))
+
+(defun pvm-accumulate-collapse (ctx outcome &optional yield-hash)
+  "Collapse accumulate context. OUTCOME: 0=Halt, 1=Panic, 2=OOG, 3=Yield.
+   Returns 0 on success."
+  (if (and (= outcome 3) yield-hash)
+      (let ((yh (ensure-octets yield-hash)))
+        (cffi:with-pointer-to-vector-data (yh-ptr yh)
+          (%jam-accumulate-collapse (pvm-context-instance ctx) outcome yh-ptr)))
+      (%jam-accumulate-collapse (pvm-context-instance ctx) outcome (cffi:null-pointer))))
 
 ;;; --------------------------------------------------------------------------
 ;;; Convenience Macros

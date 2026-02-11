@@ -10,10 +10,9 @@
   (:use :cl)
   (:export
    ;; Utilities
-   #:string-to-blob
-   #:blob-to-string
    #:hex-string-to-bytes
    #:bytes-to-hex-string
+   #:ensure-octets
    
    ;; Blake2b-256 (GP Appendix A.1)
    #:blake2b-256
@@ -36,7 +35,6 @@
    #:*bandersnatch-srs-path*
    ;; GP notation helpers
    #:Y                     ;; Y(s) ≡ VRF output hash
-   #:H #:HK                ;; H = blake2b, HK = keccak
    ;; Signing contexts (GP §6.18-6.20)
    #:+jam-entropy+         ;; XE = $jam_entropy
    #:+jam-ticket-seal+     ;; XT = $jam_ticket_seal
@@ -55,46 +53,32 @@
    #:*pvm-engine*
    #:pvm-engine
    #:pvm-engine-reset
-   #:pvm-load-jam-module
-   #:pvm-module-free
    #:pvm-prepare
-   #:pvm-context
    #:pvm-context-free
-   #:pvm-add-storage
-   #:pvm-add-preimage
-   #:pvm-set-entropy
-   #:pvm-add-accumulate-item
-   #:pvm-set-gas
-   #:pvm-set-protocol-params
+   #:with-pvm-context
+   ;; PVM configuration (legacy — migrating to pvm-configure)
+   ;; Keep: pvm-encode-work-item-record (encoding helper, still used)
+   ;; PVM execution
    #:pvm-encode-work-item-record
-   #:pvm-encode-work-item-v21
    #:pvm-run
-   #:pvm-get-balance
-   #:pvm-get-transfer-count
-   #:pvm-get-log-count
-   #:pvm-get-storage-count
-   #:pvm-get-storage-entry
-   #:pvm-get-all-storage
-   #:pvm-get-log-entry
-   #:pvm-get-all-logs
-   #:pvm-get-transfer-entry
-   #:pvm-get-all-transfers
-   #:pvm-get-ejected-count
-   #:pvm-get-ejected-service
-   #:pvm-get-all-ejected
-   #:pvm-get-created-service-count
-   #:pvm-get-created-service
-   #:pvm-get-all-created
-   #:pvm-set-next-service-id
+   #:pvm-accumulate-collapse
+   ;; PVM result getters (legacy — migrating to pvm-collect)
+   ;; Keep: pvm-has-yield-output, pvm-get-yield-output (needed for collapse)
    #:pvm-has-yield-output
    #:pvm-get-yield-output
-   #:with-pvm-context
+   
+   ;; New JAM-codec PVM API (wire.rs)
+   #:pvm-new
+   #:pvm-free
+   #:pvm-configure
+   #:pvm-collect
+   #:with-pvm
+   #:encode-pvm-config
+   #:decode-pvm-side-effects
    
    ;; Library status
-   #:*ffi-loaded*
-   #:status))
+   #:*ffi-loaded*))
 
 (in-package :jam.ffi)
 
 (defvar *ffi-loaded* nil "T if FFI library loaded successfully")
-
