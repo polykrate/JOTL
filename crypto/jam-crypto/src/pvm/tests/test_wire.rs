@@ -135,6 +135,42 @@ fn test_encode_side_effects_with_lookup() {
 }
 
 // ============================================================================
+// GP §9.3: items_count and footprint formulas
+// ============================================================================
+
+#[test]
+fn test_items_count_footprint_gp_9_3() {
+    let mut ctx = JamHostContext::default();
+
+    // 2 lookup entries: (hash_a, z=64) and (hash_b, z=128)
+    ctx.lookup.insert(([0xAA; 32], 64), vec![100]);
+    ctx.lookup.insert(([0xBB; 32], 128), vec![100, 200]);
+
+    // 3 storage entries with known key/value sizes
+    ctx.storage.insert(vec![1; 32], vec![0xDE; 100]);   // key=32, val=100
+    ctx.storage.insert(vec![2; 32], vec![0xAD; 50]);    // key=32, val=50
+    ctx.storage.insert(vec![3; 10], vec![0xBE; 200]);   // key=10, val=200
+
+    // GP §9.3: a_i = 2·|a_l| + |a_s| = 2×2 + 3 = 7
+    assert_eq!(ctx.compute_items_count(), 7);
+
+    // GP §9.3: a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)
+    //        = (81+64) + (81+128) + (34+32+100) + (34+32+50) + (34+10+200)
+    //        = 145 + 209 + 166 + 116 + 244 = 880
+    assert_eq!(ctx.compute_footprint(), 880);
+
+    // Verify via encode_side_effects: items_count and footprint at end of blob
+    let blob = encode_side_effects(&ctx, 0);
+    let len = blob.len();
+    let items_bytes = &blob[len - 12..len - 8];
+    let footprint_bytes = &blob[len - 8..len];
+    let items = u32::from_le_bytes(items_bytes.try_into().unwrap());
+    let footprint = u64::from_le_bytes(footprint_bytes.try_into().unwrap());
+    assert_eq!(items, 7, "items_count in blob");
+    assert_eq!(footprint, 880, "footprint in blob");
+}
+
+// ============================================================================
 // decode_pvm_config: round-trip via hand-encoding
 // ============================================================================
 

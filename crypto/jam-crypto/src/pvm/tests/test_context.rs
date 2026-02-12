@@ -439,17 +439,25 @@ fn test_self_account_info_roundtrip() {
     ctx.min_accum_gas = 10;
     ctx.min_item_gas = 20;
     ctx.min_on_transfer_gas = 30;
-    ctx.items_count = 7;
-    ctx.footprint = 4096;
     ctx.recent_count = 3;
     ctx.accum_gas_limit = 50000;
     ctx.preimage_pages = 2;
+
+    // GP §9.3: a_i and a_o are DERIVED from storage/lookup maps.
+    // Add data so compute_items_count() = 2*2 + 3 = 7
+    ctx.lookup.insert(([0xAA; 32], 64), vec![100]);
+    ctx.lookup.insert(([0xBB; 32], 128), vec![100, 200]);
+    ctx.storage.insert(vec![1; 32], vec![0xDE; 100]);
+    ctx.storage.insert(vec![2; 32], vec![0xAD; 50]);
+    ctx.storage.insert(vec![3; 10], vec![0xBE; 200]);
 
     let acct = ctx.self_account_info();
     assert_eq!(acct.balance, 999);
     assert_eq!(acct.code_hash, [0xBB; 32]);
     assert_eq!(acct.threshold, 123);
-    assert_eq!(acct.items_count, 7);
+    // items_count and footprint are now dynamically computed (GP §9.3)
+    assert_eq!(acct.items_count, 7);  // 2*2 + 3
+    assert_eq!(acct.footprint, 880);  // (81+64)+(81+128)+(34+32+100)+(34+32+50)+(34+10+200)
 
     // Encoding should match
     let buf = acct.encode_info();

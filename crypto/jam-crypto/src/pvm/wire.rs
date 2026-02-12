@@ -207,16 +207,17 @@ pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
         None => buf.push(0x00),
     }
 
-    // items_count & footprint: DERIVED from maps (GP: a_i, a_o are not
-    // modified by host calls — they are properties of a_s, a_l, a_P).
-    //   items = |a_s| + |a_l| + |a_P|
-    //   footprint = Σ(I + |v|) for each entry, where I = 84
-    const ITEM_OVERHEAD: u64 = 84;
-    let items_count = (ctx.storage.len() + ctx.lookup.len() + ctx.preimages.len()) as u32;
-    let footprint: u64 =
-        ctx.storage.iter().map(|(_, v)| ITEM_OVERHEAD + v.len() as u64).sum::<u64>()
-        + ctx.lookup.iter().map(|(_, st)| ITEM_OVERHEAD + 1 + 4 * st.len() as u64).sum::<u64>()
-        + ctx.preimages.iter().map(|(_, b)| ITEM_OVERHEAD + b.len() as u64).sum::<u64>();
+    // items_count & footprint: DERIVED from storage maps (GP §9.3 / 9.8).
+    //
+    //   a_i = 2·|a_l| + |a_s|
+    //     Each lookup entry counts as 2 items (metadata + preimage blob).
+    //     Each storage entry counts as 1 item.
+    //
+    //   a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)
+    //     Lookup: 81 overhead + z (declared preimage length from key).
+    //     Storage: 34 overhead + key length + value length.
+    let items_count = ctx.compute_items_count();
+    let footprint: u64 = ctx.compute_footprint();
     buf.extend_from_slice(&items_count.to_le_bytes());
     buf.extend_from_slice(&footprint.to_le_bytes());
 

@@ -632,7 +632,31 @@ pub struct CollapseResult {
 }
 
 impl JamHostContext {
+    /// GP §9.3 (9.8): `a_i = 2·|a_l| + |a_s|`
+    ///
+    /// Each lookup entry (h, z) counts as 2 items (metadata + preimage blob).
+    /// Each storage entry counts as 1 item.
+    pub fn compute_items_count(&self) -> u32 {
+        (2 * self.lookup.len() + self.storage.len()) as u32
+    }
+
+    /// GP §9.3 (9.8): `a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)`
+    ///
+    /// Lookup: 81 bytes overhead per entry + z (declared preimage length from key).
+    /// Storage: 34 bytes overhead per entry + key length + value length.
+    pub fn compute_footprint(&self) -> u64 {
+        self.lookup.iter()
+            .map(|((_, z), _)| 81u64 + *z as u64)
+            .sum::<u64>()
+        + self.storage.iter()
+            .map(|(k, v)| 34u64 + k.len() as u64 + v.len() as u64)
+            .sum::<u64>()
+    }
+
     /// Build a [`ServiceAccount`] view of our own service for Ω_I self-lookup.
+    ///
+    /// `items_count` and `footprint` are computed dynamically from the current
+    /// storage/lookup maps (GP §9.3) so they stay accurate after ΩW/ΩS/ΩF.
     pub fn self_account_info(&self) -> ServiceAccount {
         ServiceAccount {
             storage: self.storage.clone(),
@@ -644,8 +668,8 @@ impl JamHostContext {
             min_accum_gas: self.min_accum_gas,
             min_item_gas: self.min_item_gas,
             min_on_transfer_gas: self.min_on_transfer_gas,
-            items_count: self.items_count,
-            footprint: self.footprint,
+            items_count: self.compute_items_count(),
+            footprint: self.compute_footprint(),
             recent_count: self.recent_count,
             accum_gas_limit: self.accum_gas_limit,
             preimage_pages: self.preimage_pages,
