@@ -632,36 +632,5 @@
 ;;; These are separate from the closure because they compute π'/β'
 ;;; outputs, not ρ state transitions.
 
-(defun compute-output-packages-and-reporters (guarantees kappa lambda-prev block-epoch)
-  "Compute reported packages and reporters from validated guarantees.
-   kappa, lambda-prev: validator closures (message :ed25519-key).
-   block-epoch: pre-computed floor(τ'/E).
-   Returns: (values reported reporters)
-     reported  = list of (:work-package-hash h :segment-tree-root r)
-     reporters = unique ed25519 keys of all guarantors, sorted lexicographically."
-  (let ((reported '())
-        (reporter-keys '()))
-    (dolist (g guarantees)
-      (let* ((report (getf g :report))
-             (spec (getf report :package-spec))
-             (guarantee-slot (getf g :slot))
-             (guarantee-epoch (floor guarantee-slot (epoch-duration)))
-             (keyset (if (/= block-epoch guarantee-epoch)
-                         lambda-prev kappa)))
-        (push (list :work-package-hash (ensure-bytes (getf spec :hash))
-                    :segment-tree-root (ensure-bytes (getf spec :exports-root)))
-              reported)
-        (dolist (sig (getf g :signatures))
-          (let* ((idx (getf sig :validator-index))
-                 (ed-key (ensure-bytes (funcall keyset :ed25519-key idx))))
-            (unless (member ed-key reporter-keys :test #'equalp)
-              (push ed-key reporter-keys))))))
-    (let ((sorted-reporters (sort (nreverse reporter-keys) #'bytes<))
-          (sorted-reported (sort (nreverse reported)
-                  (lambda (a b)
-                    (bytes< (ensure-bytes (getf a :work-package-hash))
-                            (ensure-bytes (getf b :work-package-hash)))))))
-      (values sorted-reported sorted-reporters))))
-
 ;;; NOTE: Core/service statistics computation moved to state/pi.lisp
 ;;; (compute-cores-statistics, compute-services-statistics)

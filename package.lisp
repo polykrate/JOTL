@@ -108,7 +108,6 @@
    ;; ═══════════════════════════════════════════
    #:trie-bit #:trie-branch #:trie-leaf
    #:merkle-root #:compute-state-root #:pad-key-to-32
-   #:merklize-state #:validate-state-root
    
    ;; ═══════════════════════════════════════════
    ;; Lib — MMR (GP Appendix E)
@@ -170,7 +169,7 @@
    ;; State — σ overall (GP §4.4)
    ;; ═══════════════════════════════════════════
    #:make-sigma-state #:load-state-from-keyvals
-   #:+sigma-segment-order+ #:+cn-index-to-keyword+
+   #:+sigma-segment-order+
    #:sigma-decode-segment #:segment-key-p
    
    ;; ═══════════════════════════════════════════

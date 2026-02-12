@@ -1,12 +1,13 @@
-;;;; upsilon.lisp — Υ(σ, B) → σ'
+;;;; upsilon.lisp — Υ(σ, B) → σ'  (implementation of σ :transition)
 ;;;; Gray Paper §4.1 & §4.2.1
 ;;;;
-;;;; TOP-LEVEL STF ORCHESTRATOR — composes all state transitions.
-;;;; Pure function: (sigma, block) → sigma'.
+;;;; IMPLEMENTATION of σ's :transition message — composes all sub-transitions
+;;;; in wave-ordered dependency graph.
 ;;;;
-;;;; σ is a pure byte store. Components are loaded lazily per wave
-;;;; via (funcall sigma :load :kw) — sigma dispatches to the right decoder.
-;;;; After transitions, closures are re-encoded back to bytes for σ'.
+;;;; σ is the meta-closure (pure byte store). Its :transition message
+;;;; delegates here: (funcall sigma :transition :block B) calls
+;;;; transition-state(σ, B), which loads components lazily via
+;;;; (funcall sigma :load :kw) and re-encodes them back to bytes for σ'.
 ;;;;
 ;;;; Dependency graph from GP §4.2.1:
 ;;;;
@@ -44,13 +45,14 @@
 (defun apply-block (sigma block)
   "Υ(σ, B) → σ' — Block-level state transition.
    Pure function: σ and B in, σ' out.
+   σ transforms itself via :transition (like every other closure).
    Environmental checks (wall-clock, parent hash) belong to import-block."
   ;; §5.4-5.6: HX — intrinsic validation (extrinsic hash check)
   (multiple-value-bind (valid-p errors) (validate-block block)
     (unless valid-p
       (error "Block validation failed: ~{~A~^, ~}"
              (mapcar #'second errors))))
-  (transition-state sigma block))
+  (funcall sigma :transition :block block))
 
 ;;; ═════════════════════════════════════════════════════════════════
 ;;; transition-state — σ → σ' (GP §4.2.1)

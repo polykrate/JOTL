@@ -3,16 +3,18 @@
 ;;;; σ = (α, β, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ, θ)
 ;;;;
 ;;;; σ is a PURE BYTE STORE — fields are raw encoded bytes, not closures.
-;;;; Υ(σ, B) → σ' lives in upsilon.lisp.
+;;;; Υ(σ, B) → σ' is σ's own :transition message (delegates to transition-state
+;;;; in upsilon.lisp, which implements the wave-ordered dependency graph).
 ;;;;
-;;;; σ OWNS the Merkle mapping AND the decode dispatch:
+;;;; σ OWNS the Merkle mapping, the decode dispatch, AND its transition:
 ;;;;   - σ knows WHERE each component sits in the Merkle trie: C(n).
 ;;;;   - σ knows HOW to decode each component (dispatches to decode-NAME).
+;;;;   - σ transforms itself via :transition (like every other closure).
 ;;;;   - Components know their codec; σ knows where they live.
 ;;;;
 ;;;; Lazy decoding protocol:
 ;;;;   1. σ stores raw byte vectors for each component.
-;;;;   2. Upsilon loads on demand:
+;;;;   2. The transition loads on demand:
 ;;;;        (funcall sigma :load :tau) → τ closure
 ;;;;      σ fetches its bytes, calls the component's decoder, returns the closure.
 ;;;;   3. After transitions, closures are re-encoded:
@@ -31,8 +33,10 @@
 ;;;;   :load kw             → decoded closure for keyword (lazy decode from bytes)
 ;;;;   :merkle-kvs          → list of (C(n) . bytes) for the Merkle trie
 ;;;;   :state-root          → H(trie(:merkle-kvs))
-;;;;   :state-key-for kw    → C(n) for a component keyword
+;;;;   :extra-kvs           → non-segment Merkle entries (service accounts)
+;;;;   :raw-storage         → hash-table cache for PVM ΩR (chain-mode only)
 ;;;;   :components          → list of non-nil segment keywords
+;;;;   :transition (&key block) → σ' (delegates to transition-state in upsilon.lisp)
 
 (in-package #:jotl)
 
@@ -77,17 +81,6 @@
     (:theta  (decode-theta-state bytes 0))
     ;; δ uses C(255,s) extra-kvs, not a fixed segment — see load-delta-from-extra-kvs.
     ))
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; C(n) INDEX → KEYWORD reverse mapping (for load-state-from-keyvals)
-;;; ═══════════════════════════════════════════════════════════════
-
-(defparameter +cn-index-to-keyword+
-  '((1  . :alpha)  (2  . :phi)    (3  . :beta)   (4  . :gamma)
-    (5  . :psi)    (6  . :eta)    (7  . :iota)   (8  . :kappa)
-    (9  . :lambda) (10 . :rho)    (11 . :tau)    (12 . :chi)
-    (13 . :pi)     (14 . :omega)  (15 . :xi)     (16 . :theta))
-  "Reverse of +sigma-segment-order+: C(n) index → keyword.")
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — σ (byte store)
@@ -176,39 +169,20 @@
   (:state-root :memo
     (compute-state-root (self :merkle-kvs)))
 
-  ;; ── State key for a component keyword ──────────────────────
-  ;; (funcall sigma :state-key-for :tau) → C(11)
-  (:state-key-for (component-kw)
-    (let ((entry (assoc component-kw +sigma-segment-order+)))
-      (when entry
-        (state-key (cdr entry)))))
-
   ;; ── Extra KVs accessor ──────────────────────────────────────
   (:extra-kvs extra-kvs)
 
   ;; ── Active components (non-nil segment keywords) ───────────
   (:components
     (loop for (kw . _n) in +sigma-segment-order+
-          when (self :segment kw) collect kw)))
+          when (self :segment kw) collect kw))
 
+  ;; ── Transition: Υ(σ, B) → σ' ──────────────────────────────
+  ;; σ transforms itself by delegating to transition-state (upsilon.lisp).
+  ;; This completes the symmetry: every closure answers :transition.
+  (:transition (&key block)
+    (transition-state #'self block)))
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; CONVENIENCE — merklize & validate (forwarding to σ messages)
-;;; ═══════════════════════════════════════════════════════════════
-
-(defun merklize-state (sigma)
-  "GP §D — Compute state root HR = Merkle root of σ.
-   Delegates to σ's :state-root message."
-  (funcall sigma :state-root))
-
-(defun validate-state-root (header sigma-prime)
-  "GP §5 — Validate HR = Merkle root of σ'.
-   Signals error on mismatch."
-  (let ((expected-hr (funcall sigma-prime :state-root))
-        (actual-hr   (funcall header :state-root)))
-    (unless (equalp actual-hr expected-hr)
-      (error "HR mismatch: state root does not match Merkle root of σ'"))
-    t))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; LOAD STATE FROM KEYVALS — the universal σ constructor
