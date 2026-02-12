@@ -290,6 +290,26 @@
 ;;; §12.2 PER-SERVICE PVM INVOCATION — accumulate-service
 ;;; ═══════════════════════════════════════════════════════════════
 
+(defun work-exec-result-kind (result-entry)
+  "Map a WorkExecResult plist to the result-kind byte for the PVM encoder.
+   GP WorkExecResult variants:
+     0 = Ok (with output data)
+     1 = OutOfGas
+     2 = Panic
+     3 = BadExports
+     4 = OutputOversize
+     5 = BadCode
+     6 = CodeOversize"
+  (cond
+    ((getf result-entry :ok)              0)
+    ((getf result-entry :out-of-gas)      1)
+    ((getf result-entry :panic)           2)
+    ((getf result-entry :bad-exports)     3)
+    ((getf result-entry :output-oversize) 4)
+    ((getf result-entry :bad-code)        5)
+    ((getf result-entry :code-oversize)   6)
+    (t 2)))  ;; Unknown → default to panic
+
 (defun encode-work-items (items)
   "Encode work-item operand tuples as AccumulateItem::WorkItem bytes for the PVM.
    ITEMS: list of U-plists for one service.
@@ -297,6 +317,7 @@
   (mapcar (lambda (u)
             (let* ((result-entry (getf u :result))
                    ;; result-entry is (:ok blob) or (:panic t) etc.
+                   (result-kind (work-exec-result-kind result-entry))
                    (result-data (when (getf result-entry :ok)
                                   (getf result-entry :ok)))
                    (auth-output (getf u :auth-output)))
@@ -306,6 +327,7 @@
                (getf u :auth-hash)
                (getf u :payload-hash)
                (or (getf u :gas) 0)
+               result-kind
                result-data
                auth-output)))
           items))
@@ -791,9 +813,12 @@
                    (remhash target-id raw-storage-ht))))
 
              ;; ── Update items/bytes from PVM-tracked values ──
-             ;; The PVM internally tracks items_count (via ΩS/ΩF/ΩW) and
-             ;; footprint (via ΩW/ΩS/ΩF). Use those values directly instead
-             ;; of trying to recompute from trie classification.
+             ;; The PVM tracks items_count and footprint incrementally:
+             ;;   - Initialized from metadata (initial values)
+             ;;   - ΩW adjusts: +1 item, +(34+|key|+|val|) per new storage entry
+             ;;   - ΩS adjusts: +2 items, +(81+z) per new lookup entry
+             ;;   - ΩF adjusts: -2 items, -(81+z) per removed lookup entry
+             ;; After collapse, the final values reflect the correct state.
              (when (and update-storage-p
                         (getf effects :items-count)
                         (getf effects :footprint))
@@ -805,7 +830,7 @@
                    (let ((info (decode-service-info (cdr meta-entry))))
                      (setf (getf info :items) (getf effects :items-count))
                      (setf (getf info :bytes) (getf effects :footprint))
-                     (setf (cdr meta-entry) (encode-service-info info)))))))) ;; closes let*/when/let/when/let*/when-effects
+                     (setf (cdr meta-entry) (encode-service-info info)))))))) ;; closes let/when/let/when/let*/when-effects
        ) ;; close lambda
        delta-results)
       (setf (getf state :delta-kvs) current-kvs))

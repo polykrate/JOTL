@@ -139,27 +139,29 @@ fn test_encode_side_effects_with_lookup() {
 // ============================================================================
 
 #[test]
-fn test_items_count_footprint_gp_9_3() {
+fn test_items_count_footprint_incremental() {
     let mut ctx = JamHostContext::default();
 
-    // 2 lookup entries: (hash_a, z=64) and (hash_b, z=128)
+    // Simulate incremental tracking:
+    // GP §9.3: items = 2·|lookup| + |storage|
+    //          footprint = Σ(81+z) for lookups + Σ(34+|key|+|val|) for storage
+    //
+    // 2 lookups (z=64, z=128) + 3 storage entries:
+    // items = 2*2 + 3 = 7
+    // footprint = (81+64) + (81+128) + (34+32+100) + (34+32+50) + (34+10+200)
+    //           = 145 + 209 + 166 + 116 + 244 = 880
+    ctx.items_count = 7;
+    ctx.footprint = 880;
+
+    // Add map data so encode_side_effects has the storage/lookup contents
     ctx.lookup.insert(([0xAA; 32], 64), vec![100]);
     ctx.lookup.insert(([0xBB; 32], 128), vec![100, 200]);
+    ctx.preimages.insert([0xAA; 32], vec![0xCC; 64]);
+    ctx.storage.insert(vec![1; 32], vec![0xDE; 100]);
+    ctx.storage.insert(vec![2; 32], vec![0xAD; 50]);
+    ctx.storage.insert(vec![3; 10], vec![0xBE; 200]);
 
-    // 3 storage entries with known key/value sizes
-    ctx.storage.insert(vec![1; 32], vec![0xDE; 100]);   // key=32, val=100
-    ctx.storage.insert(vec![2; 32], vec![0xAD; 50]);    // key=32, val=50
-    ctx.storage.insert(vec![3; 10], vec![0xBE; 200]);   // key=10, val=200
-
-    // GP §9.3: a_i = 2·|a_l| + |a_s| = 2×2 + 3 = 7
-    assert_eq!(ctx.compute_items_count(), 7);
-
-    // GP §9.3: a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)
-    //        = (81+64) + (81+128) + (34+32+100) + (34+32+50) + (34+10+200)
-    //        = 145 + 209 + 166 + 116 + 244 = 880
-    assert_eq!(ctx.compute_footprint(), 880);
-
-    // Verify via encode_side_effects: items_count and footprint at end of blob
+    // Verify via encode_side_effects (uses stored fields)
     let blob = encode_side_effects(&ctx, 0);
     let len = blob.len();
     let items_bytes = &blob[len - 12..len - 8];

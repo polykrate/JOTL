@@ -83,4 +83,7 @@
    (:file "upsilon" :pathname "src/upsilon")
    
    ;; 7. Block Importer — M1 API (parse binary, import block, run traces)
-   (:file "import" :pathname "src/import")))
+   (:file "import" :pathname "src/import")
+   
+   ;; 8. Fuser — Unix Socket API (init-state, add-block, debug)
+   (:file "fuser" :pathname "src/fuser")))

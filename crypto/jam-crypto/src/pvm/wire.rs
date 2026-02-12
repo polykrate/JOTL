@@ -207,19 +207,12 @@ pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
         None => buf.push(0x00),
     }
 
-    // items_count & footprint: DERIVED from storage maps (GP §9.3 / 9.8).
-    //
-    //   a_i = 2·|a_l| + |a_s|
-    //     Each lookup entry counts as 2 items (metadata + preimage blob).
-    //     Each storage entry counts as 1 item.
-    //
-    //   a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)
-    //     Lookup: 81 overhead + z (declared preimage length from key).
-    //     Storage: 34 overhead + key length + value length.
-    let items_count = ctx.compute_items_count();
-    let footprint: u64 = ctx.compute_footprint();
-    buf.extend_from_slice(&items_count.to_le_bytes());
-    buf.extend_from_slice(&footprint.to_le_bytes());
+    // items_count & footprint: tracked incrementally from initial metadata values.
+    // Each host call (ΩW/ΩS/ΩF) adjusts them per GP §9.3:
+    //   a_i = 2·|a_l| + |a_s|  (items)
+    //   a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)  (footprint)
+    buf.extend_from_slice(&ctx.items_count.to_le_bytes());
+    buf.extend_from_slice(&ctx.footprint.to_le_bytes());
 
     buf
 }

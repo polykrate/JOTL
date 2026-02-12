@@ -10,12 +10,26 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 |-------|-------|------|----------------|-------|
 | fallback | **100/100** | 100/100 | — | No work reports |
 | safrole | **100/100** | 100/100 | — | No work reports |
-| storage | 5/100 | 38/100 | block 6 | 1st accumulate block |
-| storage_light | 1/100 | — | block 2 | 1st accumulate block |
-| preimages | 1/100 | 36/100 | block 2 | 1st accumulate block |
-| preimages_light | 1/100 | — | block 2 | 1st accumulate block |
-| fuzzy | 5/100 | — | block 6 | 1st accumulate block |
-| fuzzy_light | 1/100 | — | block 2 | 1st accumulate block |
+| storage | 84/100 | 40/100 | block 6 (step) | PI gas diff |
+| preimages | 7/100 | 38/100 | block 2 (step) | PI gas diff |
+
+### Current divergence: C(13)=PI `accumulate-gas-used`
+
+The remaining failures are all caused by **gas differences** in the validator
+activity statistics segment (π). Specifically, the `accumulate-gas-used` field
+of service activity records diverges.
+
+**Root cause under investigation:** the PVM produces slightly different gas
+consumption during `accumulate_ext` execution. All service data (storage,
+preimages, items/footprint metadata) is now correct — the only remaining
+divergence is the gas value reported in π.
+
+Hypotheses being investigated:
+- Service metadata fields `a_r` / `a_a` / `a_p` mapping (last 3 u32 fields of
+  the 89-byte ServiceInfo are passed to the PVM as `recent_count`,
+  `accum_gas_limit`, `preimage_pages` — may be incorrect mapping)
+- Entropy or header-hash passed to the PVM context may differ from reference
+- Accumulate items encoding (field ordering, hash computation)
 
 - **M1 Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
   - Chain mode: genesis → block 1 → block 2 → ... (our σ' becomes next σ)
@@ -325,11 +339,78 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 - [x] Codec roundtrip — 10 components byte-exact across 201 states
 - [x] **M1 Block Importer** — 100/100 fallback blocks (chain + step modes)
 - [x] Binary import API — `genesis.bin` → σ₀, trace steps, `import-block`, `run-trace`
-- [~] **Accumulate PVM execution** (§12.2) — service code, PVM run, side-effects, collapse C (B.13). Diverges at 1st work report.
+- [~] **Accumulate PVM execution** (§12.2) — PVM run + side-effects + collapse working. Gas divergence in π (PI segment) under investigation.
 - [~] Preimage integration delta' (§9.2/§4.18) — integrate-preimages implemented, lookup/blob updates
-- [ ] PVM host calls audit (Appendix A+B) — items/footprint now derived from maps
+- [x] PVM host calls audit (Appendix A) — A.1–A.8 verified, gas formula fixed (max(ϱ',0))
+- [x] PVM host calls audit (Appendix B.1–B.4) — constants, is-authorized, refine, accumulate verified
+- [~] PVM host calls audit (Appendix B.5–B.7) — general/refine/accumulate functions (in progress)
+- [x] Incremental items/footprint tracking — PVM tracks a_i/a_o per host-call (ΩW/ΩS/ΩF)
+- [x] WorkItemRecord.result encoding — error variants (Panic/OOG/BadExports) now passed correctly
+- [x] Deferred transfers — balance augmentation (B.9) + AccumulateItem::Transfer encoding (12.24)
+- [ ] On-transfer invocations (§12.3) — PC=10 never called yet
 - [ ] Refine STF (§9) + PVM
-- [ ] On-transfer invocations (§12.3)
+- [ ] Fuser API — init-state / add-block / debug endpoints
+
+## Fuser API
+
+The fuser exposes three operations over binary state:
+
+```
+init-state(genesis.bin)  →  state-root (32 bytes)
+add-block(block.bin)     →  state-root (32 bytes)
+debug(block.bin)         →  raw-state.bin
+```
+
+### Current Internal API (what exists today)
+
+```lisp
+;; 1. Load genesis → σ₀
+(load-genesis "genesis.bin")
+;; → (values header σ₀ state-root)
+
+;; 2. Apply block: Υ(σ, B) → σ'
+(import-block sigma block)
+;; → (values σ' state-root)
+
+;; 3. State is a closure — query it
+(funcall sigma :state-root)     ;; → 32-byte hash
+(funcall sigma :merkle-kvs)     ;; → list of (31-byte-key . value-bytes)
+(funcall sigma :load :tau)      ;; → τ closure (lazy decode)
+(funcall sigma :segment :tau)   ;; → raw bytes (no decode)
+
+;; 4. Decode a block from binary
+(decode-block bytes 0)          ;; → (values block-closure consumed)
+
+;; 5. Encode state back to Merkle KV pairs
+(funcall sigma :merkle-kvs)     ;; → [(key . val), ...] — ready for trie
+```
+
+### Architecture for the Fuser
+
+The fuser holds **one mutable slot** — the current σ — and applies blocks
+sequentially. Each operation is a pure STF call:
+
+```
+┌─────────────┐     genesis.bin     ┌──────────┐
+│   External   │ ──────────────────▶│          │
+│   Caller     │     block.bin      │  Fuser   │
+│  (Rust/C/    │ ──────────────────▶│          │
+│   HTTP/etc)  │                    │  σ slot  │
+│              │ ◀────────────────  │          │
+└─────────────┘   state-root (32B)  └──────────┘
+                  or raw-state.bin
+```
+
+**init-state(bin):** Parse genesis binary → `load-state-from-keyvals` → σ₀ stored
+in fuser slot. Returns `(funcall σ₀ :state-root)`.
+
+**add-block(bin):** Decode block from binary → `import-block(σ, block)` → σ'
+replaces σ in fuser slot. Returns `(funcall σ' :state-root)`.
+
+**debug(bin):** Same as add-block, but instead of returning just the root,
+serializes the full post-state σ' as `RawState = state-root(32) + Vec<KeyValue>`.
+Each KeyValue = `key(31) + compact-len + value-bytes`. This is the same format
+as trace `.bin` files, allowing diff against reference.
 
 ## Dependencies
 

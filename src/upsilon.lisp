@@ -45,7 +45,11 @@
   "Υ(σ, B) → σ' — Block-level state transition.
    Pure function: σ and B in, σ' out.
    Environmental checks (wall-clock, parent hash) belong to import-block."
-  ;; TODO: (validate-block block) — HX check
+  ;; §5.4-5.6: HX — intrinsic validation (extrinsic hash check)
+  (multiple-value-bind (valid-p errors) (validate-block block)
+    (unless valid-p
+      (error "Block validation failed: ~{~A~^, ~}"
+             (mapcar #'second errors))))
   (transition-state sigma block))
 
 ;;; ═════════════════════════════════════════════════════════════════
@@ -168,11 +172,15 @@
             (let* ((pi-stats (funcall sigma :load :pi))
 
                    ;; (4.19) α' < (H, EC, ϕ', α)
+                   ;; ρ travels through the transition — ask it directly.
+                   (offender-auth-hashes
+                    (funcall rho :offender-auth-hashes e-d))
+
                    (alpha-prime (funcall alpha :transition
                                         :tau tau
                                         :tau-prime tau-prime
                                         :phi-prime phi-prime
-                                        :offender-auth-hashes nil)) ;; TODO: derive from EC
+                                        :offender-auth-hashes offender-auth-hashes))
 
                    ;; (4.18) δ' < (EP, δ†, τ')
                    (delta-prime (funcall delta-dagger :transition

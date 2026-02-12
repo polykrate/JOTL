@@ -443,10 +443,20 @@ fn test_self_account_info_roundtrip() {
     ctx.accum_gas_limit = 50000;
     ctx.preimage_pages = 2;
 
-    // GP §9.3: a_i and a_o are DERIVED from storage/lookup maps.
-    // Add data so compute_items_count() = 2*2 + 3 = 7
+    // items_count and footprint are tracked incrementally from initial metadata.
+    // GP §9.3: items = 2·|lookup| + |storage|, footprint = Σ(81+z) + Σ(34+|k|+|v|).
+    // Simulate: 2 lookups (z=64, z=128) + 3 storage entries.
+    // items = 2*2 + 3 = 7
+    // footprint = (81+64) + (81+128) + (34+32+100) + (34+32+50) + (34+10+200)
+    //           = 145 + 209 + 166 + 116 + 244 = 880
+    ctx.items_count = 7;
+    ctx.footprint = 880;
+
+    // Also add map data so self_account_info has the storage/lookup contents
     ctx.lookup.insert(([0xAA; 32], 64), vec![100]);
     ctx.lookup.insert(([0xBB; 32], 128), vec![100, 200]);
+    ctx.preimages.insert([0xAA; 32], vec![0xCC; 64]);
+    ctx.preimages.insert([0xBB; 32], vec![0xDD; 128]);
     ctx.storage.insert(vec![1; 32], vec![0xDE; 100]);
     ctx.storage.insert(vec![2; 32], vec![0xAD; 50]);
     ctx.storage.insert(vec![3; 10], vec![0xBE; 200]);
@@ -455,9 +465,8 @@ fn test_self_account_info_roundtrip() {
     assert_eq!(acct.balance, 999);
     assert_eq!(acct.code_hash, [0xBB; 32]);
     assert_eq!(acct.threshold, 123);
-    // items_count and footprint are now dynamically computed (GP §9.3)
-    assert_eq!(acct.items_count, 7);  // 2*2 + 3
-    assert_eq!(acct.footprint, 880);  // (81+64)+(81+128)+(34+32+100)+(34+32+50)+(34+10+200)
+    assert_eq!(acct.items_count, 7);
+    assert_eq!(acct.footprint, 880);
 
     // Encoding should match
     let buf = acct.encode_info();

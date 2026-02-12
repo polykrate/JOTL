@@ -5,8 +5,8 @@
 
 use jam_types::{
     AccumulateItem, WorkItemRecord, WorkPackageHash, SegmentTreeRoot,
-    AuthorizerHash, PayloadHash, WorkOutput, AuthTrace, Encode, ProtocolParameters,
-    TransferRecord, ServiceId, Memo,
+    AuthorizerHash, PayloadHash, WorkOutput, WorkError, AuthTrace, Encode,
+    ProtocolParameters, TransferRecord, ServiceId, Memo,
 };
 
 // ============================================================================
@@ -148,6 +148,11 @@ pub unsafe extern "C" fn jam_encode_work_item_v21(
 /// All `*const u8` hash pointers must point to 32 bytes.
 ///
 /// Returns actual encoded length, or 0 on error.
+///
+/// `result_kind`: 0 = Ok (with output data), 1 = OutOfGas, 2 = Panic,
+///                3 = BadExports, 4 = OutputOversize, 5 = BadCode, 6 = CodeOversize.
+/// When `result_kind == 0`, `result_data`/`result_len` provide the Ok output.
+/// When `result_kind >= 1`, the error variant is encoded and result_data is ignored.
 #[no_mangle]
 pub unsafe extern "C" fn jam_encode_work_item_record(
     package_hash: *const u8,
@@ -155,6 +160,7 @@ pub unsafe extern "C" fn jam_encode_work_item_record(
     auth_hash: *const u8,
     payload_hash: *const u8,
     gas_limit: u64,
+    result_kind: u8,
     result_data: *const u8,
     result_len: u32,
     auth_output_data: *const u8,
@@ -171,10 +177,27 @@ pub unsafe extern "C" fn jam_encode_work_item_record(
     let auth = read_hash_or_zero(auth_hash);
     let payload = read_hash_or_zero(payload_hash);
 
-    let result = if result_data.is_null() || result_len == 0 {
-        Ok(WorkOutput(vec![]))
-    } else {
-        Ok(WorkOutput(std::slice::from_raw_parts(result_data, result_len as usize).to_vec()))
+    let result: Result<WorkOutput, WorkError> = match result_kind {
+        0 => {
+            // Ok variant: include output data
+            if result_data.is_null() || result_len == 0 {
+                Ok(WorkOutput(vec![]))
+            } else {
+                Ok(WorkOutput(
+                    std::slice::from_raw_parts(result_data, result_len as usize).to_vec(),
+                ))
+            }
+        }
+        1 => Err(WorkError::OutOfGas),
+        2 => Err(WorkError::Panic),
+        3 => Err(WorkError::BadExports),
+        4 => Err(WorkError::OutputOversize),
+        5 => Err(WorkError::BadCode),
+        6 => Err(WorkError::CodeOversize),
+        _ => {
+            // Unknown result kind — default to panic
+            Err(WorkError::Panic)
+        }
     };
 
     let auth_trace = if auth_output_data.is_null() || auth_output_len == 0 {

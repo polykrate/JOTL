@@ -615,16 +615,33 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         return Ok(OmegaResult::Continue);
     }
 
-    // ── Apply mutation ─────────────────────────────────────
-    // GP: ΩW only modifies a_s (storage map). a_i and a_o are
-    // derived properties, computed at collection time.
+    // ── Apply mutation + incremental items/footprint tracking ──
+    // GP §9.3: storage contributes 1 item and (34+|key|+|value|) to footprint.
+    let key_sz = key.len() as u64;
     match new_value {
         None => {
             // v_Z = 0 → remove key from storage
-            ctx.storage.remove(&key);
+            if let Some(old_val) = ctx.storage.remove(&key) {
+                // Removed: items -1, footprint -(34+|key|+|old_val|)
+                ctx.items_count = ctx.items_count.saturating_sub(1);
+                ctx.footprint = ctx.footprint.saturating_sub(34 + key_sz + old_val.len() as u64);
+            }
         }
         Some(v) => {
-            ctx.storage.insert(key, v);
+            let new_val_len = v.len() as u64;
+            if let Some(old_val) = ctx.storage.insert(key, v) {
+                // Update: footprint delta = new_len - old_len
+                let old_val_len = old_val.len() as u64;
+                if new_val_len >= old_val_len {
+                    ctx.footprint += new_val_len - old_val_len;
+                } else {
+                    ctx.footprint = ctx.footprint.saturating_sub(old_val_len - new_val_len);
+                }
+            } else {
+                // New entry: items +1, footprint +(34+|key|+|val|)
+                ctx.items_count += 1;
+                ctx.footprint += 34 + key_sz + new_val_len;
+            }
         }
     }
 
@@ -2095,8 +2112,8 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     let mut h = [0u8; 32];
     h.copy_from_slice(&h_bytes);
 
-    // ── Compute mutation a ──
-    // GP: ΩS only modifies a_l (lookup map). a_i and a_o are derived.
+    // ── Compute mutation a + incremental items/footprint tracking ──
+    // GP §9.3: each lookup contributes 2 items and (81+z) to footprint.
     let key = (h, z);
     match ctx.lookup.get(&key) {
         None => {
@@ -2107,6 +2124,9 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 return Ok(OmegaResult::Continue);
             }
             ctx.lookup.insert(key, vec![]);
+            // New lookup: items +2, footprint +(81+z)
+            ctx.items_count += 2;
+            ctx.footprint += 81 + z as u64;
             log::debug!("ΩS (solicit): new entry ({:02x?}…, {}) -> []", &h[..8], z);
         }
         Some(entry) if entry.len() == 2 => {
@@ -2185,16 +2205,21 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
     };
 
-    // GP: ΩF only modifies a_l and a_P. a_i and a_o are derived.
+    // GP: ΩF modifies a_l and a_P. Items/footprint tracked incrementally.
+    // GP §9.3: removing a lookup = items -2, footprint -(81+z).
     match entry.len() {
         0 => {
             // Entry = [] (empty solicitation) → full removal of lookup + preimage
             ctx.lookup.remove(&key);
             ctx.preimages.remove(&h); // no-op if no blob
+            // Removed lookup: items -2, footprint -(81+z)
+            ctx.items_count = ctx.items_count.saturating_sub(2);
+            ctx.footprint = ctx.footprint.saturating_sub(81 + z as u64);
             log::debug!("ΩF (forget): removed [] entry ({:02x?}…, {})", &h[..8], z);
         }
         1 => {
             // Entry = [x] → transform to [x, t]
+            // Lookup still exists → no items/footprint change
             let x = entry[0];
             ctx.lookup.insert(key, vec![x, ctx.timeslot]);
             log::debug!("ΩF (forget): [{}] -> [{}, {}] for ({:02x?}…, {})", x, x, ctx.timeslot, &h[..8], z);
@@ -2206,6 +2231,9 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
             if ctx.timeslot >= D && y < ctx.timeslot - D {
                 ctx.lookup.remove(&key);
                 ctx.preimages.remove(&h);
+                // Removed lookup: items -2, footprint -(81+z)
+                ctx.items_count = ctx.items_count.saturating_sub(2);
+                ctx.footprint = ctx.footprint.saturating_sub(81 + z as u64);
                 log::debug!("ΩF (forget): removed [x,y] entry ({:02x?}…, {}) y={} < t−D={}", &h[..8], z, y, ctx.timeslot - D);
             } else {
                 // y >= t − D → too recent → a = ∇ → HUH
@@ -2216,6 +2244,7 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         _ => {
             // Entry = [x, y, w] (3+ elements) → transform to [w, t] if y < t − D
             // GP: K(a_P) is NOT modified — preimage blob stays!
+            // Lookup still exists → no items/footprint change
             let y = entry[1];
             let w = entry[2];
             if ctx.timeslot >= D && y < ctx.timeslot - D {

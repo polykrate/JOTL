@@ -138,9 +138,11 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (cffi:defcfun ("jam_encode_work_item_record" %jam-encode-work-item-record) :uint32
-  "Encode AccumulateItem::WorkItem via jam-types."
+  "Encode AccumulateItem::WorkItem via jam-types.
+   result-kind: 0=Ok, 1=OutOfGas, 2=Panic, 3=BadExports, 4=OutputOversize, 5=BadCode, 6=CodeOversize."
   (package-hash :pointer) (exports-root :pointer) (auth-hash :pointer)
   (payload-hash :pointer) (gas-limit :uint64)
+  (result-kind :uint8)
   (result-data :pointer) (result-len :uint32)
   (auth-output-data :pointer) (auth-output-len :uint32)
   (out-buf :pointer) (out-capacity :uint32))
@@ -588,11 +590,16 @@
     outcome))
 
 (defun pvm-encode-work-item-record (package-hash exports-root auth-hash payload-hash
-                                    gas-limit result-data &optional auth-output)
+                                    gas-limit result-kind result-data
+                                    &optional auth-output)
   "Encode a WorkItemRecord as AccumulateItem using Rust's jam-types encoder.
+   RESULT-KIND: 0=Ok, 1=OutOfGas, 2=Panic, 3=BadExports, 4=OutputOversize, 5=BadCode, 6=CodeOversize.
+   RESULT-DATA: output bytes when RESULT-KIND=0 (Ok), ignored otherwise.
    Returns the encoded bytes, or nil on error."
   ;; Normalize: treat zero-length arrays as nil (avoids CFFI bounds errors)
-  (let* ((result-data (when (and result-data (plusp (length result-data))) result-data))
+  ;; For error variants (result-kind > 0), result-data is ignored
+  (let* ((result-data (when (and (zerop result-kind) result-data (plusp (length result-data)))
+                        result-data))
          (auth-output (when (and auth-output (plusp (length auth-output))) auth-output))
          (result-len (if result-data (length result-data) 0))
          (auth-len (if auth-output (length auth-output) 0))
@@ -614,6 +621,7 @@
                     (let ((encoded-len (%jam-encode-work-item-record
                                         pkg-ptr exp-ptr auth-ptr pay-ptr
                                         gas-limit
+                                        result-kind
                                         (if result-data res-ptr (cffi:null-pointer)) result-len
                                         (if auth-output ao-ptr (cffi:null-pointer)) auth-len
                                         out-buf out-capacity)))

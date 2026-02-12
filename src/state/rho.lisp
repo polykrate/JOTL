@@ -13,6 +13,7 @@
 ;;;; Messages:
 ;;;;   :assignments       → list of C slots (nil | (:report wr :timeout t))
 ;;;;   :core-count        → (length assignments)
+;;;;   :offender-auth-hashes (disputes) → auth code hashes to ban from α (GP 4.19)
 ;;;;   :encoded           → binary encoding (memoized)
 ;;;;   :decode            → reconstruct from bytes
 ;;;;   :transition-dagger (&key v-list)
@@ -435,6 +436,29 @@
   ((assignments nil) (reported nil))
 
   (:core-count (length assignments))
+
+  ;; GP (4.19): Derive authorization code hashes to ban from α.
+  ;; Receives disputes (ED) — raw data, not a closure.
+  ;; Extracts target report-hashes from culprits/faults,
+  ;; scans our own assignments for matching reports,
+  ;; returns their authorizer-hashes.
+  (:offender-auth-hashes (disputes)
+    (let* ((culprits (or (getf disputes :culprits) '()))
+           (faults   (or (getf disputes :faults) '()))
+           (targets  (remove-duplicates
+                      (append (mapcar (lambda (c) (getf c :target)) culprits)
+                              (mapcar (lambda (f) (getf f :target)) faults))
+                      :test #'equalp)))
+      (when targets
+        (let ((result '()))
+          (dolist (a assignments)
+            (when a
+              (let ((rh (assignment-report-hash a)))
+                (when (and rh (member rh targets :test #'equalp))
+                  (let ((auth-hash (getf (getf a :report) :authorizer-hash)))
+                    (when auth-hash
+                      (pushnew auth-hash result :test #'equalp)))))))
+          result))))
 
   ;; R* — reported work-reports from :transition-ddagger (§11.16)
   ;; Not encoded (not part of C(10)), carried in memory for accumulate.

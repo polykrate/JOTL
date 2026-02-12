@@ -308,6 +308,20 @@
    #:run-trace
    
    ;; ═══════════════════════════════════════════
+   ;; Fuser — Unix Socket API
+   ;; ═══════════════════════════════════════════
+   #:encode-raw-state-bin
+   #:fuser-init-state
+   #:fuser-add-block
+   #:fuser-debug
+   #:fuser-set-state
+   #:fuser-start
+   #:fuser-run-trace
+   #:fuser-run-all-traces
+   #:*fuser-sigma*
+   #:*fuser-block-count*
+   
+   ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)
    ;; ═══════════════════════════════════════════
    #:blake2b-256 #:keccak-256
