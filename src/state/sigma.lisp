@@ -106,7 +106,16 @@
    (rho nil) (tau nil) (phi nil) (chi nil)
    (psi nil) (pi* nil) (omega nil) (xi nil) (theta nil)
    ;; ── Non-segment Merkle entries (service accounts etc.) ──
-   (extra-kvs nil))
+   (extra-kvs nil)
+   ;; ── Raw storage index (NOT in Merkle trie) ──
+   ;; Hash table: service-id → alist of (raw-key-32 . value-bytes).
+   ;; Maintained across blocks for PVM ΩR (read) host-call.
+   ;; Not part of the state root — purely an internal cache.
+   (raw-storage nil))
+
+  ;; ── Raw storage index (chain-mode cache) ────────────────────
+  ;; Hash table: service-id → alist of (raw-key-32 . value-bytes).
+  (:raw-storage raw-storage)
 
   ;; ── Segment access — raw bytes ─────────────────────────────
   ;; (funcall sigma :segment :tau) → raw bytes or NIL

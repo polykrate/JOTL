@@ -126,13 +126,17 @@
   "Encode C zero-initialized CoreActivityRecords."
   (make-array (* (num-cores) 8) :element-type '(unsigned-byte 8) :initial-element 0))
 
-(defun compute-cores-statistics (guarantees assurances)
-  "Compute π'_C fresh from this block's E_G and E_A.
+(defun compute-cores-statistics (guarantees assurances r-star)
+  "Compute π'_C fresh from this block's E_G, E_A, and R*.
+   GP §13.2 (13.8-13.11):
+     R(c) = Σ work-item stats from I (guarantees) on core c
+     L(c) = Σ package-lengths from I on core c
+     D(c) = Σ_{r∈R} (r_s)_l + W_G⌈(r_s)_n·65/64⌉ from R* on core c
+     p(c) = Σ assurance votes for core c
    Returns: list of C CoreActivityRecord plists."
   (let ((c (num-cores))
         (cores (loop repeat (num-cores) collect (make-zero-core-activity))))
-    ;; ── Popularity from assurances ──
-    ;; Each assurance has a bitfield: bit c set → core c assured.
+    ;; ── p: Popularity from assurances (E_A) ──
     (dolist (a (or assurances '()))
       (let ((bf (getf a :bitfield)))
         (when bf
@@ -142,7 +146,7 @@
               (when (and (< byte-idx (length bf))
                          (logbitp bit-idx (aref bf byte-idx)))
                 (incf (getf (nth ci cores) :popularity))))))))
-    ;; ── Refinement stats from guarantees ──
+    ;; ── R(c), L(c): Refinement stats + bundle-size from I (guarantees) ──
     (dolist (g (or guarantees '()))
       (let* ((report (getf g :report))
              (ci (getf report :core-index))
@@ -164,6 +168,19 @@
             (incf (getf core-stat :bundle-size)
                   (or (getf (getf report :package-spec) :length) 0))
             (incf (getf core-stat :gas-used) total-gas)))))
+    ;; ── D(c): DA load from R* (newly available reports) ──
+    ;; GP (13.11): D(c) = Σ_{r∈R, r_c=c} (r_s)_l + W_G⌈(r_s)_n·65/64⌉
+    (dolist (r (or r-star '()))
+      (let* ((ci (getf r :core-index))
+             (spec (getf r :package-spec))
+             (pkg-len (or (getf spec :length) 0))
+             (exp-cnt (or (getf spec :exports-count) 0))
+             (wg +segment-size+)
+             (d-val (+ pkg-len
+                       (if (zerop exp-cnt) 0
+                           (* wg (ceiling (* exp-cnt 65) 64))))))
+        (when (and (< ci c) (nth ci cores))
+          (incf (getf (nth ci cores) :da-load) d-val))))
     cores))
 
 ;;; ═══════════════════════════════════════════════════════════════
@@ -212,13 +229,14 @@
   "Compute π'_S fresh from this block's E_G, E_P, and S.
    GUARANTEES: list of guarantee plists (from E_G)
    PREIMAGES:  list of preimage plists (from E_P) — each has :service-id, :blob
-   ACCUM-STATS: list of (service-id . gas-used) pairs from accumulate (S)
+   ACCUM-STATS: list of (sid n-items gas-used) triples from accumulate (S)
    Returns: sorted list of (:id sid :record plist) entries."
   (let ((ht (make-hash-table :test 'eql)))
     (flet ((ensure-entry (sid)
              (or (gethash sid ht)
                  (setf (gethash sid ht) (make-zero-service-activity)))))
-      ;; ── Refinement stats from guarantees ──
+      ;; ── Refinement stats from guarantees (I) ──
+      ;; GP (13.16): R(s) = Σ_{d∈r_d, r∈I, d_s=s} (1, d_u, d_i, d_x, d_z, d_e)
       (dolist (g (or guarantees '()))
         (dolist (r (getf (getf g :report) :results))
           (let* ((sid (getf r :service-id))
@@ -231,18 +249,21 @@
             (incf (getf entry :extrinsic-size) (or (getf rl :extrinsic-size) 0))
             (incf (getf entry :exports) (or (getf rl :exports) 0)))))
       ;; ── Preimage stats from E_P ──
+      ;; GP (13.12): p = Σ_{(s,d)∈E_P} (1, |d|)
       (dolist (p (or preimages '()))
-        (let* ((sid (getf p :service-id))
+        (let* ((sid (getf p :requester))
                (blob (getf p :blob))
                (entry (ensure-entry sid)))
           (incf (getf entry :provided-count) 1)
           (incf (getf entry :provided-size) (if blob (length blob) 0))))
       ;; ── Accumulation stats from S ──
-      (dolist (pair (or accum-stats '()))
-        (let* ((sid (car pair))
-               (gas (cdr pair))
+      ;; GP (13.12): a = U(S[s], (0,0)) — (count, gas) where count = work-items
+      (dolist (triple (or accum-stats '()))
+        (let* ((sid (first triple))
+               (n-items (second triple))
+               (gas (third triple))
                (entry (ensure-entry sid)))
-          (incf (getf entry :accumulate-count) 1)
+          (incf (getf entry :accumulate-count) (or n-items 0))
           (incf (getf entry :accumulate-gas-used) (or gas 0)))))
     ;; Build sorted result
     (let ((result '()))
@@ -376,7 +397,7 @@
                           :assurances     (+ (getf ai :assurances)
                                              (if (member vi assuring-validators) 1 0)))))
              ;; ── (13.2) π'_C: per-block core activity ──
-             (new-cores (compute-cores-statistics guarantees assurances))
+             (new-cores (compute-cores-statistics guarantees assurances r-star))
              ;; ── (13.2) π'_S: per-block service activity ──
              (new-services (compute-services-statistics
                             guarantees preimages accum-stats)))

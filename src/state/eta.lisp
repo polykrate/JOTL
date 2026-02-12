@@ -49,8 +49,7 @@
   ;; (6.22) epoch change → shift: η'₁=η₀, η'₂=η₁, η'₃=η₂
   ;; (6.23) no change    → keep:  η'₁=η₁, η'₂=η₂, η'₃=η₃
   (:transition (&key header tau tau-prime)
-    (let* ((entropy-source (funcall header :entropy-source)) ;; HV (96 bytes)
-           (y-hv (jam.ffi:Y entropy-source))                ;; Y(HV) → 32 bytes
+    (let* ((y-hv (funcall header :vrf-entropy))              ;; header answers Y(HV)
            (epoch-change-p (funcall tau :epoch-changed? tau-prime))
            (eta-0-prime (blake2b-256
                          (concatenate '(vector (unsigned-byte 8))

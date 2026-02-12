@@ -616,6 +616,8 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     }
 
     // ── Apply mutation ─────────────────────────────────────
+    // GP: ΩW only modifies a_s (storage map). a_i and a_o are
+    // derived properties, computed at collection time.
     match new_value {
         None => {
             // v_Z = 0 → remove key from storage
@@ -2094,6 +2096,7 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     h.copy_from_slice(&h_bytes);
 
     // ── Compute mutation a ──
+    // GP: ΩS only modifies a_l (lookup map). a_i and a_o are derived.
     let key = (h, z);
     match ctx.lookup.get(&key) {
         None => {
@@ -2104,7 +2107,6 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 return Ok(OmegaResult::Continue);
             }
             ctx.lookup.insert(key, vec![]);
-            ctx.items_count += 1;
             log::debug!("ΩS (solicit): new entry ({:02x?}…, {}) -> []", &h[..8], z);
         }
         Some(entry) if entry.len() == 2 => {
@@ -2183,12 +2185,12 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
     };
 
+    // GP: ΩF only modifies a_l and a_P. a_i and a_o are derived.
     match entry.len() {
         0 => {
-            // Entry = [] (empty solicitation) → full removal
+            // Entry = [] (empty solicitation) → full removal of lookup + preimage
             ctx.lookup.remove(&key);
-            ctx.preimages.remove(&h);
-            ctx.items_count = ctx.items_count.saturating_sub(1);
+            ctx.preimages.remove(&h); // no-op if no blob
             log::debug!("ΩF (forget): removed [] entry ({:02x?}…, {})", &h[..8], z);
         }
         1 => {
@@ -2199,11 +2201,11 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
         2 => {
             // Entry = [x, y] → full removal if y < t − D
+            // Removes BOTH the lookup entry AND the preimage blob.
             let y = entry[1];
             if ctx.timeslot >= D && y < ctx.timeslot - D {
                 ctx.lookup.remove(&key);
                 ctx.preimages.remove(&h);
-                ctx.items_count = ctx.items_count.saturating_sub(1);
                 log::debug!("ΩF (forget): removed [x,y] entry ({:02x?}…, {}) y={} < t−D={}", &h[..8], z, y, ctx.timeslot - D);
             } else {
                 // y >= t − D → too recent → a = ∇ → HUH
@@ -2213,6 +2215,7 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
         _ => {
             // Entry = [x, y, w] (3+ elements) → transform to [w, t] if y < t − D
+            // GP: K(a_P) is NOT modified — preimage blob stays!
             let y = entry[1];
             let w = entry[2];
             if ctx.timeslot >= D && y < ctx.timeslot - D {

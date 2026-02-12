@@ -128,14 +128,23 @@
         (binary-merkle-root-keccak encoded-items))))
 
 (defun extract-work-packages-from-guarantees (guarantees)
-  "GP §7.8: Extract (:hash h :exports-root r) from EG."
+  "GP §7.8: Extract (:hash h :exports-root r) from EG.
+   p ∈ {H → Ho} — dictionary (sorted by key = hash)."
   (when guarantees
-    (mapcar (lambda (g)
-              (let* ((report (getf g :report))
-                     (spec (getf report :package-spec)))
-                (list :hash (getf spec :hash)
-                      :exports-root (getf spec :exports-root))))
-            guarantees)))
+    (let ((items (mapcar (lambda (g)
+                           (let* ((report (getf g :report))
+                                  (spec (getf report :package-spec)))
+                             (list :hash (ensure-bytes (getf spec :hash))
+                                   :exports-root (ensure-bytes (getf spec :exports-root)))))
+                         guarantees)))
+      ;; Dictionary is sorted by key (hash) — lexicographic byte order
+      (sort items (lambda (a b)
+                    (let ((ha (getf a :hash))
+                          (hb (getf b :hash)))
+                      (loop for i from 0 below (min (length ha) (length hb))
+                            when (< (aref ha i) (aref hb i)) return t
+                            when (> (aref ha i) (aref hb i)) return nil
+                            finally (return nil))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — β

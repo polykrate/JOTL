@@ -6,11 +6,16 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
 ## What Works
 
-| Trace | Score | Notes |
-|-------|-------|-------|
-| fallback | 100/100 | Chain + step modes |
-| safrole | 10/10 | Chain + step modes |
-| storage | 5/10 | Blocks 1-5 pass; 6-10 need PVM accumulate |
+| Trace | Chain | Step | 1st divergence | Notes |
+|-------|-------|------|----------------|-------|
+| fallback | **100/100** | 100/100 | — | No work reports |
+| safrole | **100/100** | 100/100 | — | No work reports |
+| storage | 5/100 | 38/100 | block 6 | 1st accumulate block |
+| storage_light | 1/100 | — | block 2 | 1st accumulate block |
+| preimages | 1/100 | 36/100 | block 2 | 1st accumulate block |
+| preimages_light | 1/100 | — | block 2 | 1st accumulate block |
+| fuzzy | 5/100 | — | block 6 | 1st accumulate block |
+| fuzzy_light | 1/100 | — | block 2 | 1st accumulate block |
 
 - **M1 Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
   - Chain mode: genesis → block 1 → block 2 → ... (our σ' becomes next σ)
@@ -320,8 +325,9 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 - [x] Codec roundtrip — 10 components byte-exact across 201 states
 - [x] **M1 Block Importer** — 100/100 fallback blocks (chain + step modes)
 - [x] Binary import API — `genesis.bin` → σ₀, trace steps, `import-block`, `run-trace`
-- [ ] **Accumulate PVM execution** (§12.2) — service code loading + PVM run + side-effects → storage 10/10
-- [ ] Preimage integration delta' (§7.4)
+- [~] **Accumulate PVM execution** (§12.2) — service code, PVM run, side-effects, collapse C (B.13). Diverges at 1st work report.
+- [~] Preimage integration delta' (§9.2/§4.18) — integrate-preimages implemented, lookup/blob updates
+- [ ] PVM host calls audit (Appendix A+B) — items/footprint now derived from maps
 - [ ] Refine STF (§9) + PVM
 - [ ] On-transfer invocations (§12.3)
 

@@ -30,13 +30,15 @@
   "Extract τ (timeslot number) from a safrole state JSON alist."
   (cdr (assoc :tau state-alist)))
 
-(defun make-eta-test-header (slot entropy-source)
-  "Create a minimal header closure for eta :transition testing.
-   Only :slot and :entropy-source are needed."
+(defun make-eta-test-header (slot vrf-entropy)
+  "Create a minimal header stub for eta :transition testing.
+   The test vector's `entropy` is already Y(HV) (32 bytes),
+   so the stub returns it directly for :vrf-entropy.
+   Same protocol as the real header closure — duck typing."
   (lambda (msg)
     (case msg
       (:slot slot)
-      (:entropy-source entropy-source)
+      (:vrf-entropy vrf-entropy)
       (otherwise (error "Test header stub: ~a" msg)))))
 
 ;;; ═══════════════════════════════════════════════════════════════

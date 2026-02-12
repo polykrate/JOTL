@@ -391,7 +391,15 @@
                (min-memo-gas  (or (getf metadata :min-memo-gas) 0))
                (items-count   (or (getf metadata :items) 0))
                (total-bytes   (or (getf metadata :bytes) 0))
-               (deposit-off   (or (getf metadata :deposit-offset) 0)))
+               (deposit-off   (or (getf metadata :deposit-offset) 0))
+               ;; Extra service fields for ΩI (info on self) — GP §D.1
+               ;; These map to the last 3 u32 fields in the 89-byte trie format:
+               ;; creation-slot → a_r (recent count)
+               ;; last-accumulation-slot → a_a (accum gas limit)
+               ;; parent-service → a_p (preimage pages)
+               (recent-count   (or (getf metadata :creation-slot) 0))
+               (accum-gas-lim  (or (getf metadata :last-accumulation-slot) 0))
+               (preimage-pgs   (or (getf metadata :parent-service) 0)))
           (jam.ffi:with-pvm (ctx code-blob service-id balance timeslot)
             ;; Configure context as one JAM blob
             (jam.ffi:pvm-configure ctx
@@ -410,10 +418,17 @@
               :min-on-transfer-gas min-memo-gas
               :items-count     items-count
               :footprint       total-bytes
+              :recent-count    recent-count
+              :accum-gas-limit accum-gas-lim
+              :preimage-pages  preimage-pgs
               :gas             gas-limit
               ;; Service account data:
-              ;; Use raw 32-byte keys for storage (not 27-byte trie hashes)
-              :storage         (or raw-storage (getf svc-data :storage))
+              ;; MUST use raw 32-byte keys for storage. Never pass h27-keyed
+              ;; trie entries — the PVM would return them alongside real entries,
+              ;; causing double-hashing when we convert back to trie keys.
+              ;; raw-storage is NIL on first invocation; PVM starts with empty
+              ;; storage and the service writes what it needs from work items.
+              :storage         raw-storage
               :preimages       (getf svc-data :preimages)
               :lookup          (getf svc-data :lookup)
               ;; Cross-service accounts for ΩJ (eject), ΩT (transfer), etc
@@ -428,12 +443,15 @@
               (declare (ignorable result))
 
               ;; ── Collapse (resolve dual context per GP B.13) ──
-              (jam.ffi:pvm-collapse ctx status)
+              (let ((outcome (jam.ffi:pvm-collapse ctx status)))
 
-              ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
-              (let ((effects (collect-side-effects ctx))
-                    (gas-used (- gas-limit (or gas-remaining 0))))
-                (values effects gas-used)))))
+                ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
+                (let ((effects (collect-side-effects ctx))
+                      (gas-used (- gas-limit (or gas-remaining 0))))
+                  ;; Tag effects with the PVM outcome for storage/lookup decisions
+                  ;; 0=Halt 1=Panic 2=OOG 3=HaltWithYield
+                  (setf (getf effects :outcome) outcome)
+                  (values effects gas-used))))))
 
       (error (e)
         (format *error-output* "~&accumulate-service: PVM error for service ~D: ~A~%"
@@ -631,128 +649,134 @@
 
          ;; Apply side-effects if present
          (when effects
-           ;; ── Update raw-storage with PVM's final storage state ──
-           ;; effects :storage contains the COMPLETE storage map (raw keys)
-           (when raw-storage-ht
-             (setf (gethash sid raw-storage-ht) (getf effects :storage)))
+           ;; ── Check PVM outcome for storage/lookup decisions ──
+           ;; On Panic/OOG without checkpoint → collapse returns empty storage/lookup.
+           ;; We must NOT remove old entries in this case — the GP says "revert to initial."
+           ;; outcome: 0=Halt, 1=Panic, 2=OOG, 3=HaltWithYield
+           (let* ((outcome (or (getf effects :outcome) 0))
+                  (update-storage-p
+                   (not (and (member outcome '(1 2))         ;; Panic or OOG
+                             (null (getf effects :storage))  ;; empty = no checkpoint
+                             (null (getf effects :lookup))))))
 
-           ;; ── Remove ALL old storage trie entries for this service ──
-           (let* ((old-classified (classify-service-sub-keys sid current-kvs))
-                  (old-storage-h27s (mapcar #'car (getf old-classified :storage))))
-             (when old-storage-h27s
-               (setf current-kvs
-                     (remove-if (lambda (kv)
-                                  (and (not (service-metadata-key-p (car kv)))
-                                       (not (segment-key-p (car kv)))
-                                       (= (service-id-from-sub-key (car kv)) sid)
-                                       (member (extract-sub-key-h (car kv))
-                                               old-storage-h27s :test #'equalp)))
-                                current-kvs))))
-
-           ;; ── Add new storage entries from PVM (using RAW keys) ──
-           (dolist (s-entry (getf effects :storage))
-             (let* ((raw-key  (car s-entry))
-                    (val      (cdr s-entry))
-                    (h-27     (storage-trie-h raw-key))
-                    (trie-key (interleave-sub-key sid h-27)))
-               (push (cons trie-key (ensure-bytes val)) current-kvs)))
-
-           ;; ── Remove old lookup entries, add new ──
-           (let* ((old-classified (classify-service-sub-keys sid current-kvs))
-                  (old-lookup-h27s
-                   (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
-                           (getf old-classified :lookup))))
-             (when old-lookup-h27s
-               (setf current-kvs
-                     (remove-if (lambda (kv)
-                                  (and (not (service-metadata-key-p (car kv)))
-                                       (not (segment-key-p (car kv)))
-                                       (= (service-id-from-sub-key (car kv)) sid)
-                                       (member (extract-sub-key-h (car kv))
-                                               old-lookup-h27s :test #'equalp)))
-                                current-kvs))))
-
-           (dolist (l-entry (getf effects :lookup))
-             (let* ((hash-32  (first l-entry))
-                    (length   (second l-entry))
-                    (statuses (cddr l-entry))
-                    (h-27     (lookup-trie-h hash-32 length))
-                    (trie-key (interleave-sub-key sid h-27))
-                    (val      (encode-lookup-value statuses)))
-               (push (cons trie-key val) current-kvs)))
-
-           ;; ── Add provided preimages ──
-           (dolist (pp (getf effects :provided-preimages))
-             (let* ((pp-sid  (car pp))
-                    (pp-data (cdr pp))
-                    (pp-hash (jam.ffi:blake2b-256 pp-data))
-                    (h-27    (preimage-trie-h pp-hash))
-                    (trie-key (interleave-sub-key pp-sid h-27)))
-               (push (cons trie-key (ensure-bytes pp-data)) current-kvs)))
-
-           ;; ── Handle ejected services ──
-           ;; GP: When a service ejects another via ΩJ host-call, the ejected
-           ;; service's balance is transferred to the ejector, and the ejected
-           ;; service is removed from the state.
-           ;; effects :ejected is a list of (target-id . ejector-id) pairs
-           (dolist (ejection (getf effects :ejected))
-             (let ((target-id (car ejection))
-                   (ejector-id (cdr ejection)))
-               ;; Remove all trie entries for the ejected service
-               (setf current-kvs
-                     (remove-if (lambda (kv)
-                                  (or (and (service-metadata-key-p (car kv))
-                                           (= (service-id-from-metadata-key (car kv)) target-id))
+             (when update-storage-p
+               ;; ── MERGE storage: only remove entries in PVM's scope ──
+               ;; The PVM only knows about entries we explicitly passed via raw-storage.
+               ;; Entries NOT in PVM scope (e.g., from pre-state trie without raw keys)
+               ;; must be preserved. Scope = union(initial_h27s, final_h27s).
+               (let* ((initial-raw-storage (when raw-storage-ht
+                                             (gethash sid raw-storage-ht)))
+                      (initial-storage-h27s
+                       (mapcar (lambda (e) (storage-trie-h (car e)))
+                               (or initial-raw-storage '())))
+                      (final-storage-h27s
+                       (mapcar (lambda (e) (storage-trie-h (car e)))
+                               (or (getf effects :storage) '())))
+                      (scope-h27s (remove-duplicates
+                                   (append initial-storage-h27s final-storage-h27s)
+                                   :test #'equalp)))
+                 ;; Remove only entries in PVM's scope (initial OR final)
+                 (when scope-h27s
+                   (setf current-kvs
+                         (remove-if (lambda (kv)
                                       (and (not (service-metadata-key-p (car kv)))
                                            (not (segment-key-p (car kv)))
-                                           (= (service-id-from-sub-key (car kv)) target-id))))
-                                current-kvs))
-               ;; Remove from raw-storage
-               (when raw-storage-ht
-                 (remhash target-id raw-storage-ht))
-               ;; Note: The balance transfer is already handled by the PVM
-               ;; (the ejector's :balance in effects includes the ejected balance)
-               ))
+                                           (= (service-id-from-sub-key (car kv)) sid)
+                                           (member (extract-sub-key-h (car kv))
+                                                   scope-h27s :test #'equalp)))
+                                    current-kvs))))
 
-           ;; ── Recompute items/bytes for this service ──
-           ;; GP footprint formula:
-           ;;   a_i = |preimages| + |lookups| + |storage|
-           ;;   a_o = 34 × a_i + Σ|blob| + 13 × |lookups| + Σ(|raw_key|+|raw_val|)
-           ;; where 34 = per-item overhead, 13 = fixed lookup entry size (3×E4+compact)
-           (let ((meta-entry (find-if (lambda (kv)
-                                        (and (service-metadata-key-p (car kv))
-                                             (= (service-id-from-metadata-key (car kv)) sid)))
-                                      current-kvs)))
-             (when meta-entry
-               (let* ((info (decode-service-info (cdr meta-entry)))
-                      ;; Classify entries to get typed counts
-                      (classified (classify-service-sub-keys sid current-kvs))
-                      (n-preimages (length (getf classified :preimages)))
-                      (n-lookups   (length (getf classified :lookup)))
-                      (n-storage   (length (getf classified :storage)))
-                      (sub-count   (+ n-preimages n-lookups n-storage))
-                      (sub-bytes   (* 34 sub-count)))
-                 ;; + preimage blob sizes (from trie values)
-                 (dolist (p (getf classified :preimages))
-                   (incf sub-bytes (length (cdr p))))
-                 ;; + lookup: 13 bytes per entry (fixed max reservation)
-                 (incf sub-bytes (* 13 n-lookups))
-                 ;; + storage: raw key + raw value sizes from raw-storage-ht
-                 (let ((raw-storage (when raw-storage-ht (gethash sid raw-storage-ht))))
-                   (dolist (s-entry raw-storage)
-                     (incf sub-bytes (+ (length (car s-entry))
-                                        (length (cdr s-entry))))))
-                 ;; Update metadata fields (last-accumulation-slot already set above)
-                 (setf (getf info :items) sub-count)
-                 (setf (getf info :bytes) sub-bytes)
-                 (setf (cdr meta-entry) (encode-service-info info)))))))
+               ;; Update raw-storage cache with PVM's final storage state
+               (when raw-storage-ht
+                 (setf (gethash sid raw-storage-ht) (getf effects :storage)))
+
+               ;; ── Add new storage entries from PVM (using RAW keys) ──
+               (dolist (s-entry (getf effects :storage))
+                 (let* ((raw-key  (car s-entry))
+                        (val      (cdr s-entry))
+                        (h-27     (storage-trie-h raw-key))
+                        (trie-key (interleave-sub-key sid h-27)))
+                   (push (cons trie-key (ensure-bytes val)) current-kvs)))
+
+               ;; ── MERGE lookups: only remove entries in PVM's scope ──
+               (let* ((old-classified (classify-service-sub-keys sid current-kvs))
+                      (initial-lookup-h27s
+                       (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
+                               (getf old-classified :lookup)))
+                      (final-lookup-h27s
+                       (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
+                               (or (getf effects :lookup) '())))
+                      (scope-lookup-h27s (remove-duplicates
+                                         (append initial-lookup-h27s final-lookup-h27s)
+                                         :test #'equalp)))
+                 (when scope-lookup-h27s
+                   (setf current-kvs
+                         (remove-if (lambda (kv)
+                                      (and (not (service-metadata-key-p (car kv)))
+                                           (not (segment-key-p (car kv)))
+                                           (= (service-id-from-sub-key (car kv)) sid)
+                                           (member (extract-sub-key-h (car kv))
+                                                   scope-lookup-h27s :test #'equalp)))
+                                    current-kvs))))
+
+               (dolist (l-entry (getf effects :lookup))
+                 (let* ((hash-32  (first l-entry))
+                        (length   (second l-entry))
+                        (statuses (cddr l-entry))
+                        (h-27     (lookup-trie-h hash-32 length))
+                        (trie-key (interleave-sub-key sid h-27))
+                        (val      (encode-lookup-value statuses)))
+                   (push (cons trie-key val) current-kvs))))
+
+             ;; ── Add provided preimages (always, even on panic) ──
+             (dolist (pp (getf effects :provided-preimages))
+               (let* ((pp-sid  (car pp))
+                      (pp-data (cdr pp))
+                      (pp-hash (jam.ffi:blake2b-256 pp-data))
+                      (h-27    (preimage-trie-h pp-hash))
+                      (trie-key (interleave-sub-key pp-sid h-27)))
+                 (push (cons trie-key (ensure-bytes pp-data)) current-kvs)))
+
+             ;; ── Handle ejected services ──
+             (dolist (ejection (getf effects :ejected))
+               (let ((target-id (car ejection))
+                     (ejector-id (cdr ejection)))
+                 (declare (ignorable ejector-id))
+                 (setf current-kvs
+                       (remove-if (lambda (kv)
+                                    (or (and (service-metadata-key-p (car kv))
+                                             (= (service-id-from-metadata-key (car kv)) target-id))
+                                        (and (not (service-metadata-key-p (car kv)))
+                                             (not (segment-key-p (car kv)))
+                                             (= (service-id-from-sub-key (car kv)) target-id))))
+                                  current-kvs))
+                 (when raw-storage-ht
+                   (remhash target-id raw-storage-ht))))
+
+             ;; ── Update items/bytes from PVM-tracked values ──
+             ;; The PVM internally tracks items_count (via ΩS/ΩF/ΩW) and
+             ;; footprint (via ΩW/ΩS/ΩF). Use those values directly instead
+             ;; of trying to recompute from trie classification.
+             (when (and update-storage-p
+                        (getf effects :items-count)
+                        (getf effects :footprint))
+               (let ((meta-entry (find-if (lambda (kv)
+                                            (and (service-metadata-key-p (car kv))
+                                                 (= (service-id-from-metadata-key (car kv)) sid)))
+                                          current-kvs)))
+                 (when meta-entry
+                   (let ((info (decode-service-info (cdr meta-entry))))
+                     (setf (getf info :items) (getf effects :items-count))
+                     (setf (getf info :bytes) (getf effects :footprint))
+                     (setf (cdr meta-entry) (encode-service-info info)))))))) ;; closes let*/when/let/when/let*/when-effects
+       ) ;; close lambda
        delta-results)
       (setf (getf state :delta-kvs) current-kvs))
 
     (values state
             (nreverse new-transfers)
             (nreverse commitments)
-            (nreverse gas-usage))))
+            (nreverse gas-usage))))  ;; closes values, let*, let, defun
 
 (defun accumulate-all (r-star state)
   "GP §12.2 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
@@ -968,4 +992,5 @@
                 :iota-prime    iota    ;; ι' (updated via Δ* if designate ran)
                 :phi-prime     phi     ;; ϕ' (updated via Δ* if auth agents ran)
                 :theta-prime   theta-prime
-                :service-stats service-stats))))))
+                :service-stats service-stats
+                :raw-storage   (getf accum-state :raw-storage)))))))

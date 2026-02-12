@@ -466,17 +466,23 @@
                         ;; yield_output: option([u8;32])
                         (let ((yield-output (when (= (%read-byte r) 1)
                                               (%read-fixed r 32))))
-                          (list :balance balance
-                                :gas-remaining gas
-                                :storage storage
-                                :transfers transfers
-                                :ejected ejected
-                                :created created
-                                :upgrades upgrades
-                                :empower empower
-                                :provided-preimages provided
-                                :lookup lookup
-                                :yield-output yield-output))))))))))))))
+                          ;; items_count: u32 (PVM-tracked)
+                          (let ((items-count (%read-u32 r)))
+                            ;; footprint: u64 (PVM-tracked)
+                            (let ((footprint (%read-u64 r)))
+                              (list :balance balance
+                                    :gas-remaining gas
+                                    :storage storage
+                                    :transfers transfers
+                                    :ejected ejected
+                                    :created created
+                                    :upgrades upgrades
+                                    :empower empower
+                                    :provided-preimages provided
+                                    :lookup lookup
+                                    :yield-output yield-output
+                                    :items-count items-count
+                                    :footprint footprint))))))))))))))))
 
 (defun %decode-empower (reader)
   "Decode EmpowerState from JAM blob using READER. Returns plist."

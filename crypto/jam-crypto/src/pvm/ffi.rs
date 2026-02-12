@@ -1107,6 +1107,7 @@ pub unsafe extern "C" fn jam_accumulate_collapse(
     jam.context.provided_preimages = result.provided_preimages;
     jam.context.storage = result.storage;
     jam.context.lookup = result.lookup;
+    jam.context.preimages = result.preimages;
     jam.context.empower = result.empower;
     jam.instance.set_gas(result.gas_remaining);
 

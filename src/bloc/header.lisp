@@ -132,6 +132,11 @@
   (:timeslot slot)
   (:is-genesis (or (null parent-hash) (every #'zerop parent-hash)))
 
+  ;; ── Derived: Y(HV) — VRF output hash (32 bytes) ───────────
+  ;; GP §6.22: η'₀ = H(η₀ ⌢ Y(HV))
+  (:vrf-entropy :memo
+   (when entropy-source (jam.ffi:Y entropy-source)))
+
   ;; ── Encode EU(H) — GP §5.8 ──────────────────────────────────
   (:encoded-unsealed :memo
    (concatenate '(vector (unsigned-byte 8))

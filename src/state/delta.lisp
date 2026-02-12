@@ -16,29 +16,29 @@
 ;;;;   creation_slot:          U32  (4)
 ;;;;   last_accumulation_slot: U32  (4)
 ;;;;   parent_service:         U32  (4)
-;;;;                                ── 89 bytes total
+;;;;                                -- 89 bytes total
 ;;;;
 ;;;; Trie key formats:
-;;;;   C(255, s) = [255, E4(s)_0..3, 0...0]   → ServiceInfo (89 bytes)
+;;;;   C(255, s) = [255, E4(s)_0..3, 0...0]   -> ServiceInfo (89 bytes)
 ;;;;   Sub-items = interleaved [s[0],h[0],s[1],h[1],s[2],h[2],s[3],h[3],h[4..26]]
 ;;;;     where s = E4(service_id), h = hash of sub-key
 ;;;;
 ;;;; Messages:
-;;;;   :accounts      → list of (:id sid :service plist)
-;;;;   :account (sid)  → service plist for specific service, or NIL
-;;;;   :raw-kvs        → the underlying key-value pairs for Merkle
-;;;;   :extra-kvs      → alias for :raw-kvs
-;;;;   :encoded        → nil (delta doesn't encode to a single segment)
-;;;;   :transition     → GP (4.18): δ' < (EP, δ†, τ')
+;;;;   :accounts      -> list of (:id sid :service plist)
+;;;;   :account (sid)  -> service plist for specific service, or NIL
+;;;;   :raw-kvs        -> the underlying key-value pairs for Merkle
+;;;;   :extra-kvs      -> alias for :raw-kvs
+;;;;   :encoded        -> nil (delta doesn't encode to a single segment)
+;;;;   :transition     -> GP (4.18): delta' < (EP, delta-dagger, tau')
 
 (in-package #:jotl)
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; SERVICE INFO CODEC — 89-byte fixed-size binary ↔ plist
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
+;;; SERVICE INFO CODEC -- 89-byte fixed-size binary <-> plist
+;;; =====================================================================
 
 (defconstant +service-info-size+ 89
-  "Fixed binary size of ServiceInfo: 1 + 32 + 5×8 + 4×4 = 89 bytes.")
+  "Fixed binary size of ServiceInfo: 1 + 32 + 5*8 + 4*4 = 89 bytes.")
 
 (defun decode-service-info (bytes &optional (offset 0))
   "Decode a 89-byte ServiceInfo from BYTES at OFFSET.
@@ -115,13 +115,13 @@
       (write-u32 (getf info :parent-service)))
     buf))
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; TRIE KEY CONSTRUCTION — GP Appendix D
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
+;;; TRIE KEY CONSTRUCTION -- GP Appendix D
+;;; =====================================================================
 
 (defun interleave-sub-key (service-id h-27)
   "Build a 31-byte interleaved trie key from service-id and 27-byte hash.
-   GP D.1: C(s, a) = [s₀,a₀,s₁,a₁,s₂,a₂,s₃,a₃,a₄,...,a₂₆]
+   GP D.1: C(s, a) = [s0,a0,s1,a1,s2,a2,s3,a3,a4,...,a26]
    where s = E4(service-id)."
   (let ((s (E4 service-id))
         (k (make-array 31 :element-type '(unsigned-byte 8))))
@@ -140,7 +140,7 @@
 
 (defun storage-trie-h (key-bytes)
   "Compute the 27-byte trie sub-key hash for a storage entry.
-   GP D.1: H(E4(2³²−1) ⌢ key)[0:27]"
+   GP D.1: H(E4(2^32-1) . key)[0:27]"
   (subseq (jam.ffi:blake2b-256
            (concatenate '(vector (unsigned-byte 8))
                         (E4 (- (ash 1 32) 1))  ;; 0xFFFFFFFF
@@ -148,7 +148,7 @@
           0 27))
 
 (defun encode-lookup-value (statuses)
-  "Encode lookup entry value: compact(n) ⌢ n×E4(s).
+  "Encode lookup entry value: compact(n) . n*E4(s).
    STATUSES: list of u32 timeslots."
   (let ((buf (make-array 32 :element-type '(unsigned-byte 8)
                          :fill-pointer 0 :adjustable t)))
@@ -161,13 +161,13 @@
       (replace result buf)
       result)))
 
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
 ;;; TRIE KEY CLASSIFICATION
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
 
 (defun service-metadata-key-p (key-31)
   "Is KEY-31 a service metadata key C(255, s)?
-   Format: [255, E4(s)_0..3, 0...0] — first byte 255, bytes 5-30 all zero."
+   Format: [255, E4(s)_0..3, 0...0] -- first byte 255, bytes 5-30 all zero."
   (and (= (aref key-31 0) 255)
        (loop for i from 5 below (length key-31) always (zerop (aref key-31 i)))))
 
@@ -187,19 +187,19 @@
           (ash (aref key-31 4) 16)
           (ash (aref key-31 6) 24)))
 
-;;; ═══════════════════════════════════════════════════════════════
-;;; SUB-KEY CLASSIFICATION — GP Appendix D.1
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
+;;; SUB-KEY CLASSIFICATION -- GP Appendix D.1
+;;; =====================================================================
 ;;;
 ;;; Trie sub-key discriminants (verified empirically against test vectors):
-;;;   Preimage blob: a = H(E4(2³²−2) ⌢ H(val))[0:27]
-;;;   Lookup:        a = H(E4(length) ⌢ hash)[0:27]
-;;;   Storage:       a = H(E4(2³²−1) ⌢ key)[0:27]
+;;;   Preimage blob: a = H(E4(2^32-2) . H(val))[0:27]
+;;;   Lookup:        a = H(E4(length) . hash)[0:27]
+;;;   Storage:       a = H(E4(2^32-1) . key)[0:27]
 ;;;
 ;;; Classification algorithm:
 ;;;   1. For each sub-key (h, val): compute H(val), check preimage formula
 ;;;   2. For each confirmed preimage: check lookup formula against remaining keys
-;;;   3. Everything else → storage (with trie-hash as pseudo-key)
+;;;   3. Everything else -> storage (with trie-hash as pseudo-key)
 
 (defun extract-sub-key-h (trie-key)
   "Extract 27-byte hash from interleaved sub-key.
@@ -215,7 +215,7 @@
 
 (defun preimage-trie-h (blob-hash)
   "Compute the 27-byte trie sub-key hash for a preimage blob.
-   GP D.1: H(E4(0xFFFFFFFE) ⌢ blob_hash)[0:27]"
+   GP D.1: H(E4(0xFFFFFFFE) . blob_hash)[0:27]"
   (subseq (jam.ffi:blake2b-256
            (concatenate '(vector (unsigned-byte 8))
                         (E4 (- (ash 1 32) 2))  ;; 0xFFFFFFFE
@@ -224,7 +224,7 @@
 
 (defun lookup-trie-h (preimage-hash preimage-length)
   "Compute the 27-byte trie sub-key hash for a lookup entry.
-   GP D.1: H(E4(length) ⌢ hash)[0:27]"
+   GP D.1: H(E4(length) . hash)[0:27]"
   (subseq (jam.ffi:blake2b-256
            (concatenate '(vector (unsigned-byte 8))
                         (E4 preimage-length)
@@ -232,7 +232,7 @@
           0 27))
 
 (defun decode-lookup-value (val-bytes)
-  "Decode a lookup entry value: compact(n) ⌢ n×u32_LE → list of timeslot u32s."
+  "Decode a lookup entry value: compact(n) . n*u32_LE -> list of timeslot u32s."
   (when (and val-bytes (plusp (length val-bytes)))
     (multiple-value-bind (count consumed) (decode-compact val-bytes 0)
       (loop for i below count
@@ -244,15 +244,15 @@
    Uses GP D.1 discriminant formulas to classify each entry.
 
    Returns plist:
-     :metadata   — ServiceInfo plist (from C(255,s) key)
-     :code-blob  — code blob bytes (the preimage matching code-hash), or nil
-     :preimages  — alist of (hash-32 . blob-bytes) for PVM
-     :lookup     — list of (hash-32 length . (timeslot-u32 ...)) for PVM
-     :storage    — alist of (hash-27 . val-bytes) — pseudo-keyed storage"
+     :metadata   -- ServiceInfo plist (from C(255,s) key)
+     :code-blob  -- code blob bytes (the preimage matching code-hash), or nil
+     :preimages  -- alist of (hash-32 . blob-bytes) for PVM
+     :lookup     -- list of (hash-32 length . (timeslot-u32 ...)) for PVM
+     :storage    -- alist of (hash-27 . val-bytes) -- pseudo-keyed storage"
   (let ((metadata nil)
         (sub-entries nil)   ;; (h-27 . val-bytes)
         (code-hash nil))
-    ;; ── Pass 0: Collect metadata + sub-keys for this service ──
+    ;; -- Pass 0: Collect metadata + sub-keys for this service --
     (dolist (kv extra-kvs)
       (let ((key (car kv)) (val (cdr kv)))
         (cond
@@ -268,8 +268,8 @@
            (push (cons (extract-sub-key-h key) val) sub-entries)))))
     (setf sub-entries (nreverse sub-entries))
 
-    ;; ── Pass 1: Identify preimage blobs ──
-    ;; For each entry, check: H(E4(0xFFFFFFFE) ⌢ H(val))[0:27] == h?
+    ;; -- Pass 1: Identify preimage blobs --
+    ;; For each entry, check: H(E4(0xFFFFFFFE) . H(val))[0:27] == h?
     (let ((preimages nil)   ;; (hash-32 . blob-bytes)
           (remaining nil)   ;; entries not yet classified
           (code-blob nil))
@@ -289,7 +289,7 @@
       (setf preimages (nreverse preimages))
       (setf remaining (nreverse remaining))
 
-      ;; ── Pass 2: Identify lookup entries ──
+      ;; -- Pass 2: Identify lookup entries --
       ;; For each remaining entry, try matching against known preimage hashes
       (let ((lookup nil)
             (storage nil))
@@ -308,7 +308,7 @@
                   (setf found-lookup t)
                   (return))))
             (unless found-lookup
-              ;; Unclassified → storage (pseudo-keyed by trie hash)
+              ;; Unclassified -> storage (pseudo-keyed by trie hash)
               (push entry storage))))
         (setf lookup (nreverse lookup))
         (setf storage (nreverse storage))
@@ -319,9 +319,9 @@
               :lookup    lookup
               :storage   storage)))))
 
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
 ;;; PARSE SERVICE ACCOUNTS FROM EXTRA-KVS
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
 
 (defun parse-service-accounts (extra-kvs)
   "Parse service accounts from sigma's extra-kvs.
@@ -339,13 +339,101 @@
     ;; Sort by service ID for deterministic ordering
     (sort accounts #'< :key (lambda (a) (getf a :id)))))
 
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
+;;; PREIMAGE INTEGRATION -- GP S9.2 / S4.18
+;;; =====================================================================
+
+(defun make-metadata-key (service-id)
+  "Build the C(255, s) metadata trie key for SERVICE-ID.
+   Format: [255, E4(s)_0..3, 0...0] -- 31 bytes."
+  (let ((k (make-array 31 :element-type '(unsigned-byte 8) :initial-element 0))
+        (s (E4 service-id)))
+    (setf (aref k 0) 255)
+    (replace k s :start1 1 :end1 5)
+    k))
+
+(defun bytes< (a b)
+  "Lexicographic less-than for byte vectors."
+  (let ((la (length a)) (lb (length b)))
+    (loop for i below (min la lb) do
+      (cond ((< (aref a i) (aref b i)) (return t))
+            ((> (aref a i) (aref b i)) (return nil)))
+      finally (return (< la lb)))))
+
+(defun integrate-preimages (raw-kvs preimages timeslot)
+  "GP S9.2 / S4.18 -- Integrate EP preimages into delta's raw key-value pairs.
+   For each (s, d) in EP:
+     h = H(d), l = |d|
+     1. Validate: EP sorted by (requester, h) ascending, unique
+     2. Validate: service s exists, lookup (h,l) exists with even-length status
+     3. Store preimage blob: C(s, preimage-trie-h(h)) -> d
+     4. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
+   Returns: new raw-kvs list."
+  ;; -- Annotate: compute hashes --
+  (let ((annotated
+         (mapcar (lambda (p)
+                   (let* ((sid  (getf p :requester))
+                          (blob (ensure-bytes (getf p :blob)))
+                          (hash (jam.ffi:blake2b-256 blob)))
+                     (list :sid sid :hash hash :blob blob)))
+                 preimages)))
+
+    ;; -- Validate ordering: sorted by (sid, hash) ascending, unique --
+    (loop for (a b) on annotated while b do
+      (let ((sa (getf a :sid)) (sb (getf b :sid))
+            (ha (getf a :hash)) (hb (getf b :hash)))
+        (unless (or (< sa sb)
+                    (and (= sa sb) (bytes< ha hb)))
+          (error "Preimages EP not sorted/unique"))))
+
+    ;; -- Validate necessity + Integrate --
+    (let ((new-kvs (copy-list raw-kvs)))
+      (flet ((find-kv (target-key)
+               (find target-key new-kvs :key #'car :test #'equalp))
+             (replace-kv-val (target-key new-val)
+               (let ((pair (find target-key new-kvs :key #'car :test #'equalp)))
+                 (when pair (setf (cdr pair) new-val)))))
+
+        (dolist (a annotated)
+          (let* ((sid  (getf a :sid))
+                 (hash (getf a :hash))
+                 (blob (getf a :blob))
+                 (len  (length blob))
+                 (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
+                 (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
+
+            ;; Check service exists
+            (unless (find-kv (make-metadata-key sid))
+              (error "Preimage EP: service ~D not found" sid))
+
+            ;; Check lookup entry exists with even-length status (needed)
+            (let ((lookup-entry (find-kv lookup-key)))
+              (unless lookup-entry
+                (error "Preimage EP: no lookup for service ~D len ~D" sid len))
+              (let ((statuses (decode-lookup-value (cdr lookup-entry))))
+                (unless (evenp (length statuses))
+                  (error "Preimage EP: already available for service ~D" sid))
+
+                ;; Store preimage blob
+                (push (cons blob-key (ensure-bytes blob)) new-kvs)
+
+                ;; Update lookup: append tau' to status list
+                (replace-kv-val lookup-key
+                                (encode-lookup-value (append statuses (list timeslot)))))))))
+      new-kvs)))
+
+;;; =====================================================================
 ;;; STATE CLOSURE
-;;; ═══════════════════════════════════════════════════════════════
+;;; =====================================================================
 
 (define-state-closure delta-state
   ((raw-kvs nil)
-   (accounts-cache nil))
+   (accounts-cache nil)
+   ;; raw-storage: hash-table mapping service-id → alist of (raw-key-32 . value)
+   ;; Maintained across blocks so the PVM can read existing storage via ΩR.
+   ;; The raw 32-byte keys cannot be recovered from trie h27 hashes (one-way hash),
+   ;; so they must be accumulated from PVM output across block transitions.
+   (raw-storage nil))
 
   ;; delta doesn't encode to a single segment byte vector.
   (:encoded nil)
@@ -353,7 +441,10 @@
   ;; Access the underlying Merkle key-value pairs.
   (:extra-kvs raw-kvs)
 
-  ;; Decoded accounts list — lazy parse from raw-kvs.
+  ;; Access the raw-storage hash table (sid → alist of (raw-key . value))
+  (:raw-storage raw-storage)
+
+  ;; Decoded accounts list -- lazy parse from raw-kvs.
   (:accounts
    (or accounts-cache
        (setf accounts-cache (parse-service-accounts raw-kvs))))
@@ -364,23 +455,20 @@
      (find sid accts :key (lambda (a) (getf a :id)))))
 
   (:decode (bytes offset)
-    ;; delta is not decoded from segment bytes — this is a fallback.
+    ;; delta is not decoded from segment bytes -- this is a fallback.
     ;; Real loading happens via load-delta-from-extra-kvs.
     (values (make-delta-state :raw-kvs nil) (- (length bytes) offset)))
 
-  ;; ── Transition: δ' < (EP, δ†, τ') ────────────────────────
-  ;; GP (4.18) — Preimage Integration
+  ;; -- Transition: delta' < (EP, delta-dagger, tau') -- GP S4.18 + S9.2
   (:transition (&key preimages tau-prime)
-    (let ((_timeslot (when tau-prime (funcall tau-prime :slot))))
-      (if (or (null preimages) (zerop (length preimages))
-              (not _timeslot))
-        ;; No preimages to integrate → passthrough
-        (make-delta-state :raw-kvs raw-kvs)
-        ;; TODO (§12.4): Preimage integration
-        ;; For now: passthrough
-        (make-delta-state :raw-kvs raw-kvs)))))
+    (let ((timeslot (when tau-prime (funcall tau-prime :slot))))
+      (if (or (null preimages) (zerop (length preimages)) (not timeslot))
+          (make-delta-state :raw-kvs raw-kvs :raw-storage raw-storage)
+          (make-delta-state
+           :raw-kvs (integrate-preimages raw-kvs preimages timeslot)
+           :raw-storage raw-storage)))))
 
 (defun load-delta-from-extra-kvs (extra-kvs)
-  "Build δ from sigma's extra-kvs (C(255,s) entries + sub-keys).
+  "Build delta from sigma's extra-kvs (C(255,s) entries + sub-keys).
    Returns: delta-state closure."
   (make-delta-state :raw-kvs extra-kvs))

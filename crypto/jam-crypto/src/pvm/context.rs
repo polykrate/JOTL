@@ -591,6 +591,8 @@ pub struct AccumulateCheckpoint {
     pub storage: HashMap<Vec<u8>, Vec<u8>>,
     /// Snapshotted preimage lookup table for rollback.
     pub lookup: HashMap<([u8; 32], u32), Vec<u32>>,
+    /// Snapshotted preimage blobs (a_P) for rollback.
+    pub preimages: HashMap<[u8; 32], Vec<u8>>,
     /// Snapshotted empower state (x_e) for rollback.
     pub empower: Option<EmpowerState>,
 }
@@ -623,6 +625,8 @@ pub struct CollapseResult {
     pub storage: HashMap<Vec<u8>, Vec<u8>>,
     /// Final preimage lookup table after collapse.
     pub lookup: HashMap<([u8; 32], u32), Vec<u32>>,
+    /// Final preimage blobs (a_P) after collapse.
+    pub preimages: HashMap<[u8; 32], Vec<u8>>,
     /// Final empower state (x_e) after collapse.
     pub empower: Option<EmpowerState>,
 }
@@ -720,6 +724,7 @@ impl JamHostContext {
             provided_preimages: self.provided_preimages.clone(),
             storage: self.storage.clone(),
             lookup: self.lookup.clone(),
+            preimages: self.preimages.clone(),
             empower: self.empower.clone(),
         });
     }
@@ -750,6 +755,7 @@ impl JamHostContext {
                         gas_remaining,
                         storage: cp.storage.clone(),
                         lookup: cp.lookup.clone(),
+                        preimages: cp.preimages.clone(),
                         empower: cp.empower.clone(),
                     }
                 } else {
@@ -773,6 +779,7 @@ impl JamHostContext {
                     gas_remaining,
                     storage: self.storage.clone(),
                     lookup: self.lookup.clone(),
+                    preimages: self.preimages.clone(),
                     empower: self.empower.clone(),
                 }
             }
@@ -789,6 +796,7 @@ impl JamHostContext {
                     gas_remaining,
                     storage: self.storage.clone(),
                     lookup: self.lookup.clone(),
+                    preimages: self.preimages.clone(),
                     empower: self.empower.clone(),
                 }
             }
