@@ -946,15 +946,19 @@
                     :timeslot         timeslot
                     :entropy          eta
                     :header-hash      header-hash
-                    :remaining-gas    (max-block-gas)
+                    ;; GP (12.25): g = max(G_T, G_A·C + Σ_{x∈V(χ_Z)}(x))
+                    :remaining-gas    (max (max-block-gas)
+                                          (+ (* +accumulation-gas+ (num-cores))
+                                             (reduce #'+ (or chi-az '())
+                                                     :key #'cdr :initial-value 0)))
                     ;; ── GP §12.16 S fields ──
                     :chi-manager      chi-mgr    ;; m = χ_M
                     :chi-designate    chi-des    ;; v = χ_V
                     :chi-creation     chi-stk    ;; r = χ_R
                     :chi-authorizers  chi-auth   ;; a = χ_A
                     :chi-always-accum chi-az     ;; z = χ_Z
-                    :iota-validators  nil        ;; i = ι (set by Δ*)
-                    :phi-queues       nil        ;; q = ϕ (set by Δ*)
+                    :iota-validators  nil        ;; i = ι (set by Δ* if designate runs)
+                    :phi-queues       (funcall phi :queues) ;; q = ϕ (mutable copy for Δ*)
                     ;; ── Accumulators ──
                     :commitments      nil        ;; B: (sid . yield-hash)
                     :gas-usage        nil        ;; U: (sid . gas-used)
@@ -986,8 +990,8 @@
                (xi-prime (make-xi-state :entries new-xi))
 
                ;; ── ω' (12.34): update omega ──
-               ;; For now, use the queue-edited omega from compute-r-star
-               ;; TODO: implement full 12.34 with slot clearing for τ'-τ gaps
+               ;; compute-r-star handles: stale gap clearing, ξ̃ editing,
+               ;; R^Q insertion at slot m, and Q()-resolved entry removal.
                (omega-prime (make-omega-state :queues new-omega-queues))
 
                ;; ── δ† (12.30-12.31): apply PVM side-effects back to trie ──
@@ -1026,8 +1030,15 @@
                 :xi-prime      xi-prime
                 :delta-dagger  delta-dagger
                 :chi-prime     chi-prime
-                :iota-prime    iota    ;; ι' (updated via Δ* if designate ran)
-                :phi-prime     phi     ;; ϕ' (updated via Δ* if auth agents ran)
+                ;; GP (12.27): ι' and ϕ' come from accumulate state if updated
+                :iota-prime    (let ((new-vals (getf accum-state :iota-validators)))
+                                 (if new-vals
+                                     (make-iota-state :validators new-vals)
+                                     iota))
+                :phi-prime     (let ((new-qs (getf accum-state :phi-queues)))
+                                 (if new-qs
+                                     (make-phi-state :queues new-qs)
+                                     phi))
                 :theta-prime   theta-prime
                 :service-stats service-stats
                 :raw-storage   (getf accum-state :raw-storage)))))))
