@@ -6,6 +6,7 @@
 use jam_types::{
     AccumulateItem, WorkItemRecord, WorkPackageHash, SegmentTreeRoot,
     AuthorizerHash, PayloadHash, WorkOutput, AuthTrace, Encode, ProtocolParameters,
+    TransferRecord, ServiceId, Memo,
 };
 
 // ============================================================================
@@ -193,6 +194,50 @@ pub unsafe extern "C" fn jam_encode_work_item_record(
     };
 
     let item = AccumulateItem::WorkItem(record);
+    let encoded = item.encode();
+
+    write_to_out_buf(&encoded, out_buf, out_capacity)
+}
+
+// ============================================================================
+// FFI: TransferRecord encoding (GP 12.24 — Δ₁ i^T items)
+// ============================================================================
+
+/// Encode a deferred transfer as `AccumulateItem::Transfer(TransferRecord)`.
+///
+/// GP 12.24: i^T = [t | t ≤ t, t_d = s] — transfers for this service.
+/// Each transfer becomes an `AccumulateItem::Transfer` in the items list.
+///
+/// # Safety
+/// `memo_ptr` must point to exactly 128 bytes (W_T). `out_buf` must be `out_capacity` bytes.
+///
+/// Returns actual encoded length, or 0 on error.
+#[no_mangle]
+pub unsafe extern "C" fn jam_encode_transfer_record(
+    source: u32,
+    destination: u32,
+    amount: u64,
+    memo_ptr: *const u8,
+    gas_limit: u64,
+    out_buf: *mut u8,
+    out_capacity: u32,
+) -> u32 {
+    if memo_ptr.is_null() || out_buf.is_null() {
+        return 0;
+    }
+
+    let mut memo_bytes = [0u8; 128];
+    memo_bytes.copy_from_slice(std::slice::from_raw_parts(memo_ptr, 128));
+
+    let record = TransferRecord {
+        source: source as ServiceId,
+        destination: destination as ServiceId,
+        amount,
+        memo: Memo(memo_bytes),
+        gas_limit,
+    };
+
+    let item = AccumulateItem::Transfer(record);
     let encoded = item.encode();
 
     write_to_out_buf(&encoded, out_buf, out_capacity)

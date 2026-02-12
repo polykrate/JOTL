@@ -290,12 +290,10 @@
 ;;; §12.2 PER-SERVICE PVM INVOCATION — accumulate-service
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun encode-accumulate-items (items report)
-  "Encode operand tuples as AccumulateItem bytes for the PVM.
+(defun encode-work-items (items)
+  "Encode work-item operand tuples as AccumulateItem::WorkItem bytes for the PVM.
    ITEMS: list of U-plists for one service.
-   REPORT: the parent work-report (for package-hash, exports-root, etc.)
    Returns: list of encoded byte vectors."
-  (declare (ignorable report))
   (mapcar (lambda (u)
             (let* ((result-entry (getf u :result))
                    ;; result-entry is (:ok blob) or (:panic t) etc.
@@ -311,6 +309,27 @@
                result-data
                auth-output)))
           items))
+
+(defun encode-transfer-items (transfers)
+  "Encode deferred transfers as AccumulateItem::Transfer bytes for the PVM.
+   GP 12.24: i^T = [t | t ≤ t, t_d = s]
+   TRANSFERS: list of plists (:sender :destination :amount :memo :gas-limit)
+   Returns: list of encoded byte vectors."
+  (mapcar (lambda (x)
+            (jam.ffi:pvm-encode-transfer-record
+             (or (getf x :sender) 0)
+             (or (getf x :destination) 0)
+             (or (getf x :amount) 0)
+             (getf x :memo)
+             (or (getf x :gas-limit) 0)))
+          transfers))
+
+(defun encode-accumulate-items (items transfers)
+  "Encode ALL accumulate items: transfers first, then work items.
+   GP 12.24: i = i^T ⌢ i^U — transfers prepended before work items.
+   Returns: list of encoded byte vectors."
+  (append (encode-transfer-items (or transfers nil))
+          (encode-work-items (or items nil))))
 
 (defun collect-side-effects (ctx)
   "Read all PVM side-effects after accumulate execution.
@@ -355,13 +374,20 @@
                     result))))))
     result))
 
-(defun accumulate-service (service-id items gas-limit state)
-  "GP §12.2: Execute PVM Accumulate for one service.
+(defun accumulate-service (service-id items gas-limit state
+                           &key (transfer-balance 0) (svc-transfers nil))
+  "GP 12.24 Δ₁ + B.9 Ψ_A: Execute PVM Accumulate for one service.
 
-   SERVICE-ID: the service to accumulate
-   ITEMS:      list of U-plists (operand tuples for this service)
-   GAS-LIMIT:  gas budget for this invocation
-   STATE:      mutable accumulation state (plist with :delta-kvs :entropy :timeslot :header-hash etc.)
+   SERVICE-ID:       the service to accumulate
+   ITEMS:            list of U-plists (work item operand tuples for this service)
+   GAS-LIMIT:        gas budget for this invocation
+   STATE:            mutable accumulation state plist
+   TRANSFER-BALANCE: Σ r_a — sum of deferred transfer amounts for this service (B.9)
+   SVC-TRANSFERS:    list of deferred transfer plists for this service (GP 12.24 i^T)
+
+   GP 12.24: i = i^T ⌢ i^U — transfers prepended before work items.
+   The initial balance is augmented per B.9:
+     s_d[s]_b = e_d[s]_b + Σ_{r∈x} r_a
 
    Returns: (values side-effects-plist gas-used) or (values nil 0) on failure."
   (let* ((delta-kvs (getf state :delta-kvs))
@@ -384,7 +410,8 @@
 
     ;; ── Create PVM instance + Configure + Run + Collect ──
     (handler-case
-        (let* ((balance       (or (getf metadata :balance) 0))
+        (let* ((balance       (+ (or (getf metadata :balance) 0)
+                                 transfer-balance))  ;; B.9: e_d[s]_b + Σ r_a
                (code-hash     (or (getf metadata :code-hash)
                                   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
                (min-accum-gas (or (getf metadata :min-item-gas) 0))
@@ -434,8 +461,9 @@
               ;; Cross-service accounts for ΩJ (eject), ΩT (transfer), etc
               :service-accounts cross-services
               :existing-services existing-services
-              ;; Accumulate items (work results for this service)
-              :accumulate-items (encode-accumulate-items items nil))
+              ;; Accumulate items: GP 12.24 i = i^T ⌢ i^U
+              ;; Transfers first, then work items
+              :accumulate-items (encode-accumulate-items items svc-transfers))
 
             ;; ── Run PVM accumulate_ext ──
             (multiple-value-bind (status result gas-remaining)
@@ -447,7 +475,8 @@
 
                 ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
                 (let ((effects (collect-side-effects ctx))
-                      (gas-used (- gas-limit (or gas-remaining 0))))
+                      ;; GP A.44: u = ϱ − max(ϱ', 0) — gas consumed, capped at budget
+                      (gas-used (- gas-limit (max (or gas-remaining 0) 0))))
                   ;; Tag effects with the PVM outcome for storage/lookup decisions
                   ;; 0=Halt 1=Panic 2=OOG 3=HaltWithYield
                   (setf (getf effects :outcome) outcome)
@@ -516,24 +545,32 @@
       (when (<= remaining-gas 0) (return))
 
       (let* ((items (or (gethash sid by-service) nil))
+             ;; Deferred transfers for this service
+             (svc-transfers (remove-if-not
+                             (lambda (x) (= (getf x :destination) sid))
+                             transfers))
              ;; Gas: max of (sum of advertised, free-accum gas, transfer gas)
              (work-gas (if items
                            (reduce #'+ items :key (lambda (u) (or (getf u :gas) 0)))
                            0))
              (free-gas (or (cdr (assoc sid free-accum)) 0))
-             (xfer-gas (reduce #'+ (remove-if-not
-                                    (lambda (x) (= (getf x :destination) sid))
-                                    transfers)
+             (xfer-gas (reduce #'+ svc-transfers
                                :key (lambda (x) (or (getf x :gas-limit) 0))
                                :initial-value 0))
              (total-gas (+ work-gas free-gas xfer-gas))
-             (gas-limit (min total-gas remaining-gas)))
+             (gas-limit (min total-gas remaining-gas))
+             ;; B.9: Σ_{r∈x} r_a — sum of deferred transfer amounts
+             (transfer-balance (reduce #'+ svc-transfers
+                                       :key (lambda (x) (or (getf x :amount) 0))
+                                       :initial-value 0)))
 
         ;; Always invoke accumulate-service, even if gas-limit=0
         ;; This ensures last_accumulation_slot is updated for all services in set s
         (multiple-value-bind (effects gas-used)
             (if (plusp gas-limit)
-                (accumulate-service sid items gas-limit state)
+                (accumulate-service sid items gas-limit state
+                                   :transfer-balance transfer-balance
+                                   :svc-transfers svc-transfers)
                 (values nil 0))
 
 

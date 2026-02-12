@@ -145,6 +145,12 @@
   (auth-output-data :pointer) (auth-output-len :uint32)
   (out-buf :pointer) (out-capacity :uint32))
 
+(cffi:defcfun ("jam_encode_transfer_record" %jam-encode-transfer-record) :uint32
+  "Encode AccumulateItem::Transfer via jam-types (GP 12.24: Δ₁ i^T)."
+  (source :uint32) (destination :uint32) (amount :uint64)
+  (memo-ptr :pointer) (gas-limit :uint64)
+  (out-buf :pointer) (out-capacity :uint32))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Lisp-side JAM encoding helpers (for configure blob)
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -614,6 +620,30 @@
                       (if (zerop encoded-len)
                           nil
                           (cffi:foreign-array-to-lisp out-buf `(:array :uint8 ,encoded-len))))))))))
+      (cffi:foreign-free out-buf))))
+
+(defun pvm-encode-transfer-record (source destination amount memo gas-limit)
+  "Encode a TransferRecord as AccumulateItem::Transfer using Rust's jam-types encoder.
+   GP 12.24: i^T items — deferred transfers for a service.
+   SOURCE:      u32 service ID of sender
+   DESTINATION: u32 service ID of receiver
+   AMOUNT:      u64 balance transferred
+   MEMO:        128-byte vector (W_T)
+   GAS-LIMIT:   u64 gas for on_transfer
+   Returns the encoded bytes, or nil on error."
+  (let* ((memo-bytes (ensure-octets
+                       (or memo (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))))
+         (out-capacity 512)
+         (out-buf (cffi:foreign-alloc :uint8 :count out-capacity)))
+    (unwind-protect
+        (cffi:with-foreign-array (memo-ptr memo-bytes '(:array :uint8 128))
+          (let ((encoded-len (%jam-encode-transfer-record
+                               (or source 0) (or destination 0) (or amount 0)
+                               memo-ptr (or gas-limit 0)
+                               out-buf out-capacity)))
+            (if (zerop encoded-len)
+                nil
+                (cffi:foreign-array-to-lisp out-buf `(:array :uint8 ,encoded-len)))))
       (cffi:foreign-free out-buf))))
 
 (defmacro with-pvm ((var blob service-id balance slot) &body body)

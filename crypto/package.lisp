@@ -56,7 +56,8 @@
    #:pvm-run                       ;; execute entry point → (status result gas)
    #:pvm-collapse                  ;; resolve Accumulate dual context (GP B.13)
    #:pvm-collect                   ;; read side-effects as one JAM blob
-   #:pvm-encode-work-item-record   ;; encode AccumulateItem (jam-types)
+   #:pvm-encode-work-item-record   ;; encode AccumulateItem::WorkItem (jam-types)
+   #:pvm-encode-transfer-record    ;; encode AccumulateItem::Transfer (GP 12.24 Δ₁)
    #:with-pvm                      ;; (with-pvm (var blob sid bal slot) ...)
    #:encode-pvm-config             ;; low-level: Lisp → JAM config blob
    #:decode-pvm-side-effects       ;; low-level: JAM blob → Lisp plist
