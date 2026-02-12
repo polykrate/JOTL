@@ -49,10 +49,25 @@
 ;;;
 ;;; Extract the set of work-package hashes from a list of work-reports.
 
+(defun vector< (a b)
+  "Lexicographic comparison of byte vectors (for sorting hashes).
+   Returns T if A < B in lexicographic order."
+  (loop for i from 0 below (min (length a) (length b))
+        for ai = (aref a i)
+        for bi = (aref b i)
+        when (< ai bi) return t
+        when (> ai bi) return nil
+        finally (return (< (length a) (length b)))))
+
 (defun accum-package-hashes (reports)
   "GP §12.9: P(R) — Extract the set of package hashes from work-reports.
-   Returns: list of 32-byte hash vectors."
-  (mapcar (lambda (r) (getf (getf r :package-spec) :hash)) reports))
+   Returns: list of 32-byte hash vectors, sorted lexicographically.
+   
+   GP 12.9 defines P as returning a set {(r_p)_h | r ∈ r}, but for use in
+   ξ' (accumulation history) we need a deterministic ordering. We sort
+   lexicographically by hash bytes."
+  (sort (mapcar (lambda (r) (getf (getf r :package-spec) :hash)) reports)
+        #'vector<))
 
 ;;; ── E(q, s) — Edit queue (GP 12.7) ─────────────────────────
 ;;; E(q, s) removes from q:
@@ -124,19 +139,30 @@
 ;;;   R* = R! ++ Q(q)
 ;;;   omega' = updated omega with new queues
 
-(defun compute-r-star (reports omega-queues xi-flattened timeslot)
+(defun compute-r-star (reports omega-queues xi-flattened timeslot
+                       &optional (prev-timeslot (1- timeslot)))
   "Compute R* from new reports and existing omega queues.
    GP §12.4-12.12.
 
-   REPORTS:      list of new work-reports from ρ‡ :reported
-   OMEGA-QUEUES: list of E lists of queue entries (from ω)
-   XI-FLATTENED: ξ̃ — set of already-accumulated package hashes
-   TIMESLOT:     τ' (post-transition timeslot) for computing m
+   REPORTS:        list of new work-reports from ρ‡ :reported
+   OMEGA-QUEUES:   list of E lists of queue entries (from ω)
+   XI-FLATTENED:   ξ̃ — set of already-accumulated package hashes
+   TIMESLOT:       τ' (post-transition timeslot) for computing m
+   PREV-TIMESLOT:  τ  (previous timeslot, for clearing stale queue slots)
 
    Returns: (values r-star updated-omega-queues accumulated-hashes)"
   (let* ((e (epoch-duration))
          (m (mod timeslot e))
-         ;; ── Compute deps for each new report ──
+         ;; ── Step 0: Identify stale slots and prepare cleared queues for ω' ──
+         ;; Stale range: (τ+1..τ'] mod E. These are cleared for ω' output
+         ;; but their entries are still available for Q() to resolve chains.
+         (stale-gap (min e (- timeslot prev-timeslot)))
+         (cleared-queues (let ((q (copy-list omega-queues)))
+                           (loop for k from 1 to stale-gap do
+                             (let ((idx (mod (+ prev-timeslot k) e)))
+                               (setf (nth idx q) nil)))
+                           q))
+         ;; ── Step 1: Compute deps for each new report ──
          (new-entries
           (mapcar (lambda (r)
                     (let ((deps (accum-deps r)))
@@ -147,41 +173,62 @@
                                         deps)))
                         (list :report r :deps filtered-deps))))
                   (or reports '())))
-         ;; ── Partition: R! = zero deps, R^Q = has deps ──
-         (r-immediate (remove-if-not (lambda (e) (null (getf e :deps)))
+         ;; ── Step 2: Partition: R! = zero deps, R^Q = has deps ──
+         (r-immediate (remove-if-not (lambda (entry) (null (getf entry :deps)))
                                      new-entries))
-         (r-deferred  (remove-if     (lambda (e) (null (getf e :deps)))
+         (r-deferred  (remove-if     (lambda (entry) (null (getf entry :deps)))
                                      new-entries))
-         ;; ── Immediate reports (list of actual work-reports) ──
-         (r-bang (mapcar (lambda (e) (getf e :report)) r-immediate))
+         ;; ── R! as work-reports ──
+         (r-bang (mapcar (lambda (entry) (getf entry :report)) r-immediate))
          ;; ── P(R!) — package hashes of immediate reports ──
-         (p-r-bang (accum-package-hashes r-bang))
-         ;; ── Concatenate omega[m:], omega[:m] (epoch rotation) ──
-         ;; Then append R^Q
-         (omega-rotated (append (subseq omega-queues m e)
-                                (subseq omega-queues 0 m)))
-         ;; ── Flatten all existing queue entries + R^Q ──
-         (combined-queue (append (apply #'append omega-rotated) r-deferred))
-         ;; ── E(combined, P(R!)) — edit queue with immediate hashes ──
-         (edited-queue (accum-edit combined-queue p-r-bang))
-         ;; ── Q(edited) — priority ordering of resolved entries ──
-         (ordered-resolved (accum-priority-queue edited-queue))
-         ;; ── R* = R! ++ Q(q) ──
-         (r-star (append r-bang ordered-resolved))
-         ;; ── Hashes of everything we accumulated ──
-         (accumulated-hashes (accum-package-hashes r-star))
-         ;; ── Build updated omega queues ──
-         ;; The entries that remain after extracting resolved ones:
-         ;; Remove from edited-queue everything that Q() extracted
-         (resolved-hashes (accum-package-hashes ordered-resolved))
-         (all-done-hashes (append p-r-bang resolved-hashes))
-         (remaining-entries (accum-edit edited-queue all-done-hashes))
-         ;; ── Re-distribute remaining entries back into E slots ──
-         ;; All remaining entries go into slot m (current slot), other slots empty
-         (new-omega-queues (make-list e :initial-element nil)))
-    ;; Put remaining entries into the current slot
-    (setf (nth m new-omega-queues) remaining-entries)
-    (values r-star new-omega-queues accumulated-hashes)))
+         (p-r-bang (accum-package-hashes r-bang)))
+
+    ;; ── Step 3: Edit ORIGINAL omega slots with ξ̃, then P(R!) ──
+    ;; Use original (uncleared) queues for Q() so chains through stale
+    ;; slots can be resolved.  GP 12.11: q = E(ω[m:]⌢ω[:m]⌢R^Q, P(R!))
+    (let ((q-slots (make-array e :initial-element nil))   ;; for Q() computation
+          (w-slots (make-array e :initial-element nil)))  ;; for ω' output
+      ;; Build q-slots from ORIGINAL omega (for R* computation)
+      (loop for i from 0 below e do
+          (setf (aref q-slots i)
+              (accum-edit
+               (accum-edit (or (nth i omega-queues) nil) xi-flattened)
+               p-r-bang)))
+      ;; Build w-slots from CLEARED omega (for ω' output)
+      (loop for i from 0 below e do
+          (setf (aref w-slots i)
+              (accum-edit
+               (accum-edit (or (nth i cleared-queues) nil) xi-flattened)
+               p-r-bang)))
+
+      ;; ── Step 4: Add R^Q to slot m ──
+      (let ((r-deferred-edited (accum-edit r-deferred p-r-bang)))
+        (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
+        (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
+
+      ;; ── Step 5: Q() — extract ready entries across ALL q-slots ──
+      (let* ((all-queued (loop for i from 0 below e
+                               nconc (copy-list (aref q-slots i))))
+             (ordered-resolved (accum-priority-queue all-queued))
+             ;; ── R* = R! ++ Q(q) ──
+             (r-star (append r-bang ordered-resolved))
+             (accumulated-hashes (accum-package-hashes r-star))
+             ;; Hashes of Q()-extracted entries
+             (resolved-hashes (accum-package-hashes ordered-resolved))
+             (all-done-hashes (append p-r-bang resolved-hashes)))
+
+        ;; ── Step 6: Build ω' from w-slots (cleared) ──
+        ;; Remove extracted entries from w-slots (which already has stale cleared).
+        (let ((new-omega-queues (make-list e :initial-element nil)))
+          (loop for i from 0 below e do
+            (setf (nth i new-omega-queues)
+                  (remove-if (lambda (entry)
+                               (let ((pkg-hash (getf (getf (getf entry :report)
+                                                           :package-spec)
+                                                     :hash)))
+                                 (member pkg-hash all-done-hashes :test #'equalp)))
+                             (aref w-slots i))))
+          (values r-star new-omega-queues accumulated-hashes))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; §12.2 DATA EXTRACTION — U (operand tuples), X (deferred transfers)
@@ -272,6 +319,42 @@
    Uses jam_pvm_collect (single JAM-codec blob) instead of 12 individual getters."
   (jam.ffi:pvm-collect ctx))
 
+(defun extract-all-service-ids (delta-kvs)
+  "Extract list of all service IDs present in delta-kvs."
+  (let ((ids (make-hash-table :test 'eql)))
+    (dolist (kv delta-kvs)
+      (when (service-metadata-key-p (car kv))
+        (setf (gethash (service-id-from-metadata-key (car kv)) ids) t)))
+    (loop for id being the hash-keys of ids collect id)))
+
+(defun build-cross-service-accounts (caller-id delta-kvs raw-storage-ht)
+  "Build alist of (service-id . plist) for all services EXCEPT caller-id.
+   Each plist contains :code-hash :balance :threshold :min-accum-gas :min-item-gas
+   :min-on-transfer-gas :items-count :footprint :storage :preimages :lookup."
+  (let ((result nil))
+    (dolist (sid (extract-all-service-ids delta-kvs))
+      (unless (= sid caller-id)
+        (let* ((svc-data (classify-service-sub-keys sid delta-kvs))
+               (metadata (getf svc-data :metadata)))
+          (when metadata
+            (let ((raw-storage (when raw-storage-ht (gethash sid raw-storage-ht))))
+              (push (cons sid
+                          (list :code-hash (or (getf metadata :code-hash)
+                                               (make-array 32 :element-type '(unsigned-byte 8)
+                                                          :initial-element 0))
+                                :balance (or (getf metadata :balance) 0)
+                                :threshold (or (getf metadata :deposit-offset) 0)
+                                :min-accum-gas (or (getf metadata :min-item-gas) 0)
+                                :min-item-gas (or (getf metadata :min-item-gas) 0)
+                                :min-on-transfer-gas (or (getf metadata :min-memo-gas) 0)
+                                :items-count (or (getf metadata :items) 0)
+                                :footprint (or (getf metadata :bytes) 0)
+                                :storage (or raw-storage nil)
+                                :preimages (getf svc-data :preimages)
+                                :lookup (getf svc-data :lookup)))
+                    result))))))
+    result))
+
 (defun accumulate-service (service-id items gas-limit state)
   "GP §12.2: Execute PVM Accumulate for one service.
 
@@ -283,10 +366,17 @@
    Returns: (values side-effects-plist gas-used) or (values nil 0) on failure."
   (let* ((delta-kvs (getf state :delta-kvs))
          (timeslot  (getf state :timeslot))
+         (raw-storage-ht (getf state :raw-storage))
          ;; ── Parse service account from delta extra-kvs (GP D.1) ──
          (svc-data  (classify-service-sub-keys service-id delta-kvs))
          (metadata  (getf svc-data :metadata))
-         (code-blob (getf svc-data :code-blob)))
+         (code-blob (getf svc-data :code-blob))
+         ;; ── Get raw storage for PVM (32-byte keys, not 27-byte trie hashes) ──
+         (raw-storage (when raw-storage-ht
+                        (gethash service-id raw-storage-ht)))
+         ;; ── Build cross-service context for ΩJ (eject) host-call ──
+         (cross-services (build-cross-service-accounts service-id delta-kvs raw-storage-ht))
+         (existing-services (extract-all-service-ids delta-kvs)))
 
     ;; No code blob found → skip PVM execution
     (unless code-blob
@@ -321,10 +411,14 @@
               :items-count     items-count
               :footprint       total-bytes
               :gas             gas-limit
-              ;; Service account data (storage, preimages, lookup)
-              :storage         (getf svc-data :storage)
+              ;; Service account data:
+              ;; Use raw 32-byte keys for storage (not 27-byte trie hashes)
+              :storage         (or raw-storage (getf svc-data :storage))
               :preimages       (getf svc-data :preimages)
               :lookup          (getf svc-data :lookup)
+              ;; Cross-service accounts for ΩJ (eject), ΩT (transfer), etc
+              :service-accounts cross-services
+              :existing-services existing-services
               ;; Accumulate items (work results for this service)
               :accumulate-items (encode-accumulate-items items nil))
 
@@ -394,10 +488,11 @@
          ;; ── Run Δ_1 for each service s ∈ s ──
          ;; results: alist of (sid . effects-plist)
          (delta-results (make-hash-table :test 'eql))
-         (gas-usage nil)       ;; u = [(sid, gas-used)]
+         (gas-usage nil)       ;; u = [(sid n-items gas-used)]
          (commitments nil)     ;; b = {(sid, yield-hash) | yield ≠ ∅}
          (new-transfers nil)   ;; t' = concat of all transfers
          (remaining-gas (getf state :remaining-gas)))
+
 
     (dolist (sid s)
       (when (<= remaining-gas 0) (return))
@@ -416,36 +511,39 @@
              (total-gas (+ work-gas free-gas xfer-gas))
              (gas-limit (min total-gas remaining-gas)))
 
-        (when (plusp gas-limit)
-          (multiple-value-bind (effects gas-used)
-              (accumulate-service sid items gas-limit state)
+        ;; Always invoke accumulate-service, even if gas-limit=0
+        ;; This ensures last_accumulation_slot is updated for all services in set s
+        (multiple-value-bind (effects gas-used)
+            (if (plusp gas-limit)
+                (accumulate-service sid items gas-limit state)
+                (values nil 0))
 
-            ;; Store Δ(s) result
-            (setf (gethash sid delta-results) effects)
 
-            ;; u: gas usage
-            (push (cons sid gas-used) gas-usage)
+          ;; Store Δ(s) result (even if nil, to mark service as processed)
+          (setf (gethash sid delta-results) effects)
 
-            ;; b: commitments (yield output)
-            (when (and effects (getf effects :yield-output))
-              (push (cons sid (getf effects :yield-output)) commitments))
+          ;; u: gas usage — (sid n-items gas-used)
+          ;; GP 13.12: accumulate-count = number of work-items, not invocations
+          ;; Always record stats if service has work items, even if gas=0
+          (when (or (plusp gas-used) (plusp (length (or items '()))))
+            (push (list sid (length (or items '())) gas-used) gas-usage))
 
-            ;; t': new deferred transfers from this service
-            (when (and effects (getf effects :transfers))
-              (dolist (xfer (getf effects :transfers))
-                (push (list :sender      sid
-                            :destination (getf xfer :to)
-                            :amount      (getf xfer :amount)
-                            :memo        (getf xfer :memo)
-                            :gas-limit   (or (getf xfer :gas-limit) 0))
-                      new-transfers)))
+          ;; b: commitments (yield output)
+          (when (and effects (getf effects :yield-output))
+            (push (cons sid (getf effects :yield-output)) commitments))
 
-            ;; Track for delta† construction
-            (let ((svc-effects (or (getf state :service-effects) nil)))
-              (push (cons sid effects) svc-effects)
-              (setf (getf state :service-effects) svc-effects))
+          ;; t': new deferred transfers from this service
+          (when (and effects (getf effects :transfers))
+            (dolist (xfer (getf effects :transfers))
+              (push (list :sender      sid
+                          :destination (getf xfer :to)
+                          :amount      (getf xfer :amount)
+                          :memo        (getf xfer :memo)
+                          :gas-limit   (or (getf xfer :gas-limit) 0))
+                    new-transfers)))
 
-            ;; Deduct gas
+          ;; Deduct gas
+          (when (plusp gas-used)
             (decf remaining-gas gas-used)
             (setf (getf state :remaining-gas) remaining-gas)))))
 
@@ -511,6 +609,146 @@
           (when new-queues
             (setf (getf state :phi-queues) new-queues)))))
 
+    ;; ── Update delta-kvs with this round's effects (GP: e' includes d') ──
+    ;; So the next Δ* round sees the storage/balance changes from this round.
+    (let ((current-kvs (getf state :delta-kvs))
+          (raw-storage-ht (getf state :raw-storage))
+          (timeslot    (getf state :timeslot)))
+      (maphash
+       (lambda (sid effects)
+         ;; Always update last-accumulation-slot, even if effects=nil
+         (let ((meta-entry (find-if (lambda (kv)
+                                      (and (service-metadata-key-p (car kv))
+                                           (= (service-id-from-metadata-key (car kv)) sid)))
+                                    current-kvs)))
+           (when meta-entry
+             (let ((info (decode-service-info (cdr meta-entry))))
+               (setf (getf info :last-accumulation-slot) timeslot)
+               ;; Update balance if provided by PVM
+               (when (and effects (getf effects :balance))
+                 (setf (getf info :balance) (getf effects :balance)))
+               (setf (cdr meta-entry) (encode-service-info info)))))
+
+         ;; Apply side-effects if present
+         (when effects
+           ;; ── Update raw-storage with PVM's final storage state ──
+           ;; effects :storage contains the COMPLETE storage map (raw keys)
+           (when raw-storage-ht
+             (setf (gethash sid raw-storage-ht) (getf effects :storage)))
+
+           ;; ── Remove ALL old storage trie entries for this service ──
+           (let* ((old-classified (classify-service-sub-keys sid current-kvs))
+                  (old-storage-h27s (mapcar #'car (getf old-classified :storage))))
+             (when old-storage-h27s
+               (setf current-kvs
+                     (remove-if (lambda (kv)
+                                  (and (not (service-metadata-key-p (car kv)))
+                                       (not (segment-key-p (car kv)))
+                                       (= (service-id-from-sub-key (car kv)) sid)
+                                       (member (extract-sub-key-h (car kv))
+                                               old-storage-h27s :test #'equalp)))
+                                current-kvs))))
+
+           ;; ── Add new storage entries from PVM (using RAW keys) ──
+           (dolist (s-entry (getf effects :storage))
+             (let* ((raw-key  (car s-entry))
+                    (val      (cdr s-entry))
+                    (h-27     (storage-trie-h raw-key))
+                    (trie-key (interleave-sub-key sid h-27)))
+               (push (cons trie-key (ensure-bytes val)) current-kvs)))
+
+           ;; ── Remove old lookup entries, add new ──
+           (let* ((old-classified (classify-service-sub-keys sid current-kvs))
+                  (old-lookup-h27s
+                   (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
+                           (getf old-classified :lookup))))
+             (when old-lookup-h27s
+               (setf current-kvs
+                     (remove-if (lambda (kv)
+                                  (and (not (service-metadata-key-p (car kv)))
+                                       (not (segment-key-p (car kv)))
+                                       (= (service-id-from-sub-key (car kv)) sid)
+                                       (member (extract-sub-key-h (car kv))
+                                               old-lookup-h27s :test #'equalp)))
+                                current-kvs))))
+
+           (dolist (l-entry (getf effects :lookup))
+             (let* ((hash-32  (first l-entry))
+                    (length   (second l-entry))
+                    (statuses (cddr l-entry))
+                    (h-27     (lookup-trie-h hash-32 length))
+                    (trie-key (interleave-sub-key sid h-27))
+                    (val      (encode-lookup-value statuses)))
+               (push (cons trie-key val) current-kvs)))
+
+           ;; ── Add provided preimages ──
+           (dolist (pp (getf effects :provided-preimages))
+             (let* ((pp-sid  (car pp))
+                    (pp-data (cdr pp))
+                    (pp-hash (jam.ffi:blake2b-256 pp-data))
+                    (h-27    (preimage-trie-h pp-hash))
+                    (trie-key (interleave-sub-key pp-sid h-27)))
+               (push (cons trie-key (ensure-bytes pp-data)) current-kvs)))
+
+           ;; ── Handle ejected services ──
+           ;; GP: When a service ejects another via ΩJ host-call, the ejected
+           ;; service's balance is transferred to the ejector, and the ejected
+           ;; service is removed from the state.
+           ;; effects :ejected is a list of (target-id . ejector-id) pairs
+           (dolist (ejection (getf effects :ejected))
+             (let ((target-id (car ejection))
+                   (ejector-id (cdr ejection)))
+               ;; Remove all trie entries for the ejected service
+               (setf current-kvs
+                     (remove-if (lambda (kv)
+                                  (or (and (service-metadata-key-p (car kv))
+                                           (= (service-id-from-metadata-key (car kv)) target-id))
+                                      (and (not (service-metadata-key-p (car kv)))
+                                           (not (segment-key-p (car kv)))
+                                           (= (service-id-from-sub-key (car kv)) target-id))))
+                                current-kvs))
+               ;; Remove from raw-storage
+               (when raw-storage-ht
+                 (remhash target-id raw-storage-ht))
+               ;; Note: The balance transfer is already handled by the PVM
+               ;; (the ejector's :balance in effects includes the ejected balance)
+               ))
+
+           ;; ── Recompute items/bytes for this service ──
+           ;; GP footprint formula:
+           ;;   a_i = |preimages| + |lookups| + |storage|
+           ;;   a_o = 34 × a_i + Σ|blob| + 13 × |lookups| + Σ(|raw_key|+|raw_val|)
+           ;; where 34 = per-item overhead, 13 = fixed lookup entry size (3×E4+compact)
+           (let ((meta-entry (find-if (lambda (kv)
+                                        (and (service-metadata-key-p (car kv))
+                                             (= (service-id-from-metadata-key (car kv)) sid)))
+                                      current-kvs)))
+             (when meta-entry
+               (let* ((info (decode-service-info (cdr meta-entry)))
+                      ;; Classify entries to get typed counts
+                      (classified (classify-service-sub-keys sid current-kvs))
+                      (n-preimages (length (getf classified :preimages)))
+                      (n-lookups   (length (getf classified :lookup)))
+                      (n-storage   (length (getf classified :storage)))
+                      (sub-count   (+ n-preimages n-lookups n-storage))
+                      (sub-bytes   (* 34 sub-count)))
+                 ;; + preimage blob sizes (from trie values)
+                 (dolist (p (getf classified :preimages))
+                   (incf sub-bytes (length (cdr p))))
+                 ;; + lookup: 13 bytes per entry (fixed max reservation)
+                 (incf sub-bytes (* 13 n-lookups))
+                 ;; + storage: raw key + raw value sizes from raw-storage-ht
+                 (let ((raw-storage (when raw-storage-ht (gethash sid raw-storage-ht))))
+                   (dolist (s-entry raw-storage)
+                     (incf sub-bytes (+ (length (car s-entry))
+                                        (length (cdr s-entry))))))
+                 ;; Update metadata fields (last-accumulation-slot already set above)
+                 (setf (getf info :items) sub-count)
+                 (setf (getf info :bytes) sub-bytes)
+                 (setf (cdr meta-entry) (encode-service-info info)))))))
+       delta-results)
+      (setf (getf state :delta-kvs) current-kvs))
+
     (values state
             (nreverse new-transfers)
             (nreverse commitments)
@@ -531,42 +769,40 @@
   (let ((all-commitments nil)
         (all-gas-usage nil)
         (pending-transfers (getf state :pending-transfers))
-        (free-accum (getf state :chi-always-accum))
-        (first-round t))
+        (free-accum (getf state :chi-always-accum)))
 
-    ;; Track n = number of reports actually accumulated (GP 12.25)
-    (let ((n 0))
+    ;; ── GP 12.18: Δ+(g, t, r, e, f) ──
+    ;; Process ALL reports in ONE Δ* call (not one-by-one).
+    ;; Then recurse with new deferred transfers, f = {} in recursion.
+    (let ((n (length r-star)))
 
-      ;; ── Process each work-report: Δ*(e, t, [r], f) ──
-      (dolist (report r-star)
-        (when (<= (getf state :remaining-gas) 0)
-          (return))
-
-        (multiple-value-bind (state* new-transfers commitments gas-usage)
-            (accumulate-star state
-                            (if first-round pending-transfers nil)
-                            (list report)
-                            free-accum)  ;; f passed EVERY round
-          (setf state state*)
-          (setf pending-transfers new-transfers)
-          (setf all-commitments (nconc all-commitments commitments))
-          (setf all-gas-usage (nconc all-gas-usage gas-usage))
-          (setf first-round nil)
-          (incf n)))
-
-      ;; ── Base case: Δ*(e, t, [], f) — final round ──
-      ;; Process residual deferred transfers + always-accumulate
+      ;; ── First call: Δ*(e, t, r...i, f) — all reports + free-accum ──
       (when (and (plusp (getf state :remaining-gas))
-                 (or pending-transfers free-accum))
+                 (or r-star pending-transfers free-accum))
         (multiple-value-bind (state* new-transfers commitments gas-usage)
             (accumulate-star state
                             pending-transfers
-                            nil    ;; no reports
-                            free-accum)
+                            r-star        ;; ALL reports at once
+                            free-accum)   ;; f = free-accum (first call only)
           (setf state state*)
           (setf pending-transfers new-transfers)
           (setf all-commitments (nconc all-commitments commitments))
           (setf all-gas-usage (nconc all-gas-usage gas-usage))))
+
+      ;; ── Recursion: Δ+(g*, t*, [], e*, {}) — deferred transfers only ──
+      ;; GP 12.18: f = {} in recursion, no more reports.
+      ;; Continue until no more deferred transfers (n = |t| = 0 → stop).
+      (loop while (and (plusp (getf state :remaining-gas))
+                       pending-transfers)
+            do (multiple-value-bind (state* new-transfers commitments gas-usage)
+                   (accumulate-star state
+                                   pending-transfers
+                                   nil   ;; no reports
+                                   nil)  ;; f = {} in recursion
+                 (setf state state*)
+                 (setf pending-transfers new-transfers)
+                 (setf all-commitments (nconc all-commitments commitments))
+                 (setf all-gas-usage (nconc all-gas-usage gas-usage))))
 
       ;; Store results back in state
       (setf (getf state :commitments) all-commitments)
@@ -579,126 +815,22 @@
 ;;; §12.3 DELTA† CONSTRUCTION — apply PVM side-effects to trie
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun build-delta-dagger (accum-state delta-kvs timeslot)
-  "Construct δ† from the accumulated PVM side-effects.
-   Surgically updates only what changed:
-   1. ServiceInfo metadata (last-accumulation-slot ← τ')
-   2. Storage entries (remove old, add new from PVM)
-   3. Lookup entries (replace with PVM's updated table)
-   4. Preimage entries (add new from provided-preimages, keep existing)
+(defun build-delta-dagger (accum-state)
+  "Construct δ† from the already-updated delta-kvs in accum-state.
+   All storage/lookup/preimage/metadata updates are applied in-place
+   by accumulate-star during each Δ* round, so this is just a wrapper.
 
    ACCUM-STATE: the mutable accumulation state after Δ+
-   DELTA-KVS:   the original delta extra-kvs
-   TIMESLOT:    τ' (post-transition timeslot)
 
    Returns: a new delta-state closure."
-  (let ((new-kvs (copy-alist delta-kvs))
-        (accumulated-sids nil)
-        (svc-effects (getf accum-state :service-effects)))
-
-    ;; Collect unique accumulated service IDs
-    (dolist (se svc-effects)
-      (let ((sid (car se)))
-        (unless (member sid accumulated-sids)
-          (push sid accumulated-sids))))
-
-    ;; ── Update each accumulated service ──
-    (dolist (sid accumulated-sids)
-      ;; Find the metadata KV entry for this service
-      (let ((meta-entry (find-if (lambda (kv)
-                                   (and (service-metadata-key-p (car kv))
-                                        (= (service-id-from-metadata-key (car kv)) sid)))
-                                 new-kvs)))
-        (when meta-entry
-          (let ((info (decode-service-info (cdr meta-entry))))
-            ;; Update last-accumulation-slot to τ'
-            (setf (getf info :last-accumulation-slot) timeslot)
-
-            ;; Find the LAST effects for this service (most recent invocation)
-            ;; (effects are pushed in order, so first in list = last invocation)
-            (let ((last-effects nil))
-              (dolist (se svc-effects)
-                (when (= (car se) sid)
-                  (unless last-effects
-                    (setf last-effects (cdr se)))))
-
-              (when last-effects
-                ;; Update balance from PVM
-                (let ((new-balance (getf last-effects :balance)))
-                  (when new-balance
-                    (setf (getf info :balance) new-balance)))
-
-                ;; ── Storage: remove old storage entries, add PVM's ──
-                ;; Classify original sub-keys to identify which are storage
-                (let ((orig-classified (classify-service-sub-keys sid delta-kvs)))
-                  ;; Remove ONLY old storage trie entries (not preimages or lookup)
-                  (let ((old-storage-h27s
-                         (mapcar #'car (getf orig-classified :storage))))
-                    (when old-storage-h27s
-                      (setf new-kvs
-                            (remove-if (lambda (kv)
-                                         (and (not (service-metadata-key-p (car kv)))
-                                              (not (segment-key-p (car kv)))
-                                              (= (service-id-from-sub-key (car kv)) sid)
-                                              (member (extract-sub-key-h (car kv))
-                                                      old-storage-h27s :test #'equalp)))
-                                       new-kvs)))))
-
-                ;; Add new storage entries from PVM
-                (dolist (s-entry (getf last-effects :storage))
-                  (let* ((raw-key (car s-entry))
-                         (val     (cdr s-entry))
-                         (h-27    (storage-trie-h raw-key))
-                         (trie-key (interleave-sub-key sid h-27)))
-                    (push (cons trie-key (ensure-bytes val)) new-kvs)))
-
-                ;; ── Lookup: replace lookup entries with PVM's ──
-                ;; Remove old lookup trie entries
-                (let ((orig-classified (classify-service-sub-keys sid delta-kvs)))
-                  (let ((old-lookup-h27s
-                         (mapcar (lambda (l)
-                                   (lookup-trie-h (first l) (second l)))
-                                 (getf orig-classified :lookup))))
-                    (when old-lookup-h27s
-                      (setf new-kvs
-                            (remove-if (lambda (kv)
-                                         (and (not (service-metadata-key-p (car kv)))
-                                              (not (segment-key-p (car kv)))
-                                              (= (service-id-from-sub-key (car kv)) sid)
-                                              (member (extract-sub-key-h (car kv))
-                                                      old-lookup-h27s :test #'equalp)))
-                                       new-kvs)))))
-
-                ;; Add PVM's lookup entries
-                (dolist (l-entry (getf last-effects :lookup))
-                  (let* ((hash-32  (first l-entry))
-                         (length   (second l-entry))
-                         (statuses (cddr l-entry))
-                         (h-27     (lookup-trie-h hash-32 length))
-                         (trie-key (interleave-sub-key sid h-27))
-                         (val      (encode-lookup-value statuses)))
-                    (push (cons trie-key val) new-kvs)))
-
-                ;; ── Preimages: add new from provided-preimages ──
-                ;; Existing preimage blobs are kept (not removed).
-                (dolist (pp (getf last-effects :provided-preimages))
-                  (let* ((pp-sid  (car pp))
-                         (pp-data (cdr pp))
-                         (pp-hash (jam.ffi:blake2b-256 pp-data))
-                         (h-27    (preimage-trie-h pp-hash))
-                         (trie-key (interleave-sub-key pp-sid h-27)))
-                    (push (cons trie-key (ensure-bytes pp-data)) new-kvs)))))
-
-            ;; Re-encode and replace the metadata entry
-            (setf (cdr meta-entry) (encode-service-info info))))))
-
-    (make-delta-state :raw-kvs new-kvs)))
+  (make-delta-state :raw-kvs (getf accum-state :delta-kvs)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; transition-accumulate — GP (4.16) top-level entry
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun transition-accumulate (r-star-input omega xi delta chi iota phi tau tau-prime)
+(defun transition-accumulate (r-star-input omega xi delta chi iota phi tau tau-prime
+                              &key eta header-hash raw-storage)
   "GP §12: (ω', ξ', δ†, χ', ι', ϕ', θ', S) ◁ (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
 
    R-STAR-INPUT: list of work-reports (from ρ‡ :reported)
@@ -710,6 +842,9 @@
    PHI:       ϕ closure (authorization queue)
    TAU:       τ closure (pre-transition timeslot)
    TAU-PRIME: τ' closure (post-transition timeslot)
+   ETA:       η encoded bytes (128 bytes = 4×32 entropy)
+   HEADER-HASH: H_p parent header hash (32 bytes)
+   RAW-STORAGE: hash-table sid → alist of (raw-key-32 . value) for PVM
 
    Returns plist:
      :omega-prime     — ω' (updated accumulation queue)
@@ -720,8 +855,8 @@
      :phi-prime       — ϕ' (updated authorization queue)
      :theta-prime     — θ' (accumulation outputs for β')
      :service-stats   — S  (service statistics for π')"
-  (declare (ignorable tau))
   (let* ((timeslot (funcall tau-prime :slot))
+         (prev-timeslot (if tau (funcall tau :slot) (1- timeslot)))
          (omega-queues (funcall omega :queues))
          (xi-flattened (funcall xi :flattened))
          (e (epoch-duration))
@@ -729,8 +864,10 @@
 
     ;; ── §12.1: Compute R* via queue editing and priority ordering ──
     (multiple-value-bind (r-star new-omega-queues accumulated-hashes)
-        (compute-r-star r-star-input omega-queues xi-flattened timeslot)
+        (compute-r-star r-star-input omega-queues xi-flattened timeslot
+                        prev-timeslot)
       (declare (ignorable accumulated-hashes))
+
 
       ;; ── Decode χ (GP 9.9) for privilege fields ──
       (let* ((chi-mgr  (funcall chi :manager))
@@ -744,9 +881,10 @@
              (original-kvs (funcall delta :extra-kvs))
              (accum-state
               (list :delta-kvs        original-kvs
+                    :raw-storage      (or raw-storage (make-hash-table :test 'eql))
                     :timeslot         timeslot
-                    :entropy          nil ;; TODO: pass η from sigma
-                    :header-hash      nil ;; TODO: pass H_T from header
+                    :entropy          eta
+                    :header-hash      header-hash
                     :remaining-gas    (max-block-gas)
                     ;; ── GP §12.16 S fields ──
                     :chi-manager      chi-mgr    ;; m = χ_M
@@ -759,8 +897,7 @@
                     ;; ── Accumulators ──
                     :commitments      nil        ;; B: (sid . yield-hash)
                     :gas-usage        nil        ;; U: (sid . gas-used)
-                    :pending-transfers nil       ;; X: deferred transfers
-                    :service-effects  nil)))     ;; Per-service PVM effects
+                    :pending-transfers nil)))     ;; X: deferred transfers
 
         ;; Run Δ+ (sequential over R*) — GP (12.25)
         (setf accum-state (accumulate-all r-star accum-state))
@@ -793,7 +930,7 @@
                (omega-prime (make-omega-state :queues new-omega-queues))
 
                ;; ── δ† (12.30-12.31): apply PVM side-effects back to trie ──
-               (delta-dagger (build-delta-dagger accum-state original-kvs timeslot))
+               (delta-dagger (build-delta-dagger accum-state))
 
                ;; ── χ' (12.27): updated privilege fields ──
                (chi-prime

@@ -126,16 +126,25 @@ pub fn dispatch(
 ) -> Result<DispatchResult, JamHostError> {
     let gas = inst.gas();
 
+    // ── Compute gas cost g per GP B.15 ────────────────────────
+    // Default: g = 10 for all host calls.
+    // Exception: ΩT (transfer, id=20): g = 10 + ω_9 (A2 register = gas_limit)
+    // Note: ext_log (100) also costs 10 in the current test vectors.
+    let cost: i64 = match id {
+        20 => 10 + inst.reg(Reg::A2) as i64,  // ΩT: 10 + gas_limit
+        _ => 10,
+    };
+
     // ── B.16: OOG gating ──────────────────────────────────────
-    // If ϱ < g (gas < 10): return (∞, φ, μ, s) — NO mutations.
-    if gas < 10 {
-        inst.set_gas(gas - 10); // go negative to signal OOG
-        log::debug!("dispatch: OOG (gas={} < 10) for ecalli {}", gas, id);
+    // If ϱ < g: return (∞, φ, μ, s) — NO mutations.
+    if gas < cost {
+        inst.set_gas(gas - cost); // go negative to signal OOG
+        log::debug!("dispatch: OOG (gas={} < {}) for ecalli {}", gas, cost, id);
         return Ok(DispatchResult::OutOfGas);
     }
 
     // B.15: ϱ' = ϱ − g
-    inst.set_gas(gas - 10);
+    inst.set_gas(gas - cost);
 
     // ── Context gating ─────────────────────────────────────────
     // GP B.2/B.6: calls not in the allowed set → continue with
@@ -1925,8 +1934,9 @@ fn omega_j(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     };
 
     // ── l = max(81, d_o) − 81 ──
-    // d_o = target's min_on_transfer_gas
-    let d_o = acct.min_on_transfer_gas;
+    // d_o = target's footprint (a_o = bytes), NOT min_on_transfer_gas
+    // GP: d_o refers to the target service's total byte footprint field.
+    let d_o = acct.footprint;
     let l = (d_o.max(81) - 81) as u32;
 
     // ── d_i ≠ 2 ∨ (h, l) ∉ d_l → HUH ──
