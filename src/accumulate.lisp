@@ -699,7 +699,7 @@
                                            (= (service-id-from-metadata-key (car kv)) sid)))
                                     current-kvs)))
            (when meta-entry
-             (let ((info (decode-service-info (cdr meta-entry))))
+             (let ((info (load-service-info (cdr meta-entry))))
                (setf (getf info :last-accumulation-slot) timeslot)
                ;; Update balance if provided by PVM
                (when (and effects (getf effects :balance))
@@ -827,7 +827,7 @@
                                                  (= (service-id-from-metadata-key (car kv)) sid)))
                                           current-kvs)))
                  (when meta-entry
-                   (let ((info (decode-service-info (cdr meta-entry))))
+                   (let ((info (load-service-info (cdr meta-entry))))
                      (setf (getf info :items) (getf effects :items-count))
                      (setf (getf info :bytes) (getf effects :footprint))
                      (setf (cdr meta-entry) (encode-service-info info)))))))) ;; closes let/when/let/when/let*/when-effects

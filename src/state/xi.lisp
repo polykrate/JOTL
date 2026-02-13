@@ -18,7 +18,7 @@
 ;;;;   :entry-at (idx)   → list of hashes at slot idx
 ;;;;   :flattened        → ξ̃ = union of all hash sets (memoized)
 ;;;;   :contains? (h)    → T if hash h is in ξ̃
-;;;;   :encoded          → binary encoding (memoized)
+;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
 (in-package #:jotl)
@@ -46,7 +46,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, hash32*)
-  (:encoded :memo
+  (:save :memo
     (let ((bufs (mapcar (lambda (slot)
                           (encode-sequence (or slot '())
                                           (lambda (h) h)))  ;; hash is already 32 bytes

@@ -11,7 +11,7 @@
 ;;;;   :phase             → slot mod E                       (6.2)
 ;;;;   :rotation          → ⌊slot/R⌋                         (11.3)
 ;;;;   :min-allowed-slot  → R·max(0, ⌊slot/R⌋ − 1)          (11.26)
-;;;;   :encoded           → E4(slot)                          (codec)
+;;;;   :save           → E4(slot)                          (codec)
 ;;;;   :decode bytes off  → (values τ-closure consumed)       (codec)
 ;;;;   :stale? timeout    → slot ≥ timeout + U               (11.17)
 ;;;;   :slot>= other      → slot ≥ other
@@ -25,7 +25,7 @@
   ((slot 0))
 
   ;; ── Codec ────────────────────────────────────────────────────
-  (:encoded :memo (E4 slot))
+  (:save :memo (E4 slot))
   (:decode (bytes offset)
     (multiple-value-bind (val consumed) (decode-u32 bytes offset)
       (values (make-tau-state :slot val) consumed)))

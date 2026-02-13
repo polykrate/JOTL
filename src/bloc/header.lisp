@@ -12,10 +12,9 @@
 ;;;;   :tickets-mark, :author-index, :entropy-source, :offenders-mark, :seal
 ;;;;   :timeslot          — alias for :slot
 ;;;;   :is-genesis        — true if parent-hash is zero
-;;;;   :encoded           — E(H) = EU(H) || HS
-;;;;   :encoded-unsealed  — EU(H) without seal
+;;;;   :save              — E(H) = EU(H) || HS
+;;;;   :save-unsealed     — EU(H) without seal
 ;;;;   :hash              — H(E(H))
-;;;;   :decode bytes off  — (values H-closure consumed)
 
 (in-package #:jotl)
 
@@ -26,20 +25,20 @@
 ;;;
 ;;; When present (Some), the closure holds 3 fields accessible via messages.
 ;;; When absent (None), the header's :epoch-mark field is nil.
-;;; The Option tag byte (0x00/0x01) is handled by :encoded / :decode.
+;;; The Option tag byte (0x00/0x01) is handled by :save / load-epoch-mark.
 
 (define-state-closure epoch-mark
   ((entropy nil) (tickets-entropy nil) (validators nil))
 
-  ;; ── Encode: [0x01][entropy:32][tickets-entropy:32][validators:NV*64] ──
-  (:encoded :memo
+  ;; ── Save: [0x01][entropy:32][tickets-entropy:32][validators:NV*64] ──
+  (:save :memo
         (concatenate '(vector (unsigned-byte 8))
                 #(1)
                 (encode-hash-32 entropy)
                 (encode-hash-32 tickets-entropy)
                 (encode-validator-sequence validators)))
 
-  ;; ── Decode: Option<EpochMarker> ──────────────────────────────
+  ;; ── Load: Option<EpochMarker> ──────────────────────────────
   ;; Returns nil for None (tag=0), epoch-mark closure for Some (tag=1).
   (:decode (bytes offset)
   (let ((tag (aref bytes offset)))
@@ -71,8 +70,8 @@
   ;; ── Convenience ──────────────────────────────────────────────
   (:count (length tickets))
 
-  ;; ── Encode: [0x01][{id:32, attempt:u8}]* ─────────────────────
-  (:encoded :memo
+  ;; ── Save: [0x01][{id:32, attempt:u8}]* ─────────────────────
+  (:save :memo
    (concatenate '(vector (unsigned-byte 8))
                 #(1)
               (apply #'concatenate '(vector (unsigned-byte 8))
@@ -82,7 +81,7 @@
                                             (E1 (getf ticket :attempt))))
                                tickets))))
 
-  ;; ── Decode: Option<TicketsMark> ──────────────────────────────
+  ;; ── Load: Option<TicketsMark> ──────────────────────────────
   ;; Returns nil for None (tag=0), tickets-mark closure for Some (tag=1).
   (:decode (bytes offset)
   (let ((tag (aref bytes offset)))
@@ -137,33 +136,33 @@
   (:vrf-entropy :memo
    (when entropy-source (jam.ffi:Y entropy-source)))
 
-  ;; ── Encode EU(H) — GP §5.8 ──────────────────────────────────
-  (:encoded-unsealed :memo
+  ;; ── Save EU(H) — GP §5.8 ──────────────────────────────────
+  (:save-unsealed :memo
    (concatenate '(vector (unsigned-byte 8))
                 (encode-hash-32 parent-hash)         ; HP (32)
                 (encode-hash-32 state-root)          ; HR (32)
                 (encode-hash-32 extrinsic-hash)      ; HX (32)
                 (E4 slot)                            ; HT (4)
                 (if epoch-mark                       ; HE (variable)
-                    (funcall epoch-mark :encoded)
+                    (funcall epoch-mark :save)
                     #(0))
                 (if tickets-mark                     ; HW (variable)
-                    (funcall tickets-mark :encoded)
+                    (funcall tickets-mark :save)
                     #(0))
                 (E2 author-index)                    ; HI (2)
                 (encode-signature-96 entropy-source) ; HV (96)
                 (encode-offenders offenders-mark)))  ; HO (variable)
 
-  ;; ── Encode E(H) = EU(H) || HS ───────────────────────────────
-  (:encoded :memo
+  ;; ── Save E(H) = EU(H) || HS ───────────────────────────────
+  (:save :memo
    (concatenate '(vector (unsigned-byte 8))
-                (self :encoded-unsealed)
+                (self :save-unsealed)
                 (encode-signature-96 seal)))         ; HS (96)
 
   ;; ── Hash H(E(H)) ────────────────────────────────────────────
-  (:hash :memo (blake2b-256 (self :encoded)))
+  (:hash :memo (blake2b-256 (self :save)))
 
-  ;; ── Decode: bytes → H closure ───────────────────────────────
+  ;; ── Load: bytes → H closure ───────────────────────────────
   ;; GP §5.8: E(H) = E(HP, HR, HX, E4(HT), ¿HE, ¿HW, E2(HI), HV, ↕HO, HS)
   (:decode (bytes offset)
     (let ((pos offset)
@@ -174,10 +173,10 @@
       (multiple-value-bind (v n) (decode-u32 bytes pos)         ; HT
         (setf ht v) (incf pos n))
       (multiple-value-bind (v n)                                ; HE → closure or nil
-          (funcall (make-epoch-mark) :decode bytes pos)
+          (load-epoch-mark bytes pos)
         (setf he v) (incf pos n))
       (multiple-value-bind (v n)                                ; HW → closure or nil
-          (funcall (make-tickets-mark) :decode bytes pos)
+          (load-tickets-mark bytes pos)
         (setf hw v) (incf pos n))
       (multiple-value-bind (v n) (decode-u16 bytes pos)         ; HI
         (setf hi v) (incf pos n))
@@ -194,5 +193,5 @@
                     :offenders-mark ho :seal hs)
        (- pos offset)))))
 
-;;; decode-header is auto-generated by define-state-closure:
-;;;   (decode-header bytes offset) → (values H-closure consumed)
+;;; load-header is auto-generated by define-state-closure:
+;;;   (load-header bytes offset) → (values H-closure consumed)

@@ -18,7 +18,7 @@
 ;;;;   :queues           → list of E lists of (:report r :deps (h1 h2 ...))
 ;;;;   :queue-at (idx)   → list of queue entries at slot idx
 ;;;;   :total-queued     → total number of queued items across all slots
-;;;;   :encoded          → binary encoding (memoized)
+;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
 (in-package #:jotl)
@@ -27,7 +27,7 @@
 ;;; QUEUE ENTRY CODEC — (work-report, set-of-deps)
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun decode-omega-queue-entry (bytes offset)
+(defun load-omega-queue-entry (bytes offset)
   "Decode a single ω queue entry: (work-report, deps).
    Returns: (values entry-plist bytes-consumed)"
   (let ((pos offset))
@@ -68,7 +68,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, queue-entry*)
-  (:encoded :memo
+  (:save :memo
     (let ((bufs (mapcar (lambda (queue)
                           (encode-sequence (or queue '())
                                           #'encode-omega-queue-entry))
@@ -82,7 +82,7 @@
           (slots '()))
       (dotimes (i e)
         (multiple-value-bind (queue consumed)
-            (decode-sequence bytes #'decode-omega-queue-entry pos)
+            (decode-sequence bytes #'load-omega-queue-entry pos)
           (push queue slots)
           (incf pos consumed)))
       (values (make-omega-state :queues (nreverse slots))

@@ -14,8 +14,7 @@
 ;;;;   :assignments       → list of C slots (nil | (:report wr :timeout t))
 ;;;;   :core-count        → (length assignments)
 ;;;;   :offender-auth-hashes (disputes) → auth code hashes to ban from α (GP 4.19)
-;;;;   :encoded           → binary encoding (memoized)
-;;;;   :decode            → reconstruct from bytes
+;;;;   :save              → binary encoding (memoized)
 ;;;;   :transition-dagger (&key v-list)
 ;;;;   :transition-ddagger (&key assurances tau-prime parent-hash kappa)
 ;;;;       → ρ‡  (R* via :reported message)
@@ -66,7 +65,7 @@
                    (encode-work-report (getf assignment :report))
                    (encode-u32 (getf assignment :timeout)))))
 
-(defun decode-rho-assignment (bytes offset)
+(defun load-rho-assignment (bytes offset)
   "Decode a single core assignment (Option).
    Returns: (values assignment-or-nil bytes-consumed)"
   (let ((tag (aref bytes offset)))
@@ -464,7 +463,7 @@
   ;; Not encoded (not part of C(10)), carried in memory for accumulate.
   ;; Accessible via auto-generated :reported field accessor.
 
-  (:encoded :memo
+  (:save :memo
     (apply #'concatenate '(vector (unsigned-byte 8))
            (mapcar #'encode-rho-assignment assignments)))
 
@@ -473,7 +472,7 @@
           (pos offset)
           (c (num-cores)))
       (dotimes (i c)
-        (multiple-value-bind (assignment size) (decode-rho-assignment bytes pos)
+        (multiple-value-bind (assignment size) (load-rho-assignment bytes pos)
           (push assignment result)
           (incf pos size)))
       (values (make-rho-state :assignments (nreverse result))

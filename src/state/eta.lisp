@@ -14,7 +14,7 @@
 ;;;;   :last-epoch-entropy      → η₁ (alias)
 ;;;;   :vrf-entropy             → η₂ — ticket VRF & assignment entropy
 ;;;;   :seal-entropy            → η₃ — seal validation entropy
-;;;;   :encoded                 → 128 bytes (4×32)
+;;;;   :save                 → 128 bytes (4×32)
 ;;;;   :transition :header h :tau τ :tau-prime τ' → η'
 
 (in-package #:jotl)
@@ -29,7 +29,7 @@
   (:seal-entropy        eta-3)   ;; η₃: seal validation entropy
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:encoded :memo
+  (:save :memo
     (concatenate '(vector (unsigned-byte 8))
                  (or eta-0 +zero-hash+)
                  (or eta-1 +zero-hash+)

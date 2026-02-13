@@ -61,7 +61,7 @@
    Returns: (values header σ₀ state-root)."
   (let ((pos 0))
     ;; Header
-    (multiple-value-bind (header h-consumed) (decode-header bytes pos)
+    (multiple-value-bind (header h-consumed) (load-header bytes pos)
       (incf pos h-consumed)
       ;; RawState
       (multiple-value-bind (keyvals state-root _consumed)
@@ -79,7 +79,7 @@
         (decode-raw-state-bin bytes pos)
       (incf pos pre-consumed)
       ;; Block
-      (multiple-value-bind (block blk-consumed) (decode-block bytes pos)
+      (multiple-value-bind (block blk-consumed) (load-block bytes pos)
         (incf pos blk-consumed)
         ;; Post-state
         (multiple-value-bind (post-kvs post-root _consumed)
@@ -367,9 +367,9 @@
                                          (when (and (= (length expected-val) 89)
                                                     (= (length computed-val) 89))
                                            (format t "           ── ServiceInfo decode ──~%")
-                                           ;; Use the real decode-service-info (version+code-hash+balance+...)
-                                           (let ((exp-si (decode-service-info expected-val))
-                                                 (got-si (decode-service-info computed-val)))
+                                           ;; Use the real load-service-info (version+code-hash+balance+...)
+                                           (let ((exp-si (load-service-info expected-val))
+                                                 (got-si (load-service-info computed-val)))
                                              ;; Compare each non-hash field explicitly
                                              (dolist (field '(:version :balance :min-item-gas :min-memo-gas
                                                              :bytes :deposit-offset :items

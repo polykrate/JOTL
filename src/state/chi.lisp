@@ -17,7 +17,7 @@
 ;;;;
 ;;;; Messages:
 ;;;;   :raw           → raw segment bytes
-;;;;   :encoded       → binary encoding
+;;;;   :save       → binary encoding
 ;;;;   :decode        → reconstruct from bytes
 ;;;;   :fields        → decoded plist (memoized)
 ;;;;   :manager       → χ_M
@@ -32,7 +32,7 @@
 ;;; CODEC — decode / encode χ
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun decode-chi-fields (bytes &optional (offset 0))
+(defun load-chi-fields (bytes &optional (offset 0))
   "Decode χ from raw bytes starting at OFFSET.
    Returns: (values plist bytes-consumed)
    Plist keys: :manager :designate :creation :authorizers :always-accum"
@@ -90,7 +90,7 @@
   ((raw nil))
 
   ;; ── Codec ──────────────────────────────────────────────────
-  (:encoded raw)
+  (:save raw)
 
   (:decode (bytes offset)
     (let ((segment-bytes (subseq bytes offset)))
@@ -99,7 +99,7 @@
 
   ;; ── Memoized decode (all fields at once) ───────────────────
   (:fields :memo
-    (when raw (decode-chi-fields raw)))
+    (when raw (load-chi-fields raw)))
 
   ;; ── Accessors ─────────────────────────────────────────────
   (:manager     (getf (self :fields) :manager))

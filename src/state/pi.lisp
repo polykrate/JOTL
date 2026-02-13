@@ -31,7 +31,7 @@
 ;;;;   :vals-last          → list of V validator activity plists
 ;;;;   :cores-raw          → raw bytes for core stats (passthrough)
 ;;;;   :services-raw       → raw bytes for service stats (passthrough)
-;;;;   :encoded            → full encoded bytes
+;;;;   :save            → full encoded bytes
 ;;;;   :decode bytes off   → (values closure consumed)
 ;;;;   :transition &key ... → π' closure
 
@@ -64,7 +64,7 @@
                (E4 (getf record :guarantees))
                (E4 (getf record :assurances))))
 
-(defun decode-validator-activity (bytes offset)
+(defun load-validator-activity (bytes offset)
   "Decode one ValidatorActivityRecord: 6 × u32 = 24 bytes.
    Returns: (values plist 24)"
   (values
@@ -81,14 +81,14 @@
   (apply #'concatenate '(vector (unsigned-byte 8))
          (mapcar #'encode-validator-activity records)))
 
-(defun decode-validators-statistics (bytes offset)
+(defun load-validators-statistics (bytes offset)
   "Decode V ValidatorActivityRecords from bytes at offset.
    Returns: (values list-of-plists total-consumed)."
   (let ((v (num-validators))
         (records '())
         (pos offset))
     (dotimes (i v)
-      (multiple-value-bind (rec consumed) (decode-validator-activity bytes pos)
+      (multiple-value-bind (rec consumed) (load-validator-activity bytes pos)
         (push rec records)
         (incf pos consumed)))
     (values (nreverse records) (- pos offset))))
@@ -284,7 +284,7 @@
    (services-raw nil))
 
   ;; ── Codec ────────────────────────────────────────────────────
-  (:encoded :memo
+  (:save :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-validators-statistics
                   (or vals-curr (make-zero-validator-stats)))
@@ -296,10 +296,10 @@
   (:decode (bytes offset)
     (let ((pos offset))
       ;; Decode π_V
-      (multiple-value-bind (vc vc-consumed) (decode-validators-statistics bytes pos)
+      (multiple-value-bind (vc vc-consumed) (load-validators-statistics bytes pos)
         (incf pos vc-consumed)
         ;; Decode π_L
-        (multiple-value-bind (vl vl-consumed) (decode-validators-statistics bytes pos)
+        (multiple-value-bind (vl vl-consumed) (load-validators-statistics bytes pos)
           (incf pos vl-consumed)
           ;; Remaining = π_C + π_S as raw bytes
           ;; We need to figure out where π_C ends and π_S begins.

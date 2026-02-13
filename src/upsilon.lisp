@@ -155,7 +155,7 @@
                  (accum  (transition-accumulate
                           r-star omega xi delta chi iota phi
                           tau tau-prime
-                          :eta (funcall eta-prime :encoded)
+                          :eta (funcall eta-prime :save)
                           :header-hash (funcall h :parent-hash)
                           :raw-storage (funcall sigma :raw-storage)))
                  ;; Destructure accumulation results
@@ -207,24 +207,24 @@
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
-               :alpha   (funcall alpha-prime :encoded)
-               :beta    (funcall beta-prime :encoded)
-               :gamma   (funcall gamma-prime :encoded)
+               :alpha   (funcall alpha-prime :save)
+               :beta    (funcall beta-prime :save)
+               :gamma   (funcall gamma-prime :save)
                :delta   nil                              ;; δ uses extra-kvs
-               :eta     (funcall eta-prime :encoded)
-               :iota    (funcall iota-prime :encoded)
-               :kappa   (funcall kappa-prime :encoded)
-               :lambda* (funcall lambda-prime :encoded)
-               :rho     (funcall rho-prime :encoded)
-               :tau     (funcall tau-prime :encoded)
-               :phi     (funcall phi-prime :encoded)
-               :chi     (funcall chi-prime :encoded)
-               :psi     (funcall psi-prime :encoded)
-               :pi*     (funcall pi-prime :encoded)
-               :omega   (funcall omega-prime :encoded)
-               :xi      (funcall xi-prime :encoded)
+               :eta     (funcall eta-prime :save)
+               :iota    (funcall iota-prime :save)
+               :kappa   (funcall kappa-prime :save)
+               :lambda* (funcall lambda-prime :save)
+               :rho     (funcall rho-prime :save)
+               :tau     (funcall tau-prime :save)
+               :phi     (funcall phi-prime :save)
+               :chi     (funcall chi-prime :save)
+               :psi     (funcall psi-prime :save)
+               :pi*     (funcall pi-prime :save)
+               :omega   (funcall omega-prime :save)
+               :xi      (funcall xi-prime :save)
                :theta   (if theta-prime
-                            (funcall theta-prime :encoded)
+                            (funcall theta-prime :save)
                             (funcall sigma :segment :theta))
                :extra-kvs (funcall delta-prime :extra-kvs)
                :raw-storage (getf accum :raw-storage)))))))))

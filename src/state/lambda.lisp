@@ -13,7 +13,7 @@
 ;;;;   :all-ed25519-keys  → list of all Ed25519 keys
 ;;;;   :filter-offenders offenders → Φ(k) GP (6.14): replace offending validators with null keys
 ;;;;   :non-banned-indices offenders → list of indices whose ed25519 ∉ offenders
-;;;;   :encoded           → encoded validator sequence
+;;;;   :save           → encoded validator sequence
 ;;;;   :transition :tau τ :tau-prime τ' :kappa κ → λ' closure
 
 (in-package #:jotl)
@@ -60,7 +60,7 @@
               collect i)))
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:encoded :memo (encode-full-validator-sequence validators))
+  (:save :memo (encode-full-validator-sequence validators))
 
   (:decode (bytes offset)
     (multiple-value-bind (vals consumed)

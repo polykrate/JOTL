@@ -6,13 +6,13 @@
 ;;;; A closure is a deterministic, immutable, message-dispatching object:
 ;;;;   - Holds immutable data (fields)
 ;;;;   - Derives lazy/memoized computed properties
-;;;;   - Encodes itself to bytes (:encoded)
-;;;;   - Decodes from bytes (:decode message + top-level decode-NAME fn)
+;;;;   - Saves itself to bytes (:save)
+;;;;   - Loads from bytes via top-level load-NAME function
 ;;;;   - Answers semantic queries via method messages
 ;;;;   - Optionally transforms itself into its prime via :transition
 ;;;;
 ;;;; Merkle position (state key C(n)) is NOT the component's concern.
-;;;; σ (sigma) owns the mapping C(n) → component AND the decode dispatch.
+;;;; σ (sigma) owns the mapping C(n) → component AND the load dispatch.
 ;;;; Components just know their codec; σ knows where they live.
 ;;;;
 ;;;; Uniform access principle: all messages use (funcall obj :msg &rest args).
@@ -23,15 +23,14 @@
   "Define a self-transforming state closure.
 
    Generates:
-     (make-NAME &key field1 field2 ...) → closure
-     (NAME-field1 obj)                  → value  (accessor per field)
-     (decode-NAME bytes offset)         → (values closure consumed)  [when :decode present]
+     (make-NAME &key field1 field2 ...) → closure   [internal constructor]
+     (load-NAME bytes offset)           → (values closure consumed)  [when :decode present]
 
    FIELD-SPECS: (PARAM DEFAULT) or (PARAM DEFAULT :key MSG-KEY)
    EXTRA-CLAUSES:
      (:key BODY)                    — computed on every access
      (:key :memo BODY)              — lazy-cached
-     (:decode (BYTES OFFSET) BODY)  — decoder (also generates top-level decode-NAME)
+     (:decode (BYTES OFFSET) BODY)  — loader (generates top-level load-NAME)
      (:key (PARAMS) BODY)           — method with positional args
      (:transition (&key ...) BODY)  — STF: (funcall obj :transition :k v ...)
      (:transition-NAME (&key ...) BODY) — multi-stage STF"
@@ -95,8 +94,7 @@
     (setf transition-clauses (nreverse transition-clauses))
     ;; ── Generate ──
     (let ((constructor (intern (format nil "MAKE-~A" name)))
-          (decoder-fn (when decode-clause (intern (format nil "DECODE-~A" name))))
-          (type-kw (intern (symbol-name name) :keyword))
+          (loader-fn (when decode-clause (intern (format nil "LOAD-~A" name))))
           (memo-vars (loop for mc in memo-clauses
                            collect (gensym (format nil "MEMO-~A-" (getf mc :key))))))
       `(progn
@@ -124,24 +122,10 @@
                                     collect `(,(getf tc :key)
                                               (destructuring-bind ,(getf tc :lambda-list) (cdr args)
                                                 ,(getf tc :body))))
-                            ,@(when decode-clause
-                                `((:decode
-                                   (destructuring-bind ,(getf decode-clause :params) (cdr args)
-                                     ,(getf decode-clause :body)))))
-                            (:as-plist
-                             (list ,@(loop for f in fields
-                                           append (list (getf f :key)
-                                                        (getf f :param)))))
-                            (:type ,type-kw)
                             (otherwise
                              (error ,(format nil "Unknown ~A message: ~~a" name) msg))))))
                #'self)))
-         ,@(loop for f in fields
-                 for acc-name = (intern (format nil "~A-~A" name (getf f :clean)))
-                 collect `(defun ,acc-name (obj)
-                            ,(format nil "Access ~A from ~A." (getf f :key) name)
-                            (funcall obj ,(getf f :key))))
          ,@(when decode-clause
-             `((defun ,decoder-fn ,(getf decode-clause :params)
-                 ,(format nil "Decode ~A from bytes.  Top-level standalone decoder." name)
+             `((defun ,loader-fn ,(getf decode-clause :params)
+                 ,(format nil "Load ~A from bytes. Public standalone loader." name)
                  ,(getf decode-clause :body))))))))

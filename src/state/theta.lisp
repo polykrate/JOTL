@@ -9,7 +9,7 @@
 ;;;;
 ;;;; Messages:
 ;;;;   :raw              → raw segment bytes (skeleton mode)
-;;;;   :encoded          → binary encoding
+;;;;   :save          → binary encoding
 ;;;;   :decode           → reconstruct from bytes
 
 (in-package #:jotl)
@@ -18,7 +18,7 @@
 (define-state-closure theta-state
   ((raw nil))
 
-  (:encoded raw)
+  (:save raw)
 
   (:decode (bytes offset)
     (values (make-theta-state :raw (subseq bytes offset))

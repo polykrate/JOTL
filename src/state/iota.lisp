@@ -16,7 +16,7 @@
 ;;;;   :bandersnatch-key idx → 32-byte Bandersnatch key at index, or NIL
 ;;;;   :all-ed25519-keys  → list of all Ed25519 keys
 ;;;;   :filter-offenders offenders → Φ(k) GP (6.14): replace offending validators with null keys
-;;;;   :encoded           → V × 336 bytes (memoized)
+;;;;   :save           → V × 336 bytes (memoized)
 ;;;;   :decode            → reconstruct from bytes
 ;;;;   (no :transition — modified by accumulate, wired in upsilon)
 
@@ -56,7 +56,7 @@
                          v))))
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:encoded :memo (encode-full-validator-sequence validators))
+  (:save :memo (encode-full-validator-sequence validators))
 
   (:decode (bytes offset)
     (multiple-value-bind (vals consumed)

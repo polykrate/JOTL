@@ -28,7 +28,7 @@
 ;;;;   :account (sid)  -> service plist for specific service, or NIL
 ;;;;   :raw-kvs        -> the underlying key-value pairs for Merkle
 ;;;;   :extra-kvs      -> alias for :raw-kvs
-;;;;   :encoded        -> nil (delta doesn't encode to a single segment)
+;;;;   :save        -> nil (delta doesn't encode to a single segment)
 ;;;;   :transition     -> GP (4.18): delta' < (EP, delta-dagger, tau')
 
 (in-package #:jotl)
@@ -40,7 +40,7 @@
 (defconstant +service-info-size+ 89
   "Fixed binary size of ServiceInfo: 1 + 32 + 5*8 + 4*4 = 89 bytes.")
 
-(defun decode-service-info (bytes &optional (offset 0))
+(defun load-service-info (bytes &optional (offset 0))
   "Decode a 89-byte ServiceInfo from BYTES at OFFSET.
    Returns (values plist bytes-consumed).
    Plist keys match the jam-types.asn field names."
@@ -82,7 +82,7 @@
 
 (defun encode-service-info (info)
   "Encode a ServiceInfo plist to 89-byte binary.
-   INFO is a plist with keys matching decode-service-info output."
+   INFO is a plist with keys matching load-service-info output."
   (let ((buf (make-array +service-info-size+
                          :element-type '(unsigned-byte 8)
                          :initial-element 0))
@@ -231,7 +231,7 @@
                         (ensure-bytes preimage-hash)))
           0 27))
 
-(defun decode-lookup-value (val-bytes)
+(defun load-lookup-value (val-bytes)
   "Decode a lookup entry value: compact(n) . n*u32_LE -> list of timeslot u32s."
   (when (and val-bytes (plusp (length val-bytes)))
     (multiple-value-bind (count consumed) (decode-compact val-bytes 0)
@@ -259,7 +259,7 @@
           ;; Metadata key C(255, s)
           ((and (service-metadata-key-p key)
                 (= (service-id-from-metadata-key key) service-id))
-           (setf metadata (decode-service-info val))
+           (setf metadata (load-service-info val))
            (setf code-hash (getf metadata :code-hash)))
           ;; Sub-key for this service (interleaved)
           ((and (not (service-metadata-key-p key))
@@ -303,7 +303,7 @@
                      (pre-len (length (cdr pre)))
                      (expected-h (lookup-trie-h pre-hash pre-len)))
                 (when (equalp h expected-h)
-                  (let ((statuses (decode-lookup-value val)))
+                  (let ((statuses (load-lookup-value val)))
                     (push (list* pre-hash pre-len statuses) lookup))
                   (setf found-lookup t)
                   (return))))
@@ -334,7 +334,7 @@
             (val (cdr kv)))
         (when (service-metadata-key-p key)
           (let ((sid (service-id-from-metadata-key key))
-                (info (decode-service-info val)))
+                (info (load-service-info val)))
             (push (list :id sid :service info) accounts)))))
     ;; Sort by service ID for deterministic ordering
     (sort accounts #'< :key (lambda (a) (getf a :id)))))
@@ -410,7 +410,7 @@
             (let ((lookup-entry (find-kv lookup-key)))
               (unless lookup-entry
                 (error "Preimage EP: no lookup for service ~D len ~D" sid len))
-              (let ((statuses (decode-lookup-value (cdr lookup-entry))))
+              (let ((statuses (load-lookup-value (cdr lookup-entry))))
                 (unless (evenp (length statuses))
                   (error "Preimage EP: already available for service ~D" sid))
 
@@ -436,7 +436,7 @@
    (raw-storage nil))
 
   ;; delta doesn't encode to a single segment byte vector.
-  (:encoded nil)
+  (:save nil)
 
   ;; Access the underlying Merkle key-value pairs.
   (:extra-kvs raw-kvs)

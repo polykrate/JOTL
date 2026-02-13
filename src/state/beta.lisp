@@ -16,7 +16,7 @@
 ;;;;   :find-record (hash)   → history record plist matching header-hash, or NIL
 ;;;;   :known-package-hashes → (memoized) list of all work-package hashes in history
 ;;;;   :find-reported-wp (h) → reported-wp plist matching hash, or NIL
-;;;;   :encoded              → binary encoding (memoized)
+;;;;   :save              → binary encoding (memoized)
 ;;;;   :decode               → reconstruct from bytes
 ;;;;   :transition-dagger (&key header)  → β†
 ;;;;   :transition (&key header guarantees theta-prime) → β'
@@ -47,7 +47,7 @@
 
 ;; -- ReportedWorkPackage = hash(32) + exports_root(32) --
 
-(defun decode-reported-wp (bytes offset)
+(defun load-reported-wp (bytes offset)
   "Decode ReportedWorkPackage. Returns (values plist 64)."
   (values (list :hash (subseq bytes offset (+ offset 32))
                 :exports-root (subseq bytes (+ offset 32) (+ offset 64)))
@@ -61,7 +61,7 @@
 
 ;; -- BlockInfo = header_hash(32) + beefy_root(32) + state_root(32) + Seq<ReportedWP> --
 
-(defun decode-block-info (bytes offset)
+(defun load-block-info (bytes offset)
   "Decode BlockInfo → history-record plist. Returns (values plist consumed)."
   (let ((start offset))
     (let ((header-hash (subseq bytes offset (+ offset 32))))
@@ -71,7 +71,7 @@
         (let ((state-root (subseq bytes offset (+ offset 32))))
           (incf offset 32)
           (multiple-value-bind (reported consumed)
-              (decode-sequence bytes #'decode-reported-wp offset)
+              (decode-sequence bytes #'load-reported-wp offset)
             (values (make-history-record
                      :header-hash header-hash
                      :beefy-root beefy-root
@@ -89,7 +89,7 @@
 
 ;; -- MmrPeak = Option<Hash32> --
 
-(defun decode-mmr-peak (bytes offset)
+(defun load-mmr-peak (bytes offset)
   "Decode MmrPeak (option). Returns (values hash-or-nil consumed)."
   (decode-option bytes (lambda (b o) (values (subseq b o (+ o 32)) 32)) offset))
 
@@ -178,7 +178,7 @@
                       (ensure-bytes wp-hash))
           (return-from self rp)))))
 
-  (:encoded :memo
+  (:save :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-sequence history #'encode-block-info)
                  (encode-sequence (coerce mmr-peaks 'list) #'encode-mmr-peak)))
@@ -186,10 +186,10 @@
   (:decode (bytes offset)
     (let ((start offset))
       (multiple-value-bind (hist h-consumed)
-          (decode-sequence bytes #'decode-block-info offset)
+          (decode-sequence bytes #'load-block-info offset)
         (incf offset h-consumed)
         (multiple-value-bind (peaks p-consumed)
-            (decode-sequence bytes #'decode-mmr-peak offset)
+            (decode-sequence bytes #'load-mmr-peak offset)
           (incf offset p-consumed)
           (values (make-beta-state :history hist
                                    :mmr-peaks (coerce peaks 'vector))

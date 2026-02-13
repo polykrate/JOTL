@@ -122,12 +122,11 @@
    ;; ═══════════════════════════════════════════
    ;; Bloc — Header H (GP §5)
    ;; ═══════════════════════════════════════════
-   #:make-header
-   #:decode-header
+   #:make-header #:load-header
    ;; HE sub-closure (GP §6.6)
-   #:make-epoch-mark
+   #:make-epoch-mark #:load-epoch-mark
    ;; HW sub-closure (GP §6.6)
-   #:make-tickets-mark
+   #:make-tickets-mark #:load-tickets-mark
    
    ;; ═══════════════════════════════════════════
    ;; Bloc — Extrinsic codec (GP §4.3)
@@ -140,8 +139,7 @@
    ;; ═══════════════════════════════════════════
    ;; Bloc — B ≡ (H, ET, ED, EP, EA, EG) (GP §4.2)
    ;; ═══════════════════════════════════════════
-   #:make-block
-   #:decode-block
+   #:make-block #:load-block
    
    ;; ═══════════════════════════════════════════
    ;; Bloc — Codec helpers
@@ -175,45 +173,44 @@
    ;; ═══════════════════════════════════════════
    ;; State — τ Timeslot (GP §6.1-6.2)
    ;; ═══════════════════════════════════════════
-   #:make-tau-state #:decode-tau-state
-   #:tau-state-slot
+   #:load-tau-state
    
    ;; ═══════════════════════════════════════════
    ;; State — η Entropy (GP §6.21-6.23)
    ;; ═══════════════════════════════════════════
-   #:make-eta-state #:decode-eta-state
+   #:load-eta-state
    
    ;; ═══════════════════════════════════════════
    ;; State — κ Current Validators (GP §6.15)
    ;; ═══════════════════════════════════════════
-   #:make-kappa-state #:decode-kappa-state
+   #:load-kappa-state
    
    ;; ═══════════════════════════════════════════
    ;; State — λ Archived Validators (GP §6.16)
    ;; ═══════════════════════════════════════════
-   #:make-lambda-state #:decode-lambda-state
+   #:load-lambda-state
    
    ;; ═══════════════════════════════════════════
    ;; State — ι Enqueued Validators (GP §6.7)
    ;; ═══════════════════════════════════════════
-   #:make-iota-state #:decode-iota-state
+   #:load-iota-state
    
    ;; ═══════════════════════════════════════════
    ;; State — β Recent History (GP §7)
    ;; ═══════════════════════════════════════════
-   #:make-beta-state #:decode-beta-state
+   #:load-beta-state
    #:make-history-record
-   #:encode-block-info #:decode-block-info
-   #:encode-reported-wp #:decode-reported-wp
+   #:encode-block-info #:load-block-info
+   #:encode-reported-wp #:load-reported-wp
    
    ;; ═══════════════════════════════════════════
    ;; State — γ Safrole (GP §6)
    ;; ═══════════════════════════════════════════
-   #:make-gamma-state #:decode-gamma-state
+   #:load-gamma-state
    #:safrole-error #:safrole-error-code #:safrole-error-detail
    ;; Gamma-specific codec helpers
-   #:encode-state-ticket #:decode-state-ticket
-   #:encode-gamma-sealing #:decode-gamma-sealing
+   #:encode-state-ticket #:load-state-ticket
+   #:encode-gamma-sealing #:load-gamma-sealing
    ;; Gamma standalone functions
    #:filter-offenders #:outside-in-sequencer
    #:fallback-key-sequence #:closing-offset
@@ -223,60 +220,60 @@
    ;; ═══════════════════════════════════════════
    ;; State — ψ Judgments (GP §10)
    ;; ═══════════════════════════════════════════
-   #:make-psi-state #:decode-psi-state
+   #:load-psi-state
    #:disputes-error #:disputes-error-code #:disputes-error-detail
    #:super-majority
    
    ;; ═══════════════════════════════════════════
    ;; State — ρ Core Assignments (GP §10-12)
    ;; ═══════════════════════════════════════════
-   #:make-rho-state #:decode-rho-state
-   #:encode-rho-assignment #:decode-rho-assignment
+   #:load-rho-state
+   #:encode-rho-assignment #:load-rho-assignment
    #:assurance-error #:assurance-error-code #:assurance-error-detail
    #:guarantee-error #:guarantee-error-code #:guarantee-error-detail
    
    ;; ═══════════════════════════════════════════
    ;; State — π Validator Statistics (GP §13)
    ;; ═══════════════════════════════════════════
-   #:make-pi-state #:decode-pi-state
-   #:encode-validator-activity #:decode-validator-activity
-   #:encode-validators-statistics #:decode-validators-statistics
+   #:load-pi-state
+   #:encode-validator-activity #:load-validator-activity
+   #:encode-validators-statistics #:load-validators-statistics
    
    ;; ═══════════════════════════════════════════
    ;; State — α Authorizations (GP §8.1)
    ;; ═══════════════════════════════════════════
-   #:make-alpha-state #:decode-alpha-state
+   #:load-alpha-state
    
    ;; ═══════════════════════════════════════════
    ;; State — ϕ Authorization Queue (GP §8.1-8.2)
    ;; ═══════════════════════════════════════════
-   #:make-phi-state #:decode-phi-state
+   #:load-phi-state
    
    ;; ═══════════════════════════════════════════
    ;; State — δ Service Accounts (GP §9)
    ;; ═══════════════════════════════════════════
-   #:make-delta-state #:decode-delta-state
+   #:load-delta-state
    #:load-delta-from-extra-kvs
    
    ;; ═══════════════════════════════════════════
    ;; State — χ Privileged IDs (GP §9.4)
    ;; ═══════════════════════════════════════════
-   #:make-chi-state #:decode-chi-state
+   #:load-chi-state
    
    ;; ═══════════════════════════════════════════
    ;; State — ω Accumulation Queue (GP §12.3)
    ;; ═══════════════════════════════════════════
-   #:make-omega-state #:decode-omega-state
+   #:load-omega-state
    
    ;; ═══════════════════════════════════════════
    ;; State — ξ Accumulation History (GP §12.1)
    ;; ═══════════════════════════════════════════
-   #:make-xi-state #:decode-xi-state
+   #:load-xi-state
    
    ;; ═══════════════════════════════════════════
    ;; State — θ Accumulation Outputs (GP §12.25)
    ;; ═══════════════════════════════════════════
-   #:make-theta-state #:decode-theta-state
+   #:load-theta-state
    
    ;; ═══════════════════════════════════════════
    ;; §12 Accumulate Orchestrator (GP §12)

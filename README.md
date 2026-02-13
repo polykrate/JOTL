@@ -8,30 +8,27 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
 | Trace | Chain | Step | 1st divergence | Notes |
 |-------|-------|------|----------------|-------|
-| fallback | **100/100** | 100/100 | — | No work reports |
-| safrole | **100/100** | 100/100 | — | No work reports |
-| storage | 84/100 | 40/100 | block 6 (step) | PI gas diff |
-| preimages | 7/100 | 38/100 | block 2 (step) | PI gas diff |
+| fallback | **100/100** | **100/100** | — | No PVM invocation |
+| safrole | **100/100** | **100/100** | — | No PVM invocation |
+| storage | 8/9 | 40/100 | block 9 (chain) | PI gas diff |
+| storage_light | 7/8 | 41/100 | block 8 (chain) | PI gas diff |
+| preimages | 5/6 | 38/100 | block 6 (chain) | PI gas diff |
+| preimages_light | 5/6 | 42/100 | block 6 (chain) | PI gas diff |
+| fuzzy | 5/6 | 32/200 | block 6 (chain) | PI gas diff |
+| fuzzy_light | 1/2 | 36/200 | block 2 (chain) | PI gas diff |
+| **TOTAL** | **231/237** | **429/1000** | | **0 errors** |
 
 ### Current divergence: C(13)=PI `accumulate-gas-used`
 
 The remaining failures are all caused by **gas differences** in the validator
 activity statistics segment (π). Specifically, the `accumulate-gas-used` field
-of service activity records diverges.
+of service activity records diverges during PVM accumulate execution.
 
-**Root cause under investigation:** the PVM produces slightly different gas
-consumption during `accumulate_ext` execution. All service data (storage,
-preimages, items/footprint metadata) is now correct — the only remaining
-divergence is the gas value reported in π.
+All non-PVM transitions pass 100%. Some blocks with PVM accumulation also pass
+(9–13 per trace). The divergence only manifests on certain host-call patterns
+during `accumulate_ext`. Under investigation in B.5–B.7 audit.
 
-Hypotheses being investigated:
-- Service metadata fields `a_r` / `a_a` / `a_p` mapping (last 3 u32 fields of
-  the 89-byte ServiceInfo are passed to the PVM as `recent_count`,
-  `accum_gas_limit`, `preimage_pages` — may be incorrect mapping)
-- Entropy or header-hash passed to the PVM context may differ from reference
-- Accumulate items encoding (field ordering, hash computation)
-
-- **M1 Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
+- **Block Importer** — `genesis.bin → σ₀`, then `Υ(σ, B) → σ'` with state_root verification
   - Chain mode: genesis → block 1 → block 2 → ... (our σ' becomes next σ)
   - Step mode: each block independently verified from trace pre_state
 - **Block codec** — Full decode/encode of B = (H, ET, ED, EP, EA, EG)
@@ -59,7 +56,7 @@ Hypotheses being investigated:
 - **Chainspec** — tiny/full configs switchable at runtime
 - **Codec roundtrip** — 10 components: decode → encode → byte-exact across 201 states
 - **State Merklization HR** — Merkle trie (GP Appendix D) verified on genesis + 100 blocks
-- **Binary import API** — `decode-genesis-bin`, `decode-trace-step-bin`, `load-state-from-keyvals`
+- **Binary import API** — `load-genesis`, `load-trace-step`, `load-state-from-keyvals`
 
 ## Architecture
 
@@ -110,25 +107,50 @@ src/
 │
 ├── accumulate.lisp     §12 Accumulate orchestrator (R*, queues, PVM)
 ├── upsilon.lisp        Υ(σ,B)→σ' orchestrator (GP §4.2.1)
-└── import.lisp         M1 Block Importer: binary parsers + chain runner
+└── import.lisp         Block importer: binary parsers + chain runner
 
 crypto/                 FFI to Rust (jam-crypto)
 tests/                  Test vectors (w3f/jamtestvectors)
 ```
 
-### Design Principles — State Closures
+### Design Principles — Actors, not Objects
 
-Inspired by Alan Kay's original OOP vision: objects are autonomous units
-that communicate exclusively via messages. No shared memory, no extraction
-of internals, no class hierarchies. Each state closure is self-governing
-over its own data and lifecycle.
+The architecture follows Hewitt's Actor Model (1973), not Smalltalk-style OOP.
+No classes, no inheritance, no CLOS. Just actors that **send**, **create**,
+and **become**.
 
-**State closures.** Every state component (τ, η, κ, γ, ψ, ρ, β, …) is a
-self-sufficient closure that manages its complete lifecycle:
+An actor has three fundamental capabilities when it receives a message:
+
+| Hewitt | JOTL | Example |
+|--------|------|---------|
+| **Send** — message another actor | `(funcall closure :msg ...)` | `(funcall kappa :ed25519-key 5)` |
+| **Create** — birth new actors | σ `:load` | `(funcall sigma :load :gamma)` → γ is born |
+| **Become** — designate successor | `:transition` returns prime | `γ' = (funcall gamma :transition ...)` — γ is dead, γ' lives |
+
+**Become is the key.** Closures are immutable — they cannot change themselves.
+`:transition` is not mutation, it is Hewitt's `become`: γ produces γ' and
+ceases to exist. γ' is the new behavior. This maps perfectly onto the Gray
+Paper's functional STF: `Υ(σ, B) → σ'` is σ receiving a message (B) and
+becoming σ'.
+
+**The full STF as an actor conversation:**
+
+```
+1. σ receives B (the block is the message)
+2. σ creates {τ, η, κ, γ, ...}           ← CREATE (birth from bytes)
+3. Each component transitions              ← BECOME (τ→τ', η→η', γ→γ')
+4. Primes serialize themselves             ← SEND   (:save → bytes)
+5. σ' is assembled from the bytes          ← σ BECOMES σ'
+```
+
+**σ as supervisor.** σ is the supervisor actor (Erlang/OTP pattern). It holds
+the specifications (raw bytes) for all child actors and births them on demand.
+Components are the supervised workers — autonomous once born, but σ owns the
+blueprints:
 
 ```lisp
-(funcall gamma :decode bytes offset)  ;; I know how to read myself
-(funcall gamma :encoded)              ;; I know how to write myself
+(funcall sigma :load :gamma)          ;; σ births γ from its bytes
+(funcall gamma :save)                 ;; I know how to serialize myself
 (funcall gamma :transition ...)       ;; I know how to transform myself
 (funcall gamma :pending-keys)         ;; I know how to describe myself
 (funcall gamma :sealing-variant)      ;; I know my own internals
@@ -191,36 +213,36 @@ extraction:
 - `define-value-object` (v1) — Block data structures (`bloc/`). No state
   transitions, no Merkle keys. Pure data + codec.
 - `define-state-closure` (v2) — State components (`state/`). Fields, memoized
-  derived properties, integrated codec (`:encoded` / `:decode`), and state
-  transitions (`:transition`). Merkle position C(n) owned by σ, not by the
+  derived properties, integrated codec (`:save`), and state transitions
+  (`:transition`). σ births them via `:load`; the loader is defined in each
+  component's `:decode` clause. Merkle position C(n) owned by σ, not by the
   component.
 
-**σ — the meta-closure.** `sigma` is itself a state closure, but at a
-different level: it is the container of all other closures' encoded forms.
-It stores raw bytes, not live closures. It has no `:encoded` (it IS bytes),
-no `:decode` (it is assembled from Merkle segments), and no `:transition`
-(the transition is Υ, orchestrated by upsilon). Instead it provides:
-- `:load kw` — lazy decode of a component from bytes to closure
+**σ — the supervisor.** `sigma` is itself a closure, but at a different
+level: it is the container of all other closures' encoded forms. It stores
+raw bytes, not live closures. Like an Erlang supervisor, σ holds child specs
+(bytes) and births components on demand:
+- `:load kw` — birth a component from its raw bytes (lazy, on demand)
+- `:transition (&key block)` — delegates to `transition-state` in `upsilon.lisp`
 - `:merkle-kvs` — pairs C(n) + bytes for the Merkle trie
 - `:state-root` — H(trie) = the state root HR
 
-**B — the message, not an actor.** In Kay's model, σ is the actor and B is the
-message sent to it. Υ is the handler. The block holds the header H (a closure
-with genuine sovereignty: hash, seal, genesis check) and the extrinsic
-sub-elements ET, ED, EP, EA, EG as raw open data. Extrinsics have no lifecycle,
-no transitions, no sovereignty — they are consumed directly by state closures
-during Υ. The block is never an actor; it is data that travels through the
-transition and is consumed.
+**B — the message, not an actor.** σ is the actor, B is the message sent to
+it, Υ is the handler. The block holds the header H (a closure with genuine
+sovereignty: hash, seal, genesis check) and the extrinsic sub-elements
+ET, ED, EP, EA, EG as raw open data. Extrinsics have no lifecycle, no
+transitions, no sovereignty — they are consumed by state closures during Υ.
+The block is never an actor; it is data that triggers the `become`.
 
-**Immutability.** Closures never mutate. Transitions return new instances.
-This aligns with the Gray Paper's functional STF model and ensures the
-dependency graph (GP §4.2.1) is safe.
+**Immutable become.** Closures never mutate. `:transition` is `become` —
+the old actor is gone, the prime is the new behavior. This aligns with the
+Gray Paper's functional STF and ensures the dependency graph (GP §4.2.1) is
+safe. No locks, no shared memory, no race conditions.
 
-**σ as byte store, closures decode lazily.** `sigma` holds raw bytes for each
-segment. Closures are decoded on demand via `(funcall sigma :load :kw)`, which
-dispatches to the right `decode-NAME-state` function. After transitions,
-closures re-encode to bytes for σ'. Only the needed components are decoded
-per wave.
+**Lazy birth.** σ holds raw bytes for each segment. Components are born on
+demand via `(funcall sigma :load :kw)`. After transitions, components
+serialize themselves via `:save` and σ' collects the bytes. Only the needed
+components are born per wave.
 
 **Pipeline knows WHAT, closures know HOW.** The orchestrator (`upsilon.lisp`)
 manages the dependency graph (GP §4.2.1) and injects dependencies via
@@ -254,7 +276,7 @@ sbcl --eval '(push (truename ".") asdf:*central-registry*)' \
      --eval '(asdf:load-system :jotl)'
 ```
 
-## M1 Block Importer
+## Block Importer
 
 ```bash
 # Run 100 fallback blocks (chain mode — genesis → sequential blocks)
@@ -267,7 +289,7 @@ sbcl --noinform --non-interactive \
                        :from 1 :to 100 :mode :chain))'
 ```
 
-The block importer API:
+The importer API:
 
 ```lisp
 ;; Load genesis from binary
@@ -312,45 +334,6 @@ sbcl ... --eval '(load "tests/test-block-roundtrip.lisp")'
 | `test-assurances` | §11 | 20 | rho transition-ddagger: assurance processing |
 | `test-reports` | §11-12 | 84 | rho transition: guarantee processing |
 
-## Roadmap
-
-- [x] JAM Codec (Appendix C)
-- [x] Block B = (H, ET, ED, EP, EA, EG) — message with open extrinsic data
-- [x] Header hash H(E(H))
-- [x] Extrinsic hash HX
-- [x] State sigma closure (17 segments + extra-kvs)
-- [x] Upsilon dependency graph (4 waves)
-- [x] Timeslot tau STF (§6)
-- [x] Entropy eta STF (§6.21-23) — 42/42
-- [x] Recent History beta STF (§7.5-7.8) — full 2-phase transition — 8/8
-- [x] Disputes psi STF (§10) — 56/56
-- [x] Safrole gamma STF (§6) — 42/42
-- [x] Validator keys kappa, lambda, iota (§6.14-16)
-- [x] Assignments rho: 3-wave transition (§10-12)
-- [x] Statistics pi (§13) — full 4-component transition (π_V, π_L, π_C, π_S)
-- [x] Authorizations alpha (§8.1) — epoch rotation + offender filtering
-- [x] Accumulate orchestrator (§12.1-12.12) — R*, queue editing, priority ordering
-- [x] Service accounts delta — ServiceInfo codec, sub-key parsing, Merkle trie
-- [x] PVM FFI — PolkaVM engine, host calls (Appendix B), JAM-codec wire protocol
-- [x] Structural validation (§5)
-- [x] State closure architecture — closures as actors, message-passing, lazy σ decode
-- [x] Bandersnatch Ring VRF — seal + ticket validation with SRS
-- [x] State Merklization HR (Appendix D) — verified on genesis + 100 blocks
-- [x] Codec roundtrip — 10 components byte-exact across 201 states
-- [x] **M1 Block Importer** — 100/100 fallback blocks (chain + step modes)
-- [x] Binary import API — `genesis.bin` → σ₀, trace steps, `import-block`, `run-trace`
-- [~] **Accumulate PVM execution** (§12.2) — PVM run + side-effects + collapse working. Gas divergence in π (PI segment) under investigation.
-- [~] Preimage integration delta' (§9.2/§4.18) — integrate-preimages implemented, lookup/blob updates
-- [x] PVM host calls audit (Appendix A) — A.1–A.8 verified, gas formula fixed (max(ϱ',0))
-- [x] PVM host calls audit (Appendix B.1–B.4) — constants, is-authorized, refine, accumulate verified
-- [~] PVM host calls audit (Appendix B.5–B.7) — general/refine/accumulate functions (in progress)
-- [x] Incremental items/footprint tracking — PVM tracks a_i/a_o per host-call (ΩW/ΩS/ΩF)
-- [x] WorkItemRecord.result encoding — error variants (Panic/OOG/BadExports) now passed correctly
-- [x] Deferred transfers — balance augmentation (B.9) + AccumulateItem::Transfer encoding (12.24)
-- [ ] On-transfer invocations (§12.3) — PC=10 never called yet
-- [ ] Refine STF (§9) + PVM
-- [ ] Fuser API — init-state / add-block / debug endpoints
-
 ## Fuser API
 
 The fuser exposes three operations over binary state:
@@ -378,8 +361,8 @@ debug(block.bin)         →  raw-state.bin
 (funcall sigma :load :tau)      ;; → τ closure (lazy decode)
 (funcall sigma :segment :tau)   ;; → raw bytes (no decode)
 
-;; 4. Decode a block from binary
-(decode-block bytes 0)          ;; → (values block-closure consumed)
+;; 4. Load a block from binary
+(load-block bytes 0)            ;; → (values block-closure consumed)
 
 ;; 5. Encode state back to Merkle KV pairs
 (funcall sigma :merkle-kvs)     ;; → [(key . val), ...] — ready for trie

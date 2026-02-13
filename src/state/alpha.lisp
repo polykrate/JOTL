@@ -18,7 +18,7 @@
 ;;;; Messages:
 ;;;;   :pools            → list of C lists of 32-byte hash vectors
 ;;;;   :pool-for-core c  → list of hashes for core c
-;;;;   :encoded          → binary encoding (memoized)
+;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 ;;;;   :transition       → GP (4.19): α' < (H, EC, ϕ', α)
 
@@ -34,7 +34,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; C × (compact-len, hash32*)
-  (:encoded :memo
+  (:save :memo
     (let ((c (num-cores)))
       (let ((bufs (loop for core-idx below c
                         for pool = (when (< core-idx (length pools))

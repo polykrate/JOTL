@@ -94,7 +94,7 @@
    Returns: state-root (32 bytes)."
   (unless *fuser-sigma*
     (error "Fuser not initialized — call init-state first"))
-  (multiple-value-bind (block consumed) (decode-block block-bytes 0)
+  (multiple-value-bind (block consumed) (load-block block-bytes 0)
     (declare (ignore consumed))
     (multiple-value-bind (sigma-prime state-root)
         (import-block *fuser-sigma* block)
@@ -110,7 +110,7 @@
    Does NOT advance the fuser σ — this is a read-only probe."
   (unless *fuser-sigma*
     (error "Fuser not initialized — call init-state first"))
-  (multiple-value-bind (block consumed) (decode-block block-bytes 0)
+  (multiple-value-bind (block consumed) (load-block block-bytes 0)
     (declare (ignore consumed))
     (multiple-value-bind (sigma-prime state-root)
         (import-block *fuser-sigma* block)
@@ -330,7 +330,7 @@
               (declare (ignore post-sigma))
 
               ;; Get raw block bytes
-              (let ((block-bytes (funcall block-cl :encoded)))
+              (let ((block-bytes (funcall block-cl :save)))
 
                 ;; === CHAIN MODE ===
                 (when chain-ok

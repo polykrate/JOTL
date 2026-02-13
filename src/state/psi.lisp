@@ -36,7 +36,7 @@
 ;;;;   :bad        → list of H (work-reports judged invalid)
 ;;;;   :wonky      → list of H (work-reports judged unknowable)
 ;;;;   :offenders  → list of Ed25519 keys (banned validators)
-;;;;   :encoded    → binary encoding (memoized)
+;;;;   :save    → binary encoding (memoized)
 ;;;;   :decode     → reconstruct from bytes
 ;;;;   :v-list     → list of (hash . positive-count) — transition byproduct
 ;;;;   :transition → ψ'-closure (v-list accessible via :v-list message)
@@ -281,7 +281,7 @@
   ;; Not encoded (not part of C(5)), just carried in memory.
   ;; Accessible via auto-generated :v-list field accessor.
 
-  (:encoded :memo
+  (:save :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-sequence good #'encode-hash-32)
                  (encode-sequence bad #'encode-hash-32)

@@ -29,7 +29,7 @@
 ;;;;   :kappa — alias for pending-keys (validator-compatible)
 ;;;;   :sealing-variant       → :tickets or :keys (abstracts γS variant)
 ;;;;   :seal-entry-at slot    → ticket plist or key bytes at slot mod E
-;;;;   :encoded :memo — binary codec
+;;;;   :save :memo — binary codec
 ;;;;   :decode (bytes offset) — decoder
 ;;;;   (Merkle key C(4) owned by σ)
 ;;;;   :transition (&key tau tau-prime tickets iota eta-prime kappa-prime psi-prime) — GP (4.7)
@@ -67,7 +67,7 @@
                  (encode-hash-32 id)
                  (vector attempt))))
 
-(defun decode-state-ticket (bytes offset)
+(defun load-state-ticket (bytes offset)
   "Decode a state ticket T.
    Returns: (values plist 33)"
   (values
@@ -99,7 +99,7 @@
                     (apply #'concatenate '(vector (unsigned-byte 8))
                            (mapcar #'encode-bandersnatch-key data)))))))
 
-(defun decode-gamma-sealing (bytes offset)
+(defun load-gamma-sealing (bytes offset)
   "Decode γs. Returns: (values plist bytes-consumed)"
   (let* ((discriminant (aref bytes offset))
          (pos (1+ offset))
@@ -108,7 +108,7 @@
       (0 ;; tickets: E × 33 bytes
        (let ((tickets '()))
          (dotimes (i e)
-           (multiple-value-bind (ticket size) (decode-state-ticket bytes pos)
+           (multiple-value-bind (ticket size) (load-state-ticket bytes pos)
              (push ticket tickets)
              (incf pos size)))
          (values (list :variant :tickets :data (nreverse tickets))
@@ -341,7 +341,7 @@
     (nth (seal-key-index slot) (getf sealing :data)))
 
   ;; ── Codec ──────────────────────────────────────────────────
-  (:encoded :memo
+  (:save :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-full-validator-sequence pending-keys)
                  (if ring-commitment
@@ -362,11 +362,11 @@
           (incf pos +bls-key-size+)
           ;; γS: discriminant + data
           (multiple-value-bind (gs gs-size)
-              (decode-gamma-sealing bytes pos)
+              (load-gamma-sealing bytes pos)
             (incf pos gs-size)
             ;; γA: compact-prefixed sequence of tickets
             (multiple-value-bind (ga ga-size)
-                (decode-sequence bytes #'decode-state-ticket pos)
+                (decode-sequence bytes #'load-state-ticket pos)
               (incf pos ga-size)
               (values
                (make-gamma-state :pending-keys pk

@@ -15,7 +15,7 @@
 ;;;;   :queues           → list of C queues, each a list of Q 32-byte hash vectors
 ;;;;   :queue-for-core c → queue of Q hashes for core c
 ;;;;   :head-for-core c  → head (first) hash from core c's queue
-;;;;   :encoded          → binary encoding (memoized)
+;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
 (in-package #:jotl)
@@ -36,7 +36,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; C × Q × hash32  (fixed-size, no compact prefix)
-  (:encoded :memo
+  (:save :memo
     (let ((c (num-cores))
           (q +auth-queue-size+))
       (let ((buf (make-array (* c q 32) :element-type '(unsigned-byte 8)
