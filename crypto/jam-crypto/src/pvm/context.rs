@@ -214,17 +214,26 @@ pub struct ServiceAccount {
     pub balance: u64,
     /// a_c — code hash (32 bytes)
     pub code_hash: [u8; 32],
-    /// a_t — storage item count threshold (u64). Ω_W returns FULL if a_t > a_b.
+    /// a_f — balance offset / "deposit" (u64). Used in threshold computation:
+    ///       a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f)  (GP §9.3 eq 9.8)
+    /// NOTE: Rust field is named `threshold` but holds a_f (the stored balance offset),
+    /// NOT the derived a_t. The actual threshold is computed by compute_threshold().
     pub threshold: u64,
-    /// a_g — minimum gas for accumulate (u64)
+    /// a_g — minimum gas for accumulate entry-point (u64) (GP §9.1)
     pub min_accum_gas: u64,
-    /// a_m — minimum gas per item in accumulate (u64)
+    /// a_m — minimum gas per deferred-transfer (u64) (GP §9.1)
+    /// NOTE: Rust field is named `min_item_gas` but holds GP's a_m.
     pub min_item_gas: u64,
-    /// a_o — minimum gas for on_transfer (u64)
+    /// Holds a_m from Lisp side. NOT used in Ω_I encoding (positions swapped).
+    /// Used only for Ω_T LOW check: transfer gas_limit ≥ dest.min_on_transfer_gas.
     pub min_on_transfer_gas: u64,
-    /// a_i — number of items (preimages/solicitations) (u32)
+    /// a_i — number of items: 2·|a_l| + |a_s| (u32) (GP §9.3 eq 9.8)
+    /// Tracked incrementally by Ω_W/Ω_S/Ω_F.
     pub items_count: u32,
-    /// a_f — total footprint in bytes (u64)
+    /// a_o — total storage octets (u64) (GP §9.3 eq 9.8)
+    /// = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)
+    /// Tracked incrementally by Ω_W/Ω_S/Ω_F.
+    /// NOTE: Rust field is named `footprint` but holds GP's a_o (total octets).
     pub footprint: u64,
     /// a_r — number of recent history entries (u32)
     pub recent_count: u32,
@@ -237,10 +246,39 @@ pub struct ServiceAccount {
 /// Size of the Ω_I encoded service info record (bytes).
 pub const SERVICE_INFO_SIZE: usize = 96;
 
+// ── GP §9.3 eq (9.8): Balance constants for threshold computation ──
+// a_t = max(0, B_S + B_I · a_i + B_L · a_o − a_f)
+/// B_S — Basic minimum balance required by all services (GP §9.8).
+pub const BALANCE_BASE: u64 = 100;
+/// B_I — Additional minimum balance per item of elective state (GP §9.8).
+pub const BALANCE_PER_ITEM: u64 = 10;
+/// B_L — Additional minimum balance per octet of elective state (GP §9.8).
+pub const BALANCE_PER_OCTET: u64 = 1;
+
+/// Compute threshold a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f)
+///
+/// GP §9.3 eq (9.8): The minimum balance needed for a service account
+/// given its storage footprint. Returns 0 when a_f covers all costs.
+///
+/// Fields in our Rust structs (naming differs from GP subscripts):
+///   a_i = items_count, a_o = footprint, a_f = threshold (the "balance offset")
+#[inline]
+pub fn compute_threshold(items_count: u32, footprint: u64, balance_offset: u64) -> u64 {
+    let cost = BALANCE_BASE
+        .saturating_add(BALANCE_PER_ITEM.saturating_mul(items_count as u64))
+        .saturating_add(BALANCE_PER_OCTET.saturating_mul(footprint));
+    cost.saturating_sub(balance_offset)
+}
+
 impl ServiceAccount {
     /// Encode service account info for Ω_I (GP Appendix B).
     ///
     /// `E(a_c, E_8(a_b, a_t, a_g, a_m, a_o), E_4(a_i), E_8(a_f), E_4(a_r, a_a, a_p))`
+    ///
+    /// GP §9.3 field mapping (Rust field names differ from GP subscripts):
+    ///   a_t = compute_threshold(items_count, footprint, threshold)  — DERIVED
+    ///   a_o = self.footprint   (total storage octets, tracked incrementally)
+    ///   a_f = self.threshold   (balance offset, stored primary field)
     pub fn encode_info(&self) -> [u8; SERVICE_INFO_SIZE] {
         let mut buf = [0u8; SERVICE_INFO_SIZE];
         let mut off = 0;
@@ -250,17 +288,20 @@ impl ServiceAccount {
         off += 32;
 
         // E_8(a_b, a_t, a_g, a_m, a_o) — 5 × 8 = 40 bytes
+        //   a_t is DERIVED: max(0, B_S + B_I·a_i + B_L·a_o − a_f) (GP §9.3 eq 9.8)
+        //   a_o = self.footprint (total storage octets)
+        let a_t = compute_threshold(self.items_count, self.footprint, self.threshold);
         buf[off..off + 8].copy_from_slice(&self.balance.to_le_bytes());       off += 8;
-        buf[off..off + 8].copy_from_slice(&self.threshold.to_le_bytes());     off += 8;
+        buf[off..off + 8].copy_from_slice(&a_t.to_le_bytes());               off += 8;
         buf[off..off + 8].copy_from_slice(&self.min_accum_gas.to_le_bytes()); off += 8;
         buf[off..off + 8].copy_from_slice(&self.min_item_gas.to_le_bytes());  off += 8;
-        buf[off..off + 8].copy_from_slice(&self.min_on_transfer_gas.to_le_bytes()); off += 8;
+        buf[off..off + 8].copy_from_slice(&self.footprint.to_le_bytes());     off += 8;
 
         // E_4(a_i) — 4 bytes
         buf[off..off + 4].copy_from_slice(&self.items_count.to_le_bytes());   off += 4;
 
-        // E_8(a_f) — 8 bytes
-        buf[off..off + 8].copy_from_slice(&self.footprint.to_le_bytes());     off += 8;
+        // E_8(a_f) — 8 bytes (balance offset, stored in self.threshold)
+        buf[off..off + 8].copy_from_slice(&self.threshold.to_le_bytes());     off += 8;
 
         // E_4(a_r, a_a, a_p) — 3 × 4 = 12 bytes
         buf[off..off + 4].copy_from_slice(&self.recent_count.to_le_bytes());  off += 4;

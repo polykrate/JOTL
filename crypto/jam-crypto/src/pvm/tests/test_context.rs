@@ -390,8 +390,8 @@ fn test_encode_info_layout() {
     // E_8(a_b) — bytes [32..40)
     assert_eq!(u64::from_le_bytes(buf[32..40].try_into().unwrap()), 1000);
 
-    // E_8(a_t) — bytes [40..48)
-    assert_eq!(u64::from_le_bytes(buf[40..48].try_into().unwrap()), 500);
+    // E_8(a_t) — bytes [40..48) — DERIVED: max(0, 100 + 10*42 + 1*8192 − 500) = 8212
+    assert_eq!(u64::from_le_bytes(buf[40..48].try_into().unwrap()), 8212);
 
     // E_8(a_g) — bytes [48..56)
     assert_eq!(u64::from_le_bytes(buf[48..56].try_into().unwrap()), 100_000);
@@ -399,14 +399,14 @@ fn test_encode_info_layout() {
     // E_8(a_m) — bytes [56..64)
     assert_eq!(u64::from_le_bytes(buf[56..64].try_into().unwrap()), 50_000);
 
-    // E_8(a_o) — bytes [64..72)
-    assert_eq!(u64::from_le_bytes(buf[64..72].try_into().unwrap()), 25_000);
+    // E_8(a_o) — bytes [64..72) — total octets = footprint field
+    assert_eq!(u64::from_le_bytes(buf[64..72].try_into().unwrap()), 8192);
 
     // E_4(a_i) — bytes [72..76)
     assert_eq!(u32::from_le_bytes(buf[72..76].try_into().unwrap()), 42);
 
-    // E_8(a_f) — bytes [76..84)
-    assert_eq!(u64::from_le_bytes(buf[76..84].try_into().unwrap()), 8192);
+    // E_8(a_f) — bytes [76..84) — balance offset = threshold field
+    assert_eq!(u64::from_le_bytes(buf[76..84].try_into().unwrap()), 500);
 
     // E_4(a_r) — bytes [84..88)
     assert_eq!(u32::from_le_bytes(buf[84..88].try_into().unwrap()), 10);
@@ -422,7 +422,11 @@ fn test_encode_info_layout() {
 fn test_encode_info_all_zeros() {
     let acct = ServiceAccount::default();
     let buf = acct.encode_info();
-    assert_eq!(buf, [0u8; 96]);
+    // With all fields zero, a_t = max(0, B_S + 0 + 0 − 0) = B_S = 100.
+    // So bytes [40..48) = 100 (LE), everything else = 0.
+    let mut expected = [0u8; 96];
+    expected[40..48].copy_from_slice(&100u64.to_le_bytes()); // a_t = B_S
+    assert_eq!(buf, expected);
 }
 
 // ------------------------------------------------------------------

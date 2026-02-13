@@ -7,16 +7,20 @@
 ;;;; §9.1 ServiceInfo binary layout (89 bytes):
 ;;;;   version:                U8   (1)
 ;;;;   code_hash:              H    (32)
-;;;;   balance:                U64  (8)
-;;;;   min_item_gas:           U64  (8)   = gas g
-;;;;   min_memo_gas:           U64  (8)   = gas m
-;;;;   bytes:                  U64  (8)   = total octets a_o
-;;;;   deposit_offset:         U64  (8)   = a_t threshold
-;;;;   items:                  U32  (4)   = a_i
+;;;;   balance:                U64  (8)   = a_b
+;;;;   min_item_gas:           U64  (8)   = a_g  (min gas per accumulate)
+;;;;   min_memo_gas:           U64  (8)   = a_m  (min gas per deferred-transfer)
+;;;;   bytes:                  U64  (8)   = a_o  (total storage octets, derived)
+;;;;   deposit_offset:         U64  (8)   = a_f  (balance offset for threshold)
+;;;;   items:                  U32  (4)   = a_i  (storage items, derived)
 ;;;;   creation_slot:          U32  (4)
 ;;;;   last_accumulation_slot: U32  (4)
 ;;;;   parent_service:         U32  (4)
 ;;;;                                -- 89 bytes total
+;;;;
+;;;; GP §9.3 eq (9.8): threshold is DERIVED, not stored:
+;;;;   a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f)
+;;;;   B_S=100, B_I=10, B_L=1
 ;;;;
 ;;;; Trie key formats:
 ;;;;   C(255, s) = [255, E4(s)_0..3, 0...0]   -> ServiceInfo (89 bytes)

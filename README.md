@@ -10,26 +10,43 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 |-------------|------:|-----:|----------------|------------|
 | fallback | **100/100** | **100/100** | — | — |
 | safrole | **100/100** | **100/100** | — | — |
-| storage | 37/38 | **98/100** | block 38 (chain) | π gas (Halt) |
-| storage_light | 77/78 | **99/100** | block 78 (chain) | π gas (Halt) |
-| preimages | **7/7** | **79/100** | block 8 (step) | π gas + svc |
-| preimages_light | **7/7** | **89/100** | block 8 (step) | π gas + svc |
+| storage | 37/38 | **98/100** | block 38 | π gas → δ balance |
+| storage_light | 77/78 | **99/100** | block 78 | π gas → δ balance |
+| preimages | 29/30 | 91/100 | block 30 | π gas → δ balance |
+| preimages_light | 10/11 | 94/100 | block 11 | π gas + δ svc |
 | fuzzy | 5/6 | 32/200 | block 6 | θ/guarantees |
-| fuzzy_light | 1/2 | 36/200 | block 2 | θ/guarantees |
-| **Total** | **334/338** | **633/1000** | | **2 errors** |
+| fuzzy_light | 5/6 | 38/200 | block 6 | θ/guarantees |
+| **Total** | **363/369** | **652/1000** | | **0 errors** |
 
 **Step mode** tests each block independently from the reference pre-state.
-**Chain mode** applies blocks sequentially — a single divergence cascades.
+**Chain mode** applies blocks sequentially — stops at first divergence (cascading).
 
-All non-PVM transitions pass 100%. Current divergences:
-- **π gas (Halt)**: on Halt (outcome=0), `accumulate-gas-used` diverges by
-  ~1-5% — polkavm 0.29 instruction-level metering differs from the reference.
-- **π gas + svc**: preimages traces also diverge on storage/preimage host-call
-  side-effects in some blocks.
-- **θ/guarantees**: fuzzy traces exercise refine, which is not yet implemented.
+### Step-mode divergence breakdown
 
-**2 errors** — two trace files trigger known parse/validation bugs (preimages
-block 8). No panics, no malformed output across the remaining 998 blocks.
+All non-PVM transitions pass 100%. Failures classified by segment:
+
+| Suite | Pass | π only | π + δ | δ only | GUARANTEE-ERROR |
+|-------|-----:|-------:|------:|-------:|----------------:|
+| storage | 98 | 0 | 2 | 0 | — |
+| storage_light | 99 | 0 | 1 | 0 | — |
+| preimages | 91 | 2 | 7 | 0 | — |
+| preimages_light | 94 | 0 | 4 | 2 | — |
+| fuzzy | 32 | — | — | — | ~100 |
+| fuzzy_light | 38 | — | — | — | ~80 |
+
+Root causes:
+- **π gas → δ balance** (16 blocks): PolkaVM 0.29 instruction-level gas metering
+  differs from the reference PVM by a few instructions per accumulate call.
+  This makes `accumulate-gas-used` in π_S diverge, which changes the gas refund,
+  which changes `a_b` (balance) in the ServiceInfo stored in δ's Merkle trie.
+  All host call gas costs verified correct (10 per call, ΩT = 10+l on success).
+  Instruction gas = 1 per RISC-V instruction (PolkaVM `GasMeteringKind::Sync`).
+- **δ only** (2 blocks: preimages_light 11, 50): service storage diverges while
+  π matches — PVM runs same gas but produces different storage. Under investigation
+  (likely residual ServiceInfo field mapping or preimage integration edge case).
+- **θ/guarantees**: fuzzy traces exercise `refine`, which is not yet implemented.
+
+**0 errors** — no panics, no parse failures across all 1100 blocks.
 
 ## Why a second implementation matters
 
@@ -79,9 +96,9 @@ spec survives Common Lisp, it survives anything.
 |-------|-------:|-----:|------:|
 | fallback (no PVM) | 100 | 0.39s | ~254 |
 | safrole (Bandersnatch VRF) | 100 | 1.15s | ~87 |
-| storage (PVM accumulate) | 84 | 0.92s | ~92 |
+| storage (PVM accumulate) | 37 | 0.42s | ~88 |
 
-Breakdown (storage, 84 blocks): I/O 2%, **STF 87%**, Merkle 11%.
+Breakdown (storage, 37 chain blocks): I/O 2%, **STF 87%**, Merkle 11%.
 Crypto and PVM execute in Rust via FFI. Lisp does the routing.
 JAM slot time is 6 seconds; JOTL processes test blocks in ~11ms each.
 

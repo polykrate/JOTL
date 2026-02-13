@@ -19,6 +19,7 @@ use super::context::{
     HC_NONE, HC_WHAT, HC_OK, HC_OOB, HC_WHO, HC_HUH, HC_CASH, HC_FULL, HC_CORE, HC_LOW,
     PVM_HALT, PVM_PANIC, PVM_FAULT, PVM_HOST, PVM_OOG,
     ServiceAccount, PAGE_SIZE,
+    compute_threshold,
 };
 
 /// Concrete instance type used throughout the PVM module.
@@ -52,6 +53,9 @@ enum OmegaResult {
     Continue,
     /// (♯) Page fault — bad memory access.
     Fault,
+    /// (∞) Out of gas discovered mid–host-call (ΩT only).
+    /// Dispatch already charged 10; the omega deducted the extra cost itself.
+    OutOfGas,
 }
 
 // ============================================================================
@@ -150,12 +154,10 @@ pub fn dispatch(
 
     // ── Compute gas cost g per GP B.15 ────────────────────────
     // Default: g = 10 for all host calls.
-    // Exception: ΩT (transfer, id=20): g = 10 + ω_9 (A2 register = gas_limit)
-    // Note: ext_log (100) also costs 10 in the current test vectors.
-    let cost: i64 = match id {
-        20 => 10 + inst.reg(Reg::A2) as i64,  // ΩT: 10 + gas_limit
-        _ => 10,
-    };
+    // Exception: ΩT (transfer, id=20): g = 10 + t where t depends on outcome
+    //   (t = 0 on error, t = l on OK). The base 10 is charged here; the extra
+    //   l is charged inside omega_t on success.
+    let cost: i64 = 10;
 
     // ── B.16: OOG gating ──────────────────────────────────────
     // If ϱ < g: return (∞, φ, μ, s) — NO mutations.
@@ -229,6 +231,7 @@ pub fn dispatch(
     match omega_res {
         Ok(OmegaResult::Continue) => Ok(DispatchResult::Continue),
         Ok(OmegaResult::Fault) => Ok(DispatchResult::Fault),
+        Ok(OmegaResult::OutOfGas) => Ok(DispatchResult::OutOfGas),
         Err(e) => Err(e),
     }
 }
@@ -643,7 +646,9 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     let old_len = ctx.storage.get(&h27).map(|v| v.len() as u64).unwrap_or(HC_NONE);
 
     // ── FULL check: a_t > a_b → (▸, FULL, s) ──────────────
-    if ctx.threshold > ctx.balance {
+    // a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f) where a_f = ctx.threshold
+    let a_t = compute_threshold(ctx.items_count, ctx.footprint, ctx.threshold);
+    if a_t > ctx.balance {
         inst.set_reg(Reg::A0, HC_FULL);
         return Ok(OmegaResult::Continue);
     }
@@ -1696,8 +1701,9 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     }
 
     // ── s_b = (x_s)_b − a_t   (deduct deposit from caller's balance) ──
-    // a_t = ctx.threshold
-    let s_b = match ctx.balance.checked_sub(ctx.threshold) {
+    // a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f) where a_f = ctx.threshold
+    let a_t_new = compute_threshold(ctx.items_count, ctx.footprint, ctx.threshold);
+    let s_b = match ctx.balance.checked_sub(a_t_new) {
         Some(b) => b,
         None => {
             // Underflow → insufficient funds
@@ -1707,8 +1713,8 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     };
 
     // ── s_b < (x_s)_t → CASH ──
-    // After deduction, remaining balance must be ≥ threshold.
-    if s_b < ctx.threshold {
+    // After deduction, remaining balance must be ≥ caller's threshold.
+    if s_b < a_t_new {
         inst.set_reg(Reg::A0, HC_CASH);
         return Ok(OmegaResult::Continue);
     }
@@ -1717,7 +1723,7 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // (c, s:{}, l:{((c,l)↦[])}, b:a_t, g, m, p:{}, r:t, f, a:0, p:x_s)
     let a = ServiceAccount {
         code_hash: c,
-        balance: ctx.threshold,          // b: a_t (deposit)
+        balance: a_t_new,                // b: a_t (deposit = computed threshold)
         min_accum_gas: g,                // a_g
         min_item_gas: m,                 // a_m
         min_on_transfer_gas: f,          // a_o = f
@@ -1895,6 +1901,7 @@ fn omega_t(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     }
 
     // ── b = (x_s)_b − a; b < (x_s)_t → CASH ──
+    // a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f) where a_f = ctx.threshold
     let b = match ctx.balance.checked_sub(a) {
         Some(b) => b,
         None => {
@@ -1902,12 +1909,23 @@ fn omega_t(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
             return Ok(OmegaResult::Continue);
         }
     };
-    if b < ctx.threshold {
+    let a_t_transfer = compute_threshold(ctx.items_count, ctx.footprint, ctx.threshold);
+    if b < a_t_transfer {
         inst.set_reg(Reg::A0, HC_CASH);
         return Ok(OmegaResult::Continue);
     }
 
-    // ── OK: x_t ⊕ t, (x'_s)_b = b ──
+    // ── OK: g = 10 + l (GP B.15). Base 10 already charged by dispatch.
+    //    Deduct the extra l now. If insufficient gas → OOG, no mutations.
+    let remaining = inst.gas();
+    if remaining < l as i64 {
+        inst.set_gas(remaining - l as i64); // go negative → OOG signal
+        log::debug!("ΩT (transfer): OOG after OK (remaining={} < l={})", remaining, l);
+        return Ok(OmegaResult::OutOfGas);
+    }
+    inst.set_gas(remaining - l as i64);
+
+    // ── Apply side-effects: x_t ⊕ t, (x'_s)_b = b ──
     ctx.balance = b;
     ctx.transfers.push(JamTransfer {
         from_service: ctx.service_id,
@@ -1917,7 +1935,7 @@ fn omega_t(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         gas_limit: l,
     });
 
-    log::debug!("ΩT (transfer): {} -> {} amount={} gas={}", ctx.service_id, d, a, l);
+    log::debug!("ΩT (transfer): {} -> {} amount={} gas_cost=10+{}", ctx.service_id, d, a, l);
     inst.set_reg(Reg::A0, HC_OK);
     inst.set_reg(Reg::A1, l);  // return (OK, l)
     Ok(OmegaResult::Continue)
@@ -2149,11 +2167,13 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // ── Compute mutation a + incremental items/footprint tracking ──
     // GP §9.3: each lookup contributes 2 items and (81+z) to footprint.
     let key = (h, z);
+    // a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f) where a_f = ctx.threshold
+    let a_t_solicit = compute_threshold(ctx.items_count, ctx.footprint, ctx.threshold);
     match ctx.lookup.get(&key) {
         None => {
             // (h, z) ∉ K((x_s)_l) → create new entry a_l[(h,z)] = []
             // FULL check: a_b < a_t
-            if ctx.balance < ctx.threshold {
+            if ctx.balance < a_t_solicit {
                 inst.set_reg(Reg::A0, HC_FULL);
                 return Ok(OmegaResult::Continue);
             }
@@ -2166,7 +2186,7 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         Some(entry) if entry.len() == 2 => {
             // (x_s)_l[(h,z)] = [x, y] → append timeslot t → [x, y, t]
             // FULL check: a_b < a_t
-            if ctx.balance < ctx.threshold {
+            if ctx.balance < a_t_solicit {
                 inst.set_reg(Reg::A0, HC_FULL);
                 return Ok(OmegaResult::Continue);
             }

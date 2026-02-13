@@ -59,12 +59,12 @@ fn test_encode_side_effects_empty() {
     let blob = encode_side_effects(&ctx, 0);
     assert!(!blob.is_empty());
 
-    // Should contain: u64(0) + i64(0) + 7 × compact(0) + 2 × option-none(0x00)
+    // Should contain: u64(0) + i64(0) + 8 × compact(0) + 2 × option-none(0x00)
     // + items_count(4) + footprint(8)
     // balance(8) + gas(8) + storage(1) + transfers(1) + ejected(1) + created(1)
-    // + upgrades(1) + empower-none(1) + provided(1) + lookup(1) + yield-none(1)
-    // + items_count(4) + footprint(8)
-    assert_eq!(blob.len(), 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 8);
+    // + upgrades(1) + empower-none(1) + provided(1) + lookup(1) + preimages(1)
+    // + yield-none(1) + items_count(4) + footprint(8)
+    assert_eq!(blob.len(), 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 8);
 }
 
 // ============================================================================

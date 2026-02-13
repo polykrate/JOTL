@@ -392,7 +392,7 @@
                               :balance (or (getf metadata :balance) 0)
                               :threshold (or (getf metadata :deposit-offset) 0)
                               :min-accum-gas (or (getf metadata :min-item-gas) 0)
-                              :min-item-gas (or (getf metadata :min-item-gas) 0)
+                              :min-item-gas (or (getf metadata :min-memo-gas) 0)
                               :min-on-transfer-gas (or (getf metadata :min-memo-gas) 0)
                               :items-count (or (getf metadata :items) 0)
                               :footprint (or (getf metadata :bytes) 0)
@@ -469,7 +469,7 @@
               :code-hash       code-hash
               :threshold       deposit-off
               :min-accum-gas   min-accum-gas
-              :min-item-gas    min-accum-gas
+              :min-item-gas    min-memo-gas
               :min-on-transfer-gas min-memo-gas
               :items-count     items-count
               :footprint       total-bytes
