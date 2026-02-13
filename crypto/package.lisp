@@ -61,6 +61,9 @@
    #:with-pvm                      ;; (with-pvm (var blob sid bal slot) ...)
    #:encode-pvm-config             ;; low-level: Lisp → JAM config blob
    #:decode-pvm-side-effects       ;; low-level: JAM blob → Lisp plist
+   ;; Debug: host-call tracing (temporary)
+   #:pvm-debug-trace-enable
+   #:pvm-debug-trace-read
    
    ;; Library status
    #:*ffi-loaded*))

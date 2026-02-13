@@ -1117,6 +1117,47 @@ pub unsafe extern "C" fn jam_accumulate_collapse(
 }
 
 // ============================================================================
+// Diagnostic: host-call tracing (zero-cost when disabled)
+// ============================================================================
+
+/// Enable host-call tracing on this instance.
+#[no_mangle]
+pub unsafe extern "C" fn jam_debug_trace_enable(instance: *mut JamInstance) {
+    if !instance.is_null() {
+        (*instance).context.debug_trace = true;
+        (*instance).context.host_call_log.clear();
+    }
+}
+
+/// Get the number of recorded host calls.
+#[no_mangle]
+pub unsafe extern "C" fn jam_debug_trace_count(instance: *mut JamInstance) -> u32 {
+    if instance.is_null() { return 0; }
+    (*instance).context.host_call_log.len() as u32
+}
+
+/// Read one host-call trace entry: (id, gas_before, gas_after).
+/// Writes into caller-provided pointers. Returns 0 on success.
+#[no_mangle]
+pub unsafe extern "C" fn jam_debug_trace_entry(
+    instance: *mut JamInstance,
+    index: u32,
+    out_id: *mut u32,
+    out_gas_before: *mut i64,
+    out_gas_after: *mut i64,
+) -> u32 {
+    if instance.is_null() || out_id.is_null() { return 1; }
+    let log = &(*instance).context.host_call_log;
+    let i = index as usize;
+    if i >= log.len() { return 2; }
+    let (id, gb, ga) = log[i];
+    *out_id = id;
+    *out_gas_before = gb;
+    *out_gas_after = ga;
+    0
+}
+
+// ============================================================================
 // Inner PVM engine (ΩM deblob support)
 // ============================================================================
 

@@ -196,7 +196,7 @@ pub struct JamTransfer {
 /// = 32 + 40 + 4 + 8 + 12 = **96 bytes**.
 #[derive(Clone, Debug, Default)]
 pub struct ServiceAccount {
-    /// a_s — storage map
+    /// a_s — storage map, keyed by h27 = H(E₄(2³²−1) ⌢ k)[0:27]
     pub storage: HashMap<Vec<u8>, Vec<u8>>,
     /// a_P — preimage lookup (hash → data)
     pub preimages: HashMap<[u8; 32], Vec<u8>>,
@@ -317,6 +317,9 @@ pub struct JamHostContext {
     pub preimage_pages: u32,
 
     // ── Storage (ΩR / ΩW) ──────────────────────────────
+    // Keyed by h27 = H(E₄(2³²−1) ⌢ raw_key)[0:27] (GP Appendix D).
+    // ΩR/ΩW hash the raw guest key before lookup/insert.
+    // Trie-classified entries can be loaded directly (no raw keys needed).
     pub storage: HashMap<Vec<u8>, Vec<u8>>,
 
     // ── Preimages (ΩL) ─────────────────────────────────
@@ -338,6 +341,12 @@ pub struct JamHostContext {
     /// Accumulated by Ω_provide (index 26); included in collapse result.
     pub provided_preimages: Vec<(u32, Vec<u8>)>,
     pub error: Option<JamHostError>,
+
+    // ── Diagnostic: host-call trace ─────────────────
+    /// Records (host_call_id, gas_before, gas_after) for each dispatch.
+    /// Zero-cost when debug_trace = false (default).
+    pub debug_trace: bool,
+    pub host_call_log: Vec<(u32, i64, i64)>,
 
     // ── Checkpoint (B.13 dual-context y) ─────────────
     /// Checkpoint snapshot — the "y" context in B.13's `(x, y)` pair.
@@ -500,6 +509,8 @@ impl Default for JamHostContext {
             val_count: 6,         // TINY chainspec default (V)
             gas_from_config: 0,
             empower: None,
+            debug_trace: false,
+            host_call_log: Default::default(),
         }
     }
 }

@@ -125,6 +125,7 @@ fn read_blob(data: &[u8], pos: usize) -> Option<(Vec<u8>, usize)> {
 /// option(empower_tuple): empower
 /// seq[(u32, blob)]: provided_preimages
 /// seq[([u8;32], u32, seq[u32])]: lookup
+/// seq[([u8;32], blob)]: preimages (a_P blob store)
 /// option([u8;32]): yield_output
 /// ```
 pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
@@ -196,6 +197,14 @@ pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
         for &s in status {
             buf.extend_from_slice(&s.to_le_bytes());
         }
+    }
+
+    // preimages: seq[([u8;32], blob)] — final preimage blob store (a_P)
+    // Needed so Lisp merge can detect blobs removed by ΩF.
+    compact_to(&mut buf, ctx.preimages.len() as u64);
+    for (hash, data) in &ctx.preimages {
+        buf.extend_from_slice(hash);
+        bytes_to(&mut buf, data);
     }
 
     // yield_output: option([u8;32])

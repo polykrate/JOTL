@@ -41,7 +41,9 @@ reed-solomon-novelpoly = "2.0"
 reed-solomon-simd = "3.1.0"
 
 # PolkaVM - RISC-V virtual machine for JAM PVM (GP Section 14)
-# Note: Must use 0.29 for compatibility with jam-program-blob-common
+# 0.29 required by jam-program-blob-common 0.1. Test vectors generated
+# with 0.29-era gas model. polkavm 0.31 compiles (see git log) but
+# changes instruction gas, causing 98→43 step regression.
 polkavm = "0.29"
 
 # Logging

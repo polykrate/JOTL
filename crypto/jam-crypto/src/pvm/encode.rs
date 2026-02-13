@@ -181,8 +181,8 @@ pub unsafe extern "C" fn jam_encode_work_item_record(
         0 => {
             // Ok variant: include output data
             if result_data.is_null() || result_len == 0 {
-                Ok(WorkOutput(vec![]))
-            } else {
+        Ok(WorkOutput(vec![]))
+    } else {
                 Ok(WorkOutput(
                     std::slice::from_raw_parts(result_data, result_len as usize).to_vec(),
                 ))

@@ -156,8 +156,7 @@
                           r-star omega xi delta chi iota phi
                           tau tau-prime
                           :eta (funcall eta-prime :save)
-                          :header-hash (funcall h :parent-hash)
-                          :raw-storage (funcall sigma :raw-storage)))
+                          :header-hash (funcall h :parent-hash)))
                  ;; Destructure accumulation results
                  (omega-prime   (getf accum :omega-prime))
                  (xi-prime      (getf accum :xi-prime))
@@ -226,5 +225,4 @@
                :theta   (if theta-prime
                             (funcall theta-prime :save)
                             (funcall sigma :segment :theta))
-               :extra-kvs (funcall delta-prime :extra-kvs)
-               :raw-storage (getf accum :raw-storage)))))))))
+               :extra-kvs (funcall delta-prime :extra-kvs)))))))))

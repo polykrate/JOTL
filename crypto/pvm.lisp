@@ -134,6 +134,38 @@
   (instance :pointer) (outcome :uint32) (yield-hash :pointer))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Debug: host-call tracing (temporary)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(cffi:defcfun ("jam_debug_trace_enable" %jam-debug-trace-enable) :void
+  "Enable host-call tracing." (instance :pointer))
+
+(cffi:defcfun ("jam_debug_trace_count" %jam-debug-trace-count) :uint32
+  "Get host-call trace count." (instance :pointer))
+
+(cffi:defcfun ("jam_debug_trace_entry" %jam-debug-trace-entry) :uint32
+  "Read one trace entry."
+  (instance :pointer) (index :uint32)
+  (out-id :pointer) (out-gas-before :pointer) (out-gas-after :pointer))
+
+(defun pvm-debug-trace-enable (ctx)
+  "Enable host-call tracing on a PVM context."
+  (%jam-debug-trace-enable ctx))
+
+(defun pvm-debug-trace-read (ctx)
+  "Read all host-call trace entries. Returns list of (id gas-before gas-after)."
+  (let ((n (%jam-debug-trace-count ctx))
+        (result nil))
+    (cffi:with-foreign-objects ((oid :uint32) (ogb :int64) (oga :int64))
+      (dotimes (i n)
+        (when (zerop (%jam-debug-trace-entry ctx i oid ogb oga))
+          (push (list (cffi:mem-ref oid :uint32)
+                      (cffi:mem-ref ogb :int64)
+                      (cffi:mem-ref oga :int64))
+                result))))
+    (nreverse result)))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; CFFI declaration for work-item encoding
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -433,64 +465,70 @@
    BYTES: octet vector from jam_pvm_collect.
    Returns plist with keys:
      :balance :gas-remaining :storage :transfers :ejected :created
-     :upgrades :empower :provided-preimages :lookup :yield-output"
-  (let ((r (%make-reader bytes)))
-    ;; balance: u64
-    (let ((balance (%read-u64 r)))
-      ;; gas-remaining: i64 (read as u64, convert to signed)
-      (let* ((gas-raw (%read-u64 r))
-             (gas (if (>= gas-raw (ash 1 63)) (- gas-raw (ash 1 64)) gas-raw)))
-        ;; storage: seq[(blob, blob)]
-        (let ((storage (loop repeat (%read-compact r)
-                             collect (cons (%read-blob r) (%read-blob r)))))
-          ;; transfers: seq[(u32, u64, [u8;128], u32, u64)]
-          (let ((transfers (loop repeat (%read-compact r)
-                                collect (list :to (%read-u32 r)
-                                              :amount (%read-u64 r)
-                                              :memo (%read-fixed r 128)
-                                              :from (%read-u32 r)
-                                              :gas-limit (%read-u64 r)))))
-            ;; ejected: seq[(u32, u32)]
-            (let ((ejected (loop repeat (%read-compact r)
-                                collect (cons (%read-u32 r) (%read-u32 r)))))
-              ;; created: seq[(u32, [u8;32])]
-              (let ((created (loop repeat (%read-compact r)
-                                  collect (cons (%read-u32 r) (%read-fixed r 32)))))
-                ;; upgrades: seq[(u32, [u8;32])]
-                (let ((upgrades (loop repeat (%read-compact r)
-                                     collect (cons (%read-u32 r) (%read-fixed r 32)))))
-                  ;; empower: option(empower_tuple)
-                  (let ((empower (when (= (%read-byte r) 1)
-                                   (%decode-empower r))))
-                    ;; provided_preimages: seq[(u32, blob)]
-                    (let ((provided (loop repeat (%read-compact r)
-                                         collect (cons (%read-u32 r) (%read-blob r)))))
-                      ;; lookup: seq[([u8;32], u32, seq[u32])]
-                      (let ((lookup (loop repeat (%read-compact r)
-                                         collect (list* (%read-fixed r 32)
-                                                        (%read-u32 r)
-                                                        (loop repeat (%read-compact r)
-                                                              collect (%read-u32 r))))))
-                        ;; yield_output: option([u8;32])
-                        (let ((yield-output (when (= (%read-byte r) 1)
-                                              (%read-fixed r 32))))
-                          ;; items_count: u32 (PVM-tracked)
-                          (let ((items-count (%read-u32 r)))
-                            ;; footprint: u64 (PVM-tracked)
-                            (let ((footprint (%read-u64 r)))
-                              (list :balance balance
-                                    :gas-remaining gas
-                                    :storage storage
-                                    :transfers transfers
-                                    :ejected ejected
-                                    :created created
-                                    :upgrades upgrades
-                                    :empower empower
-                                    :provided-preimages provided
-                                    :lookup lookup
-                                    :yield-output yield-output
-                                    :items-count items-count
-                                    :footprint footprint))))))))))))))))
+     :upgrades :empower :provided-preimages :lookup :preimages
+     :yield-output :items-count :footprint"
+  (let* ((r (%make-reader bytes))
+         ;; balance: u64
+         (balance (%read-u64 r))
+         ;; gas-remaining: i64 (read as u64, convert to signed)
+         (gas-raw (%read-u64 r))
+         (gas (if (>= gas-raw (ash 1 63)) (- gas-raw (ash 1 64)) gas-raw))
+         ;; storage: seq[(blob, blob)]
+         (storage (loop repeat (%read-compact r)
+                        collect (cons (%read-blob r) (%read-blob r))))
+         ;; transfers: seq[(u32, u64, [u8;128], u32, u64)]
+         (transfers (loop repeat (%read-compact r)
+                          collect (list :to (%read-u32 r)
+                                        :amount (%read-u64 r)
+                                        :memo (%read-fixed r 128)
+                                        :from (%read-u32 r)
+                                        :gas-limit (%read-u64 r))))
+         ;; ejected: seq[(u32, u32)]
+         (ejected (loop repeat (%read-compact r)
+                        collect (cons (%read-u32 r) (%read-u32 r))))
+         ;; created: seq[(u32, [u8;32])]
+         (created (loop repeat (%read-compact r)
+                        collect (cons (%read-u32 r) (%read-fixed r 32))))
+         ;; upgrades: seq[(u32, [u8;32])]
+         (upgrades (loop repeat (%read-compact r)
+                         collect (cons (%read-u32 r) (%read-fixed r 32))))
+         ;; empower: option(empower_tuple)
+         (empower (when (= (%read-byte r) 1)
+                    (%decode-empower r)))
+         ;; provided_preimages: seq[(u32, blob)]
+         (provided (loop repeat (%read-compact r)
+                         collect (cons (%read-u32 r) (%read-blob r))))
+         ;; lookup: seq[([u8;32], u32, seq[u32])]
+         (lookup (loop repeat (%read-compact r)
+                       collect (list* (%read-fixed r 32)
+                                      (%read-u32 r)
+                                      (loop repeat (%read-compact r)
+                                            collect (%read-u32 r)))))
+         ;; preimages: seq[([u8;32], blob)] — final a_P blob store
+         (preimages (loop repeat (%read-compact r)
+                          collect (cons (%read-fixed r 32) (%read-blob r))))
+         ;; yield_output: option([u8;32])
+         (yield-output (when (= (%read-byte r) 1)
+                         (%read-fixed r 32)))
+         ;; items_count: u32 (PVM-tracked)
+         (items-count (%read-u32 r))
+         ;; footprint: u64 (PVM-tracked)
+         (footprint (%read-u64 r)))
+    (list :balance balance
+          :gas-remaining gas
+          :storage storage
+          :transfers transfers
+          :ejected ejected
+          :created created
+          :upgrades upgrades
+          :empower empower
+          :provided-preimages provided
+          :lookup lookup
+          :preimages preimages
+          :yield-output yield-output
+          :items-count items-count
+          :footprint footprint)))
+
 
 (defun %decode-empower (reader)
   "Decode EmpowerState from JAM blob using READER. Returns plist."

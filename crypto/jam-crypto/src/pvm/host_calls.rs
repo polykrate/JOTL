@@ -24,6 +24,28 @@ use super::context::{
 /// Concrete instance type used throughout the PVM module.
 type Inst = polkavm::Instance<JamHostContext, JamHostError>;
 
+// ============================================================================
+// Storage key hashing — GP Appendix D
+// ============================================================================
+
+/// Compute the 27-byte trie sub-key hash for a storage entry.
+///
+/// GP D.1: `H(E₄(2³²−1) ⌢ k)[0:27]`
+///
+/// Implementations are free to use this hash as the canonical storage key
+/// (GP §D: "the key values themselves are not required to be known").
+fn storage_hash_key(raw_key: &[u8]) -> Vec<u8> {
+    use blake2::{Blake2b, Digest};
+    use blake2::digest::consts::U32;
+
+    let prefix = 0xFFFF_FFFFu32.to_le_bytes(); // E₄(2³²−1)
+    let mut input = Vec::with_capacity(4 + raw_key.len());
+    input.extend_from_slice(&prefix);
+    input.extend_from_slice(raw_key);
+    let hash = <Blake2b<U32> as Digest>::digest(&input);
+    hash[..27].to_vec()
+}
+
 /// Result of an individual omega function (internal to dispatch).
 enum OmegaResult {
     /// (▸) Host call succeeded, continue execution.
@@ -145,6 +167,11 @@ pub fn dispatch(
 
     // B.15: ϱ' = ϱ − g
     inst.set_gas(gas - cost);
+
+    // ── Debug trace (diagnostic; zero-cost when disabled) ──────
+    if ctx.debug_trace {
+        ctx.host_call_log.push((id, gas, gas - cost));
+    }
 
     // ── Context gating ─────────────────────────────────────────
     // GP B.2/B.6: calls not in the allowed set → continue with
@@ -522,13 +549,15 @@ fn omega_r(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     };
 
     // ── Look up value v ────────────────────────────────────
-    // v = a_s[k] if a ≠ ∅ ∧ k ∈ K(a_s), else ∅
+    // GP D: storage is keyed by h27 = H(E₄(2³²−1) ⌢ k)[0:27].
+    // Implementations need not store raw keys (GP Appendix D).
+    let h27 = storage_hash_key(&key);
     let value: Option<Vec<u8>> = if is_self {
-        ctx.storage.get(&key).cloned()
+        ctx.storage.get(&h27).cloned()
     } else {
         let sid = s_star as u32;
         ctx.service_accounts.get(&sid)
-            .and_then(|acct| acct.storage.get(&key).cloned())
+            .and_then(|acct| acct.storage.get(&h27).cloned())
     };
 
     match value {
@@ -606,8 +635,12 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
     };
 
+    // ── Hash key to h27 (GP Appendix D) ──────────────────────
+    // Storage is keyed by h27 = H(E₄(2³²−1) ⌢ k)[0:27].
+    let h27 = storage_hash_key(&key);
+
     // ── l = old length or NONE ─────────────────────────────
-    let old_len = ctx.storage.get(&key).map(|v| v.len() as u64).unwrap_or(HC_NONE);
+    let old_len = ctx.storage.get(&h27).map(|v| v.len() as u64).unwrap_or(HC_NONE);
 
     // ── FULL check: a_t > a_b → (▸, FULL, s) ──────────────
     if ctx.threshold > ctx.balance {
@@ -617,11 +650,12 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
 
     // ── Apply mutation + incremental items/footprint tracking ──
     // GP §9.3: storage contributes 1 item and (34+|key|+|value|) to footprint.
+    // |key| uses the RAW key length (not h27) per GP spec.
     let key_sz = key.len() as u64;
     match new_value {
         None => {
             // v_Z = 0 → remove key from storage
-            if let Some(old_val) = ctx.storage.remove(&key) {
+            if let Some(old_val) = ctx.storage.remove(&h27) {
                 // Removed: items -1, footprint -(34+|key|+|old_val|)
                 ctx.items_count = ctx.items_count.saturating_sub(1);
                 ctx.footprint = ctx.footprint.saturating_sub(34 + key_sz + old_val.len() as u64);
@@ -629,7 +663,7 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         }
         Some(v) => {
             let new_val_len = v.len() as u64;
-            if let Some(old_val) = ctx.storage.insert(key, v) {
+            if let Some(old_val) = ctx.storage.insert(h27, v) {
                 // Update: footprint delta = new_len - old_len
                 let old_val_len = old_val.len() as u64;
                 if new_val_len >= old_val_len {

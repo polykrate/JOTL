@@ -24,12 +24,11 @@
 ;;;;     where s = E4(service_id), h = hash of sub-key
 ;;;;
 ;;;; Messages:
-;;;;   :accounts      -> list of (:id sid :service plist)
-;;;;   :account (sid)  -> service plist for specific service, or NIL
-;;;;   :raw-kvs        -> the underlying key-value pairs for Merkle
-;;;;   :extra-kvs      -> alias for :raw-kvs
-;;;;   :save        -> nil (delta doesn't encode to a single segment)
-;;;;   :transition     -> GP (4.18): delta' < (EP, delta-dagger, tau')
+;;;;   :accounts       → list of (:id sid :service plist)
+;;;;   :account (sid)  → service plist for specific service, or NIL
+;;;;   :extra-kvs      → the underlying key-value pairs for Merkle
+;;;;   :save           → nil (delta doesn't encode to a single segment)
+;;;;   :transition     → GP (4.18): delta' ◁ (EP, delta-dagger, tau')
 
 (in-package #:jotl)
 
@@ -364,10 +363,10 @@
   "GP S9.2 / S4.18 -- Integrate EP preimages into delta's raw key-value pairs.
    For each (s, d) in EP:
      h = H(d), l = |d|
-     1. Validate: EP sorted by (requester, h) ascending, unique
-     2. Validate: service s exists, lookup (h,l) exists with even-length status
-     3. Store preimage blob: C(s, preimage-trie-h(h)) -> d
-     4. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
+     1. Validate: service s exists, lookup (h,l) exists with even-length status
+     2. Store preimage blob: C(s, preimage-trie-h(h)) -> d
+     3. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
+   Note: ordering of EP is checked during block validation, not here.
    Returns: new raw-kvs list."
   ;; -- Annotate: compute hashes --
   (let ((annotated
@@ -377,14 +376,6 @@
                           (hash (jam.ffi:blake2b-256 blob)))
                      (list :sid sid :hash hash :blob blob)))
                  preimages)))
-
-    ;; -- Validate ordering: sorted by (sid, hash) ascending, unique --
-    (loop for (a b) on annotated while b do
-      (let ((sa (getf a :sid)) (sb (getf b :sid))
-            (ha (getf a :hash)) (hb (getf b :hash)))
-        (unless (or (< sa sb)
-                    (and (= sa sb) (bytes< ha hb)))
-          (error "Preimages EP not sorted/unique"))))
 
     ;; -- Validate necessity + Integrate --
     (let ((new-kvs (copy-list raw-kvs)))
@@ -402,24 +393,19 @@
                  (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
                  (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
 
-            ;; Check service exists
-            (unless (find-kv (make-metadata-key sid))
-              (error "Preimage EP: service ~D not found" sid))
-
-            ;; Check lookup entry exists with even-length status (needed)
-            (let ((lookup-entry (find-kv lookup-key)))
-              (unless lookup-entry
-                (error "Preimage EP: no lookup for service ~D len ~D" sid len))
-              (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                (unless (evenp (length statuses))
-                  (error "Preimage EP: already available for service ~D" sid))
-
-                ;; Store preimage blob
-                (push (cons blob-key (ensure-bytes blob)) new-kvs)
-
-                ;; Update lookup: append tau' to status list
-                (replace-kv-val lookup-key
-                                (encode-lookup-value (append statuses (list timeslot)))))))))
+            ;; GP §9.2: skip if service doesn't exist
+            (when (find-kv (make-metadata-key sid))
+              ;; Check lookup entry exists with even-length status (solicited)
+              (let ((lookup-entry (find-kv lookup-key)))
+                (when (and lookup-entry
+                           (let ((statuses (load-lookup-value (cdr lookup-entry))))
+                             (evenp (length statuses))))
+                  (let ((statuses (load-lookup-value (cdr lookup-entry))))
+                    ;; Store preimage blob
+                    (push (cons blob-key (ensure-bytes blob)) new-kvs)
+                    ;; Update lookup: append tau' to status list
+                    (replace-kv-val lookup-key
+                                    (encode-lookup-value (append statuses (list timeslot)))))))))))
       new-kvs)))
 
 ;;; =====================================================================
@@ -428,21 +414,13 @@
 
 (define-state-closure delta-state
   ((raw-kvs nil)
-   (accounts-cache nil)
-   ;; raw-storage: hash-table mapping service-id → alist of (raw-key-32 . value)
-   ;; Maintained across blocks so the PVM can read existing storage via ΩR.
-   ;; The raw 32-byte keys cannot be recovered from trie h27 hashes (one-way hash),
-   ;; so they must be accumulated from PVM output across block transitions.
-   (raw-storage nil))
+   (accounts-cache nil))
 
   ;; delta doesn't encode to a single segment byte vector.
   (:save nil)
 
   ;; Access the underlying Merkle key-value pairs.
   (:extra-kvs raw-kvs)
-
-  ;; Access the raw-storage hash table (sid → alist of (raw-key . value))
-  (:raw-storage raw-storage)
 
   ;; Decoded accounts list -- lazy parse from raw-kvs.
   (:accounts
@@ -463,10 +441,9 @@
   (:transition (&key preimages tau-prime)
     (let ((timeslot (when tau-prime (funcall tau-prime :slot))))
       (if (or (null preimages) (zerop (length preimages)) (not timeslot))
-          (make-delta-state :raw-kvs raw-kvs :raw-storage raw-storage)
+          (make-delta-state :raw-kvs raw-kvs)
           (make-delta-state
-           :raw-kvs (integrate-preimages raw-kvs preimages timeslot)
-           :raw-storage raw-storage)))))
+           :raw-kvs (integrate-preimages raw-kvs preimages timeslot))))))
 
 (defun load-delta-from-extra-kvs (extra-kvs)
   "Build delta from sigma's extra-kvs (C(255,s) entries + sub-keys).
