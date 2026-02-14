@@ -186,6 +186,25 @@
             (push (cffi:foreign-string-to-lisp buf :count len) result)))))
     (nreverse result)))
 
+;;; ── Guest ext_log messages (ecalli 100) ──
+
+(cffi:defcfun ("jam_guest_log_count" %jam-guest-log-count) :uint32
+  "Get guest log message count." (instance :pointer))
+
+(cffi:defcfun ("jam_guest_log_entry" %jam-guest-log-entry) :uint32
+  (instance :pointer) (index :uint32) (out-buf :pointer) (buf-len :uint32))
+
+(defun pvm-guest-log-read (ctx)
+  "Read all guest ext_log messages. Returns list of strings."
+  (let ((n (%jam-guest-log-count ctx))
+        (result nil))
+    (cffi:with-foreign-object (buf :uint8 4096)
+      (dotimes (i n)
+        (let ((len (%jam-guest-log-entry ctx i buf 4096)))
+          (when (> len 0)
+            (push (cffi:foreign-string-to-lisp buf :count len) result)))))
+    (nreverse result)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; CFFI declaration for work-item encoding
 ;;; ═══════════════════════════════════════════════════════════════════

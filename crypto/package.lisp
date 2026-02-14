@@ -65,6 +65,7 @@
    #:pvm-debug-trace-enable
    #:pvm-debug-trace-read
    #:pvm-debug-log-read
+   #:pvm-guest-log-read
    
    ;; Library status
    #:*ffi-loaded*))

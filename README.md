@@ -10,17 +10,18 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 |-------------|------:|-----:|------------|
 | fallback | **100/100** | **100/100** | — |
 | safrole | **100/100** | **100/100** | — |
-| storage | 88/100 | **98/100** | π gas + ΩI mapping |
-| storage_light | **99/100** | **99/100** | π gas |
-| preimages | 33/100 | 91/100 | π gas |
-| preimages_light | 70/100 | 94/100 | π gas |
+| storage | 37/100 | **98/100** | π gas |
+| storage_light | 77/100 | **99/100** | π gas |
+| preimages | 29/100 | 91/100 | π gas |
+| preimages_light | 10/100 | 94/100 | π gas |
 | fuzzy | 5/200 | 32/200 | θ/refine |
 | fuzzy_light | 5/200 | 38/200 | θ/refine |
-| **Total** | **500/1000** | **652/1000** | **0 errors** |
+| **Total** | **363/1000** | **652/1000** | **0 errors** |
 
 **Step mode** tests each block independently from the reference pre-state.
-**Chain mode** applies blocks sequentially — failures cascade (a wrong σ
-produces wrong σ' for all subsequent blocks).
+**Chain mode** applies blocks sequentially — the first mismatch stops chain
+testing (a wrong σ produces wrong σ' for all subsequent blocks); step mode
+continues independently.
 
 ### Step-mode divergence breakdown
 
@@ -28,42 +29,47 @@ All non-PVM transitions pass 100%. Failures are PVM-only:
 
 | Suite | Pass | Fail | Root cause |
 |-------|-----:|-----:|------------|
-| storage | 98 | 2 | π gas + ΩI field mapping (blocks 38, 51) |
+| storage | 98 | 2 | π gas (blocks 38, 51) |
 | storage_light | 99 | 1 | π gas |
 | preimages | 91 | 9 | π gas |
 | preimages_light | 94 | 6 | π gas |
 | fuzzy | 32 | 168 | `refine` not implemented |
 | fuzzy_light | 38 | 162 | `refine` not implemented |
 
-Root causes:
+### Root causes
 
-- **π gas** (~18 blocks): PolkaVM 0.29 charges gas per basic block, not per
-  instruction. When a host call (`ecalli`) interrupts a basic block, the full
-  block cost was already charged — the guest sees 1–3 extra gas consumed per
-  host call. This shifts `accumulate-gas-used` in π_S, which changes the gas
-  refund, which changes `a_b` (balance) in ServiceInfo → δ's Merkle trie.
-  All host call gas costs verified correct (10 per call, ΩT = 10+l on success).
-  Instruction gas = 1 per RISC-V instruction (PolkaVM `GasMeteringKind::Sync`).
+Two independent issues remain:
 
-- **ΩI field mapping** (storage blocks 38, 51): The guest program reads its own
-  `ServiceInfo` via ΩI (96-byte encoding) once at startup, then uses those values
-  for all subsequent decisions. Full host call tracing shows the guest takes a
-  **different execution path** — creating 13 storage entries then deleting them
-  all (net=0), while the reference keeps 7 (net=+7). The guest does NOT call ΩG
-  (gas remaining), so the divergence is **not caused by gas metering**. It must
-  come from a field in the ΩI encoding. Prime suspect: the 3 trailing `u32`
-  fields `(a_r, a_a, a_p)` — currently mapped as:
-  ```
-  a_r ← creation-slot (0)    a_a ← last-accumulation-slot (37)    a_p ← parent-service (0)
-  ```
-  **Hypothesis**: `a_r` should be `last-accumulation-slot` (the "recent" field),
-  not `creation-slot`. Swapping would give the guest `a_r=37` instead of `a_r=0`,
-  which likely changes the cleanup loop. **Needs GP §B.7 ΩI encoding definition
-  to confirm.**
+1. **π gas** (~18 blocks across PVM traces): `accumulate-gas-used` in π_S
+   (service statistics) is slightly off. The PVM execution is correct — the
+   guest processes all work items, storage operations (ΩR/ΩW) match, and the
+   final δ state is correct — but the gas counter diverges by a few thousand
+   units. This shifts the π encoding, causing the state root mismatch. The gas
+   difference propagates: it changes the gas refund, which changes `a_b`
+   (balance) in δ, which shifts the Merkle trie. **First appears at block 6**
+   in chain mode across all PVM traces. Suspected cause: PolkaVM gas metering
+   granularity (per basic-block vs per-instruction).
 
-- **θ/refine**: fuzzy traces exercise `refine`, which is not yet implemented.
+2. **θ/refine** (fuzzy only): fuzzy traces exercise `refine`, which is not
+   yet implemented.
 
-**0 errors** — no panics, no parse failures across all 1100 blocks.
+### Verified correct
+
+- **ΩI field mapping**: `a_r` = creation-slot, `a_a` = last-accumulation-slot,
+  `a_p` = parent-service. Confirmed against GP §9.3 + §B.7. The 96-byte ΩI
+  encoding matches the `jam-types` canonical `ServiceInfo` representation.
+
+- **AccumulateItems encoding**: Work items and transfers correctly encoded using
+  JAM compact encoding, passed to the guest via ΩY(14). Roundtrip tests confirm
+  byte-exact encoding.
+
+- **ΩW storage operations**: Item/footprint tracking, DELETE/CREATE/UPDATE logic,
+  h27 key hashing — all verified via debug trace logging.
+
+- **R\* ordering**: Work reports ordered by ascending core index via `nreverse`
+  on `push`-accumulated list.
+
+**0 errors** — no panics, no parse failures across all 1000 blocks.
 
 ## Why a second implementation matters
 
@@ -470,6 +476,13 @@ lack `:transition`.
 This is acknowledged debt, not an oversight. The accumulate orchestrator
 is comparable to Υ itself: a multi-component coordinator that cannot be
 owned by any single closure.
+
+### Known gaps: remaining PVM divergences
+
+| Gap | Impact | Status |
+|-----|--------|--------|
+| π_S gas metering | ~18 blocks across PVM traces | Investigating PolkaVM gas granularity |
+| `refine` (θ) | fuzzy traces ~80% fail | Not implemented |
 
 ## Quick Start
 

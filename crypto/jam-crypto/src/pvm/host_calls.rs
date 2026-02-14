@@ -369,9 +369,32 @@ fn omega_y(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                     }
                 }
             }
+            if ctx.debug_trace {
+                // For AccumulateItems (kind=14), log first 256 bytes hex
+                let hex_preview = if kind == 14 {
+                    let preview_len = std::cmp::min(256, data.len());
+                    format!(" hex={}", data[..preview_len].iter()
+                        .map(|b| format!("{:02x}", b)).collect::<String>())
+                } else {
+                    String::new()
+                };
+                // Log buffer parameters so we can see how much data the guest receives
+                let available = data_len.saturating_sub(offset);
+                let copy_len = std::cmp::min(available, buffer_len);
+                ctx.debug_log.push(format!(
+                    "omega_y: kind={} buf_ptr=0x{:08x} buf_len={} offset={} → data_len={} copied={} a={} b={}{}",
+                    kind, buffer_ptr, buffer_len, offset, data_len, copy_len, a, b, hex_preview
+                ));
+            }
             inst.set_reg(Reg::A0, data_len as u64);
         }
         None => {
+            if ctx.debug_trace {
+                ctx.debug_log.push(format!(
+                    "omega_y: kind={} a={} b={} → NONE",
+                    kind, a, b
+                ));
+            }
             // GP: v = ∅ → φ'₇ = NONE
             inst.set_reg(Reg::A0, HC_NONE);
         }
@@ -380,7 +403,7 @@ fn omega_y(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
 }
 
 /// Encode `Vec<AccumulateItem>` as JAM compact-prefixed list.
-fn encode_accumulate_items_list(items: &[Vec<u8>]) -> Vec<u8> {
+pub(crate) fn encode_accumulate_items_list(items: &[Vec<u8>]) -> Vec<u8> {
     use jam_codec::Compact;
     use jam_types::Encode;
 
@@ -571,6 +594,14 @@ fn omega_r(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     match value {
         None => {
             // v = ∅ → (▸, NONE, μ_{o…+l})
+            if ctx.debug_trace {
+                let key_hex: String = key.iter().map(|b| format!("{:02x}", b)).collect();
+                ctx.debug_log.push(format!(
+                    "omega_r: svc={} key_len={} raw_key={} h27={} → NONE",
+                    s_star, key_len, key_hex,
+                    h27.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                ));
+            }
             inst.set_reg(Reg::A0, HC_NONE);
             Ok(OmegaResult::Continue)
         }
@@ -587,6 +618,20 @@ fn omega_r(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 }
             }
 
+            if ctx.debug_trace {
+                // Log value hex (first 32 bytes max for readability)
+                let val_preview: String = data.iter().take(32)
+                    .map(|b| format!("{:02x}", b)).collect();
+                let key_hex: String = key.iter().map(|b| format!("{:02x}", b)).collect();
+                ctx.debug_log.push(format!(
+                    "omega_r: svc={} key_len={} raw_key={} h27={} → len={} val={}{}",
+                    s_star, key_len, key_hex,
+                    h27.iter().map(|b| format!("{:02X}", b)).collect::<String>(),
+                    data_len,
+                    val_preview,
+                    if data_len > 32 { "..." } else { "" }
+                ));
+            }
             inst.set_reg(Reg::A0, data_len as u64);
             Ok(OmegaResult::Continue)
         }

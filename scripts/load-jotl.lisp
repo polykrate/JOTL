@@ -4,14 +4,7 @@
 
 (format t "~%Loading JOTL v4...~%")
 
-;; 1. Load crypto FFI
-(format t "  Loading crypto FFI...~%")
-(let ((jotl-root (make-pathname :directory 
-                                (butlast (pathname-directory 
-                                          (or *load-truename* *default-pathname-defaults*))))))
-  (load (merge-pathnames "crypto/load-crypto.lisp" jotl-root)))
-
-;; 2. Load ASDF systems
+;; 1. Load ASDF systems (crypto FFI is loaded via jam-crypto ASDF system)
 (format t "  Loading ASDF systems...~%")
 (let* ((jotl-root (make-pathname :directory 
                                  (butlast (pathname-directory 

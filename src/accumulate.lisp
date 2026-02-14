@@ -446,14 +446,13 @@
                (items-count   (or (getf metadata :items) 0))
                (total-bytes   (or (getf metadata :bytes) 0))
                (deposit-off   (or (getf metadata :deposit-offset) 0))
-               ;; Extra service fields for ΩI (info on self) — GP §D.1
-               ;; These map to the last 3 u32 fields in the 89-byte trie format.
-               ;; FIXME: verify a_r/a_a mapping — see investigation notes below.
-               ;; Current mapping: creation-slot → a_r, last-accumulation-slot → a_a
-               ;; Hypothesis: might need to swap (a_r = last-accum-slot, a_a = creation-slot)
-               (recent-count   (or (getf metadata :creation-slot) 0))
-               (accum-gas-lim  (or (getf metadata :last-accumulation-slot) 0))
-               (preimage-pgs   (or (getf metadata :parent-service) 0)))
+               ;; Extra service fields for ΩI (info on self) — GP §9.3 + §B.7
+               ;; ΩI encoding: E_4(a_r, a_a, a_p)
+               ;; GP §9.3 defines: r = creation timeslot, a = most recent accumulation, p = parent
+               ;; a_r = r = creation-slot,  a_a = a = last-accumulation-slot,  a_p = p = parent-service
+               (creation-ts  (or (getf metadata :creation-slot) 0))            ;; a_r (field r)
+               (last-accum   (or (getf metadata :last-accumulation-slot) 0))   ;; a_a (field a)
+               (parent-svc   (or (getf metadata :parent-service) 0)))
           (jam.ffi:with-pvm (ctx code-blob service-id balance timeslot)
             ;; Configure context as one JAM blob
             (jam.ffi:pvm-configure ctx
@@ -471,9 +470,9 @@
               :min-memo-gas    min-memo-gas    ;; a_m
               :items-count     items-count     ;; a_i → Rust self.items_count
               :footprint       total-bytes     ;; a_o → Rust self.footprint (total octets, encode_info a_o)
-              :recent-count    recent-count
-              :accum-gas-limit accum-gas-lim
-              :preimage-pages  preimage-pgs
+              :recent-count    creation-ts     ;; a_r (field r = creation timeslot)
+              :accum-gas-limit last-accum      ;; a_a (field a = last accumulation timeslot)
+              :preimage-pages  parent-svc      ;; a_p (field p = parent service)
               :gas             gas-limit
               ;; Service account data:
               ;; Storage is h27-keyed (GP Appendix D). The PVM hashes raw
@@ -518,13 +517,16 @@
                   ;; ── Debug: attach host-call trace if enabled ──
                   (when *debug-pvm-trace*
                     (let ((hclog (jam.ffi:pvm-debug-trace-read ctx))
-                          (dlog  (jam.ffi:pvm-debug-log-read ctx)))
+                          (dlog  (jam.ffi:pvm-debug-log-read ctx))
+                          (glogs (jam.ffi:pvm-guest-log-read ctx)))
                       (setf (getf effects :host-call-log) hclog)
                       (setf (getf effects :debug-log) dlog)
+                      (setf (getf effects :guest-logs) glogs)
                       (push (list :sid service-id :gas-limit gas-limit
                                   :gas-used gas-used :gas-remaining (or gas-remaining 0)
                                   :outcome outcome :n-host-calls (length hclog)
-                                  :host-call-log hclog :debug-log dlog)
+                                  :host-call-log hclog :debug-log dlog
+                                  :guest-logs glogs)
                             *debug-pvm-traces*)))
                   (values effects gas-used))))))
 

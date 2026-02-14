@@ -531,6 +531,229 @@ fn test_export_base_and_timeslot_default_zero() {
 }
 
 // ------------------------------------------------------------------
+// GOLD TEST: encode_info() vs jam_types::ServiceInfo byte-for-byte
+// ------------------------------------------------------------------
+
+/// This test is the definitive validation of our ΩI encoding.
+///
+/// It creates a `ServiceAccount` (our type) and a `jam_types::ServiceInfo`
+/// (the canonical type that the guest program decodes) with the SAME values,
+/// encodes both, and compares byte-for-byte.
+///
+/// If this test passes, our ΩI is 100% compatible with the reference.
+/// If it fails, the guest sees wrong data → different execution path.
+///
+/// Test data from the jam-types test vectors:
+///   https://github.com/paritytech/polkajam
+///
+/// Field mapping:
+///   Our ServiceAccount      jam_types::ServiceInfo     GP field
+///   ──────────────────       ──────────────────────     ────────
+///   code_hash                code_hash                  a_c
+///   balance                  balance                    a_b
+///   threshold (= a_f)  ──→  deposit_offset (= a_f)     a_f
+///   compute_threshold()──→  threshold (= a_t, DERIVED) a_t
+///   min_accum_gas            min_item_gas               a_g
+///   min_memo_gas             min_memo_gas               a_m
+///   footprint                bytes                      a_o
+///   items_count              items                      a_i
+///   recent_count             creation_slot              a_r
+///   accum_gas_limit          last_accumulation_slot     a_a
+///   preimage_pages           parent_service             a_p
+#[test]
+fn test_encode_info_matches_jam_types_reference() {
+    use jam_types::Encode;
+
+    // ── Test values (from user's test vector JSON) ──
+    let code_hash = [0x5A_u8; 32];
+    let balance: u64 = 1_000_000;
+    let min_item_gas: u64 = 5_000;   // a_g (jam-types: min_item_gas)
+    let min_memo_gas: u64 = 7_000;   // a_m
+    let bytes: u64 = 2_048;          // a_o (footprint)
+    let deposit_offset: u64 = 256;   // a_f
+    let items: u32 = 4;              // a_i
+    let creation_slot: u32 = 10;     // a_r
+    let last_accumulation_slot: u32 = 20; // a_a
+    let parent_service: u32 = 2;     // a_p
+
+    // ── Computed threshold: a_t = max(0, B_S + B_I·a_i + B_L·a_o − a_f) ──
+    let a_t = compute_threshold(items, bytes, deposit_offset);
+    // B_S=100, B_I=10, B_L=1 → 100 + 10*4 + 1*2048 − 256 = 1932
+    assert_eq!(a_t, 1932, "threshold computation sanity check");
+
+    // ── Our ServiceAccount ──
+    let our = ServiceAccount {
+        storage: HashMap::new(),
+        preimages: HashMap::new(),
+        lookup: HashMap::new(),
+        balance,
+        code_hash,
+        threshold: deposit_offset,   // WE store a_f here
+        min_accum_gas: min_item_gas,
+        min_memo_gas,
+        items_count: items,
+        footprint: bytes,
+        recent_count: creation_slot,
+        accum_gas_limit: last_accumulation_slot,
+        preimage_pages: parent_service,
+    };
+    let our_bytes = our.encode_info();
+
+    // ── jam_types::ServiceInfo (canonical) ──
+    let ref_info = jam_types::ServiceInfo {
+        code_hash: code_hash.into(),
+        balance,
+        threshold: a_t,              // jam-types stores DERIVED a_t
+        min_item_gas,
+        min_memo_gas,
+        bytes,
+        items,
+        deposit_offset,
+        creation_slot,
+        last_accumulation_slot,
+        parent_service,
+    };
+    let ref_bytes = ref_info.encode();
+
+    // ── Compare byte-by-byte ──
+    assert_eq!(our_bytes.len(), ref_bytes.len(),
+        "length mismatch: our={} ref={}", our_bytes.len(), ref_bytes.len());
+
+    if our_bytes[..] != ref_bytes[..] {
+        // Print field-by-field comparison for debugging
+        let fields = [
+            ("code_hash",            0,  32),
+            ("balance",             32,  40),
+            ("threshold (a_t)",     40,  48),
+            ("min_item_gas (a_g)",  48,  56),
+            ("min_memo_gas (a_m)",  56,  64),
+            ("bytes (a_o)",         64,  72),
+            ("items (a_i)",         72,  76),
+            ("deposit_offset (a_f)",76,  84),
+            ("creation_slot (a_r)", 84,  88),
+            ("last_accum (a_a)",    88,  92),
+            ("parent_svc (a_p)",    92,  96),
+        ];
+        let mut diff_msg = String::from("Field-by-field comparison:\n");
+        for (name, start, end) in &fields {
+            let ours = &our_bytes[*start..*end];
+            let refs = &ref_bytes[*start..*end];
+            let mark = if ours == refs { "✓" } else { "✗ MISMATCH" };
+            diff_msg.push_str(&format!(
+                "  [{:2}:{:2}] {:25} our={} ref={} {}\n",
+                start, end, name,
+                ours.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+                refs.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+                mark
+            ));
+        }
+        panic!("encode_info DOES NOT match jam_types::ServiceInfo!\n{}", diff_msg);
+    }
+}
+
+/// Same gold test with block 38 production values (u64::MAX balance/deposit).
+#[test]
+fn test_encode_info_block38_values() {
+    use jam_types::Encode;
+
+    let code_hash = [0x5A_u8; 32]; // placeholder
+    let balance: u64 = u64::MAX;
+    let min_item_gas: u64 = 10;
+    let min_memo_gas: u64 = 10;
+    let bytes: u64 = 138_604;
+    let deposit_offset: u64 = u64::MAX;
+    let items: u32 = 18;
+    let creation_slot: u32 = 0;
+    let last_accumulation_slot: u32 = 37;
+    let parent_service: u32 = 0;
+
+    let a_t = compute_threshold(items, bytes, deposit_offset);
+    // B_S + B_I*18 + B_L*138604 = 100 + 180 + 138604 = 138884
+    // 138884 - u64::MAX → saturating_sub → 0
+    assert_eq!(a_t, 0, "infinite deposit offset → zero threshold");
+
+    let our = ServiceAccount {
+        storage: HashMap::new(),
+        preimages: HashMap::new(),
+        lookup: HashMap::new(),
+        balance,
+        code_hash,
+        threshold: deposit_offset,
+        min_accum_gas: min_item_gas,
+        min_memo_gas,
+        items_count: items,
+        footprint: bytes,
+        recent_count: creation_slot,
+        accum_gas_limit: last_accumulation_slot,
+        preimage_pages: parent_service,
+    };
+    let our_bytes = our.encode_info();
+
+    let ref_info = jam_types::ServiceInfo {
+        code_hash: code_hash.into(),
+        balance,
+        threshold: a_t,
+        min_item_gas,
+        min_memo_gas,
+        bytes,
+        items,
+        deposit_offset,
+        creation_slot,
+        last_accumulation_slot,
+        parent_service,
+    };
+    let ref_bytes = ref_info.encode();
+
+    assert_eq!(our_bytes[..], ref_bytes[..],
+        "Block 38 encode_info DOES NOT match jam_types::ServiceInfo!");
+}
+
+/// Verify that jam_types::ServiceInfo::decode() on our encode_info() output
+/// gives back the correct field values.
+#[test]
+fn test_encode_info_roundtrip_via_jam_types() {
+    use jam_types::Decode;
+
+    let code_hash = [0x42_u8; 32];
+    let our = ServiceAccount {
+        storage: HashMap::new(),
+        preimages: HashMap::new(),
+        lookup: HashMap::new(),
+        balance: 999_999,
+        code_hash,
+        threshold: 500,      // a_f
+        min_accum_gas: 3000,  // a_g
+        min_memo_gas: 4000,   // a_m
+        items_count: 7,       // a_i
+        footprint: 1234,      // a_o
+        recent_count: 42,     // a_r
+        accum_gas_limit: 88,  // a_a
+        preimage_pages: 3,    // a_p
+    };
+    let buf = our.encode_info();
+
+    // Decode as jam_types::ServiceInfo
+    let decoded = jam_types::ServiceInfo::decode(&mut &buf[..])
+        .expect("jam_types::ServiceInfo::decode should succeed on our encode_info output");
+
+    // Verify every field
+    assert_eq!(&decoded.code_hash[..], &code_hash[..], "code_hash");
+    assert_eq!(decoded.balance, 999_999, "balance");
+    // threshold = a_t = max(0, 100 + 10*7 + 1*1234 − 500) = 100+70+1234−500 = 904
+    let expected_threshold = compute_threshold(7, 1234, 500);
+    assert_eq!(expected_threshold, 904);
+    assert_eq!(decoded.threshold, 904, "threshold (a_t)");
+    assert_eq!(decoded.min_item_gas, 3000, "min_item_gas (a_g)");
+    assert_eq!(decoded.min_memo_gas, 4000, "min_memo_gas (a_m)");
+    assert_eq!(decoded.bytes, 1234, "bytes (a_o)");
+    assert_eq!(decoded.items, 7, "items (a_i)");
+    assert_eq!(decoded.deposit_offset, 500, "deposit_offset (a_f)");
+    assert_eq!(decoded.creation_slot, 42, "creation_slot (a_r)");
+    assert_eq!(decoded.last_accumulation_slot, 88, "last_accumulation_slot (a_a)");
+    assert_eq!(decoded.parent_service, 3, "parent_service (a_p)");
+}
+
+// ------------------------------------------------------------------
 // Ω_E context-level: FULL check logic
 // ------------------------------------------------------------------
 
