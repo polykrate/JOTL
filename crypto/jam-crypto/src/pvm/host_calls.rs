@@ -170,11 +170,6 @@ pub fn dispatch(
     // B.15: ϱ' = ϱ − g
     inst.set_gas(gas - cost);
 
-    // ── Debug trace (diagnostic; zero-cost when disabled) ──────
-    if ctx.debug_trace {
-        ctx.host_call_log.push((id, gas, gas - cost));
-    }
-
     // ── Context gating ─────────────────────────────────────────
     // GP B.2/B.6: calls not in the allowed set → continue with
     // registers unchanged (only gas is decremented).
@@ -183,6 +178,9 @@ pub fn dispatch(
             "dispatch: host call {} blocked in {:?} context — noop",
             id, ctx.invocation
         );
+        if ctx.debug_trace {
+            ctx.host_call_log.push((id, gas, gas - cost, inst.reg(Reg::A0), ctx.storage.len() as u32));
+        }
         return Ok(DispatchResult::Continue);
     }
 
@@ -227,6 +225,13 @@ pub fn dispatch(
             Ok(OmegaResult::Continue)
         }
     };
+
+    // ── Debug trace AFTER dispatch (captures return A0 + storage count) ──
+    if ctx.debug_trace {
+        let a0 = inst.reg(Reg::A0);
+        let sc = ctx.storage.len() as u32;
+        ctx.host_call_log.push((id, gas, gas - cost, a0, sc));
+    }
 
     match omega_res {
         Ok(OmegaResult::Continue) => Ok(DispatchResult::Continue),

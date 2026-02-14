@@ -1136,7 +1136,7 @@ pub unsafe extern "C" fn jam_debug_trace_count(instance: *mut JamInstance) -> u3
     (*instance).context.host_call_log.len() as u32
 }
 
-/// Read one host-call trace entry: (id, gas_before, gas_after).
+/// Read one host-call trace entry: (id, gas_before, gas_after, return_a0, storage_count).
 /// Writes into caller-provided pointers. Returns 0 on success.
 #[no_mangle]
 pub unsafe extern "C" fn jam_debug_trace_entry(
@@ -1145,15 +1145,19 @@ pub unsafe extern "C" fn jam_debug_trace_entry(
     out_id: *mut u32,
     out_gas_before: *mut i64,
     out_gas_after: *mut i64,
+    out_a0: *mut u64,
+    out_sc: *mut u32,
 ) -> u32 {
     if instance.is_null() || out_id.is_null() { return 1; }
     let log = &(*instance).context.host_call_log;
     let i = index as usize;
     if i >= log.len() { return 2; }
-    let (id, gb, ga) = log[i];
+    let (id, gb, ga, a0, sc) = log[i];
     *out_id = id;
     *out_gas_before = gb;
     *out_gas_after = ga;
+    if !out_a0.is_null() { *out_a0 = a0; }
+    if !out_sc.is_null() { *out_sc = sc; }
     0
 }
 

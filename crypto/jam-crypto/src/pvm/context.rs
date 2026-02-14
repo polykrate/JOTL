@@ -387,7 +387,8 @@ pub struct JamHostContext {
     /// Records (host_call_id, gas_before, gas_after) for each dispatch.
     /// Zero-cost when debug_trace = false (default).
     pub debug_trace: bool,
-    pub host_call_log: Vec<(u32, i64, i64)>,
+    /// (ecalli_id, gas_before, gas_after, return_a0, storage_count)
+    pub host_call_log: Vec<(u32, i64, i64, u64, u32)>,
 
     // ── Checkpoint (B.13 dual-context y) ─────────────
     /// Checkpoint snapshot — the "y" context in B.13's `(x, y)` pair.

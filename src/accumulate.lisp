@@ -393,9 +393,9 @@
                               :threshold (or (getf metadata :deposit-offset) 0)
                               :min-accum-gas (or (getf metadata :min-item-gas) 0)
                               :min-item-gas (or (getf metadata :min-memo-gas) 0)
-                              :min-on-transfer-gas (or (getf metadata :min-memo-gas) 0)
+                              :min-on-transfer-gas (or (getf metadata :min-memo-gas) 0) ;; a_m (ΩT LOW check)
                               :items-count (or (getf metadata :items) 0)
-                              :footprint (or (getf metadata :bytes) 0)
+                              :footprint (or (getf metadata :bytes) 0)               ;; a_o (total octets)
                               :storage (getf svc-data :storage)
                               :preimages (getf svc-data :preimages)
                               :lookup (getf svc-data :lookup)))
@@ -467,12 +467,12 @@
               :header-hash     (or (getf state :header-hash)
                                    (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
               :code-hash       code-hash
-              :threshold       deposit-off
-              :min-accum-gas   min-accum-gas
-              :min-item-gas    min-memo-gas
-              :min-on-transfer-gas min-memo-gas
-              :items-count     items-count
-              :footprint       total-bytes
+              :threshold       deposit-off     ;; a_f → Rust self.threshold (balance offset for compute_threshold)
+              :min-accum-gas   min-accum-gas   ;; a_g → Rust self.min_accum_gas
+              :min-item-gas    min-memo-gas    ;; a_m → Rust self.min_item_gas
+              :min-on-transfer-gas min-memo-gas ;; a_m → Rust self.min_on_transfer_gas (ΩT LOW check)
+              :items-count     items-count     ;; a_i → Rust self.items_count
+              :footprint       total-bytes     ;; a_o → Rust self.footprint (total octets, encode_info a_o)
               :recent-count    recent-count
               :accum-gas-limit accum-gas-lim
               :preimage-pages  preimage-pgs

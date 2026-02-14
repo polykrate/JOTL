@@ -146,22 +146,25 @@
 (cffi:defcfun ("jam_debug_trace_entry" %jam-debug-trace-entry) :uint32
   "Read one trace entry."
   (instance :pointer) (index :uint32)
-  (out-id :pointer) (out-gas-before :pointer) (out-gas-after :pointer))
+  (out-id :pointer) (out-gas-before :pointer) (out-gas-after :pointer)
+  (out-a0 :pointer) (out-sc :pointer))
 
 (defun pvm-debug-trace-enable (ctx)
   "Enable host-call tracing on a PVM context."
   (%jam-debug-trace-enable ctx))
 
 (defun pvm-debug-trace-read (ctx)
-  "Read all host-call trace entries. Returns list of (id gas-before gas-after)."
+  "Read all host-call trace entries. Returns list of (id gas-before gas-after return-a0 storage-count)."
   (let ((n (%jam-debug-trace-count ctx))
         (result nil))
-    (cffi:with-foreign-objects ((oid :uint32) (ogb :int64) (oga :int64))
+    (cffi:with-foreign-objects ((oid :uint32) (ogb :int64) (oga :int64) (oa0 :uint64) (osc :uint32))
       (dotimes (i n)
-        (when (zerop (%jam-debug-trace-entry ctx i oid ogb oga))
+        (when (zerop (%jam-debug-trace-entry ctx i oid ogb oga oa0 osc))
           (push (list (cffi:mem-ref oid :uint32)
                       (cffi:mem-ref ogb :int64)
-                      (cffi:mem-ref oga :int64))
+                      (cffi:mem-ref oga :int64)
+                      (cffi:mem-ref oa0 :uint64)
+                      (cffi:mem-ref osc :uint32))
                 result))))
     (nreverse result)))
 
