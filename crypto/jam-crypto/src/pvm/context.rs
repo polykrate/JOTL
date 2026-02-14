@@ -383,6 +383,8 @@ pub struct JamHostContext {
     pub debug_trace: bool,
     /// (ecalli_id, gas_before, gas_after, return_a0, storage_count)
     pub host_call_log: Vec<(u32, i64, i64, u64, u32)>,
+    /// Detailed debug log strings (ΩI bytes, ΩW operations, etc.)
+    pub debug_log: Vec<String>,
 
     // ── Checkpoint (B.13 dual-context y) ─────────────
     /// Checkpoint snapshot — the "y" context in B.13's `(x, y)` pair.
@@ -546,6 +548,7 @@ impl Default for JamHostContext {
             empower: None,
             debug_trace: false,
             host_call_log: Default::default(),
+            debug_log: Default::default(),
         }
     }
 }

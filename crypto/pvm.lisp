@@ -168,6 +168,24 @@
                 result))))
     (nreverse result)))
 
+(cffi:defcfun ("jam_debug_log_count" %jam-debug-log-count) :uint32
+  "Get debug log entry count." (instance :pointer))
+
+(cffi:defcfun ("jam_debug_log_entry" %jam-debug-log-entry) :uint32
+  "Read one debug log entry."
+  (instance :pointer) (index :uint32) (out-buf :pointer) (buf-len :uint32))
+
+(defun pvm-debug-log-read (ctx)
+  "Read all debug log entries. Returns list of strings."
+  (let ((n (%jam-debug-log-count ctx))
+        (result nil))
+    (cffi:with-foreign-object (buf :uint8 4096)
+      (dotimes (i n)
+        (let ((len (%jam-debug-log-entry ctx i buf 4096)))
+          (when (> len 0)
+            (push (cffi:foreign-string-to-lisp buf :count len) result)))))
+    (nreverse result)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; CFFI declaration for work-item encoding
 ;;; ═══════════════════════════════════════════════════════════════════

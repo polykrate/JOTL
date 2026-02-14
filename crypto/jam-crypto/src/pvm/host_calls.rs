@@ -662,6 +662,8 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // GP §9.3: storage contributes 1 item and (34+|key|+|value|) to footprint.
     // |key| uses the RAW key length (not h27) per GP spec.
     let key_sz = key.len() as u64;
+    let pre_items = ctx.items_count;
+    let pre_footprint = ctx.footprint;
     match new_value {
         None => {
             // v_Z = 0 → remove key from storage
@@ -669,6 +671,18 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 // Removed: items -1, footprint -(34+|key|+|old_val|)
                 ctx.items_count = ctx.items_count.saturating_sub(1);
                 ctx.footprint = ctx.footprint.saturating_sub(34 + key_sz + old_val.len() as u64);
+                if ctx.debug_trace {
+                    ctx.debug_log.push(format!(
+                        "omega_w: DELETE key_len={} old_val_len={} items={}→{} footprint={}→{} storage_count={}",
+                        key_sz, old_val.len(), pre_items, ctx.items_count,
+                        pre_footprint, ctx.footprint, ctx.storage.len()
+                    ));
+                }
+            } else if ctx.debug_trace {
+                ctx.debug_log.push(format!(
+                    "omega_w: DELETE_NOOP key_len={} (key not found) items={} footprint={} storage_count={}",
+                    key_sz, ctx.items_count, ctx.footprint, ctx.storage.len()
+                ));
             }
         }
         Some(v) => {
@@ -681,10 +695,24 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 } else {
                     ctx.footprint = ctx.footprint.saturating_sub(old_val_len - new_val_len);
                 }
+                if ctx.debug_trace {
+                    ctx.debug_log.push(format!(
+                        "omega_w: UPDATE key_len={} old_val_len={} new_val_len={} items={} footprint={}→{} storage_count={}",
+                        key_sz, old_val_len, new_val_len, ctx.items_count,
+                        pre_footprint, ctx.footprint, ctx.storage.len()
+                    ));
+                }
             } else {
                 // New entry: items +1, footprint +(34+|key|+|val|)
                 ctx.items_count += 1;
                 ctx.footprint += 34 + key_sz + new_val_len;
+                if ctx.debug_trace {
+                    ctx.debug_log.push(format!(
+                        "omega_w: CREATE key_len={} val_len={} items={}→{} footprint={}→{} storage_count={}",
+                        key_sz, new_val_len, pre_items, ctx.items_count,
+                        pre_footprint, ctx.footprint, ctx.storage.len()
+                    ));
+                }
             }
         }
     }
@@ -744,6 +772,16 @@ fn omega_i(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
             // v = E(a_c, ...) — 96-byte encoding
             let v = acct.encode_info();
             let data_len = v.len(); // always SERVICE_INFO_SIZE = 96
+
+            // ── Debug: log full ΩI encoding ──────────────────────
+            if ctx.debug_trace {
+                let hex: String = v.iter().map(|b| format!("{:02x}", b)).collect();
+                ctx.debug_log.push(format!(
+                    "omega_i: svc={} is_self={} items={} footprint={} threshold={} balance={} info_hex={}",
+                    service_raw, is_self, acct.items_count, acct.footprint,
+                    acct.threshold, acct.balance, hex
+                ));
+            }
 
             let f = std::cmp::min(offset, data_len);
             let l = std::cmp::min(out_len, data_len - f);

@@ -447,10 +447,10 @@
                (total-bytes   (or (getf metadata :bytes) 0))
                (deposit-off   (or (getf metadata :deposit-offset) 0))
                ;; Extra service fields for ΩI (info on self) — GP §D.1
-               ;; These map to the last 3 u32 fields in the 89-byte trie format:
-               ;; creation-slot → a_r (recent count)
-               ;; last-accumulation-slot → a_a (accum gas limit)
-               ;; parent-service → a_p (preimage pages)
+               ;; These map to the last 3 u32 fields in the 89-byte trie format.
+               ;; FIXME: verify a_r/a_a mapping — see investigation notes below.
+               ;; Current mapping: creation-slot → a_r, last-accumulation-slot → a_a
+               ;; Hypothesis: might need to swap (a_r = last-accum-slot, a_a = creation-slot)
                (recent-count   (or (getf metadata :creation-slot) 0))
                (accum-gas-lim  (or (getf metadata :last-accumulation-slot) 0))
                (preimage-pgs   (or (getf metadata :parent-service) 0)))
@@ -517,12 +517,14 @@
                   (setf (getf effects :outcome) outcome)
                   ;; ── Debug: attach host-call trace if enabled ──
                   (when *debug-pvm-trace*
-                    (let ((hclog (jam.ffi:pvm-debug-trace-read ctx)))
+                    (let ((hclog (jam.ffi:pvm-debug-trace-read ctx))
+                          (dlog  (jam.ffi:pvm-debug-log-read ctx)))
                       (setf (getf effects :host-call-log) hclog)
+                      (setf (getf effects :debug-log) dlog)
                       (push (list :sid service-id :gas-limit gas-limit
                                   :gas-used gas-used :gas-remaining (or gas-remaining 0)
                                   :outcome outcome :n-host-calls (length hclog)
-                                  :host-call-log hclog)
+                                  :host-call-log hclog :debug-log dlog)
                             *debug-pvm-traces*)))
                   (values effects gas-used))))))
 

@@ -64,6 +64,7 @@
    ;; Debug: host-call tracing (temporary)
    #:pvm-debug-trace-enable
    #:pvm-debug-trace-read
+   #:pvm-debug-log-read
    
    ;; Library status
    #:*ffi-loaded*))

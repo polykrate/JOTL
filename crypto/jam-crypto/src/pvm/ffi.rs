@@ -1157,6 +1157,33 @@ pub unsafe extern "C" fn jam_debug_trace_entry(
     0
 }
 
+/// Get the number of debug log entries (string messages from ΩI/ΩW tracing).
+#[no_mangle]
+pub unsafe extern "C" fn jam_debug_log_count(instance: *mut JamInstance) -> u32 {
+    if instance.is_null() { return 0; }
+    (*instance).context.debug_log.len() as u32
+}
+
+/// Read one debug log entry as a null-terminated UTF-8 string.
+/// Writes into caller-provided buffer. Returns actual length or 0 on error.
+#[no_mangle]
+pub unsafe extern "C" fn jam_debug_log_entry(
+    instance: *mut JamInstance,
+    index: u32,
+    out_buf: *mut u8,
+    buf_len: u32,
+) -> u32 {
+    if instance.is_null() || out_buf.is_null() { return 0; }
+    let log = &(*instance).context.debug_log;
+    let i = index as usize;
+    if i >= log.len() { return 0; }
+    let s = log[i].as_bytes();
+    let copy_len = std::cmp::min(s.len(), (buf_len as usize).saturating_sub(1));
+    std::ptr::copy_nonoverlapping(s.as_ptr(), out_buf, copy_len);
+    *out_buf.add(copy_len) = 0; // null terminate
+    copy_len as u32
+}
+
 // ============================================================================
 // Inner PVM engine (ΩM deblob support)
 // ============================================================================
