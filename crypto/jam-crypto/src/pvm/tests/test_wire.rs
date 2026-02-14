@@ -197,10 +197,8 @@ fn make_minimal_config_blob() -> Vec<u8> {
     buf.extend_from_slice(&500u64.to_le_bytes());
     // min_accum_gas: u64
     buf.extend_from_slice(&10u64.to_le_bytes());
-    // min_item_gas: u64
+    // min_memo_gas: u64 (a_m)
     buf.extend_from_slice(&5u64.to_le_bytes());
-    // min_on_transfer_gas: u64
-    buf.extend_from_slice(&3u64.to_le_bytes());
     // items_count: u32
     buf.extend_from_slice(&2u32.to_le_bytes());
     // footprint: u64
@@ -254,8 +252,7 @@ fn test_decode_pvm_config_minimal() {
     assert_eq!(ctx.code_hash, [0xBB; 32]);
     assert_eq!(ctx.threshold, 500);
     assert_eq!(ctx.min_accum_gas, 10);
-    assert_eq!(ctx.min_item_gas, 5);
-    assert_eq!(ctx.min_on_transfer_gas, 3);
+    assert_eq!(ctx.min_memo_gas, 5);
     assert_eq!(ctx.items_count, 2);
     assert_eq!(ctx.footprint, 1024);
     assert_eq!(ctx.recent_count, 8);
@@ -285,7 +282,7 @@ fn test_decode_pvm_config_with_storage() {
     blob.extend_from_slice(&[0u8; 128]); // entropy
     blob.extend_from_slice(&[0u8; 32]); // header_hash
     blob.extend_from_slice(&[0u8; 32]); // code_hash
-    blob.extend_from_slice(&[0u8; 8 * 4]); // threshold, min_accum_gas, min_item_gas, min_on_transfer_gas
+    blob.extend_from_slice(&[0u8; 8 * 3]); // threshold, min_accum_gas, min_memo_gas
     blob.extend_from_slice(&[0u8; 4]); // items_count
     blob.extend_from_slice(&[0u8; 8]); // footprint
     blob.extend_from_slice(&[0u8; 4 * 3]); // recent_count, accum_gas_limit, preimage_pages

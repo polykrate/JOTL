@@ -246,8 +246,7 @@
                             (code-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
                             (threshold 0)
                             (min-accum-gas 0)
-                            (min-item-gas 0)
-                            (min-on-transfer-gas 0)
+                            (min-memo-gas 0)
                             (items-count 0)
                             (footprint 0)
                             (recent-count 0)
@@ -287,8 +286,7 @@
     (write-bytes buf (ensure-octets code-hash))
     (write-u64-le buf threshold)
     (write-u64-le buf min-accum-gas)
-    (write-u64-le buf min-item-gas)
-    (write-u64-le buf min-on-transfer-gas)
+    (write-u64-le buf min-memo-gas)
     (write-u32-le buf items-count)
     (write-u64-le buf footprint)
     (write-u32-le buf recent-count)
@@ -361,7 +359,7 @@
 (defun encode-service-account-into (buf acct)
   "Encode a service account plist into BUF.
    ACCT is a plist with keys: :code-hash :balance :threshold :min-accum-gas
-   :min-item-gas :min-on-transfer-gas :items-count :footprint :recent-count
+   :min-memo-gas :items-count :footprint :recent-count
    :accum-gas-limit :preimage-pages :storage :preimages :lookup"
   ;; code_hash: [u8;32]
   (write-bytes buf (ensure-octets (getf acct :code-hash
@@ -370,8 +368,7 @@
   (write-u64-le buf (getf acct :balance 0))
   (write-u64-le buf (getf acct :threshold 0))
   (write-u64-le buf (getf acct :min-accum-gas 0))
-  (write-u64-le buf (getf acct :min-item-gas 0))
-  (write-u64-le buf (getf acct :min-on-transfer-gas 0))
+  (write-u64-le buf (getf acct :min-memo-gas 0))
   ;; u32 fields
   (write-u32-le buf (getf acct :items-count 0))
   ;; u64

@@ -221,12 +221,8 @@ pub struct ServiceAccount {
     pub threshold: u64,
     /// a_g — minimum gas for accumulate entry-point (u64) (GP §9.1)
     pub min_accum_gas: u64,
-    /// a_m — minimum gas per deferred-transfer (u64) (GP §9.1)
-    /// NOTE: Rust field is named `min_item_gas` but holds GP's a_m.
-    pub min_item_gas: u64,
-    /// Holds a_m from Lisp side. NOT used in Ω_I encoding (positions swapped).
-    /// Used only for Ω_T LOW check: transfer gas_limit ≥ dest.min_on_transfer_gas.
-    pub min_on_transfer_gas: u64,
+    /// a_m — minimum gas per deferred-transfer / on_transfer (u64) (GP §9.1)
+    pub min_memo_gas: u64,
     /// a_i — number of items: 2·|a_l| + |a_s| (u32) (GP §9.3 eq 9.8)
     /// Tracked incrementally by Ω_W/Ω_S/Ω_F.
     pub items_count: u32,
@@ -294,7 +290,7 @@ impl ServiceAccount {
         buf[off..off + 8].copy_from_slice(&self.balance.to_le_bytes());       off += 8;
         buf[off..off + 8].copy_from_slice(&a_t.to_le_bytes());               off += 8;
         buf[off..off + 8].copy_from_slice(&self.min_accum_gas.to_le_bytes()); off += 8;
-        buf[off..off + 8].copy_from_slice(&self.min_item_gas.to_le_bytes());  off += 8;
+        buf[off..off + 8].copy_from_slice(&self.min_memo_gas.to_le_bytes());  off += 8;
         buf[off..off + 8].copy_from_slice(&self.footprint.to_le_bytes());     off += 8;
 
         // E_4(a_i) — 4 bytes
@@ -342,10 +338,8 @@ pub struct JamHostContext {
     pub threshold: u64,
     /// a_g — minimum gas for accumulate
     pub min_accum_gas: u64,
-    /// a_m — minimum gas per item
-    pub min_item_gas: u64,
-    /// a_o — minimum gas for on_transfer
-    pub min_on_transfer_gas: u64,
+    /// a_m — minimum gas per deferred-transfer / on_transfer (GP §9.1)
+    pub min_memo_gas: u64,
     /// a_i — number of items
     pub items_count: u32,
     /// a_f — total footprint in bytes
@@ -503,8 +497,7 @@ impl Default for JamHostContext {
             code_hash: [0u8; 32],
             threshold: 0,
             min_accum_gas: 0,
-            min_item_gas: 0,
-            min_on_transfer_gas: 0,
+            min_memo_gas: 0,
             items_count: 0,
             footprint: 0,
             recent_count: 0,
@@ -748,8 +741,7 @@ impl JamHostContext {
             code_hash: self.code_hash,
             threshold: self.threshold,
             min_accum_gas: self.min_accum_gas,
-            min_item_gas: self.min_item_gas,
-            min_on_transfer_gas: self.min_on_transfer_gas,
+            min_memo_gas: self.min_memo_gas,
             items_count: self.items_count,
             footprint: self.footprint,
             recent_count: self.recent_count,

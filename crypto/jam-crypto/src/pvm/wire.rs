@@ -283,8 +283,7 @@ fn encode_empower_option(buf: &mut Vec<u8>, empower: &Option<EmpowerState>) {
 /// [u8;32]: code_hash
 /// u64-LE: threshold
 /// u64-LE: min_accum_gas
-/// u64-LE: min_item_gas
-/// u64-LE: min_on_transfer_gas
+/// u64-LE: min_memo_gas
 /// u32-LE: items_count
 /// u64-LE: footprint
 /// u32-LE: recent_count
@@ -352,13 +351,9 @@ pub fn decode_pvm_config(data: &[u8], ctx: &mut JamHostContext) -> Result<usize,
     let (v, n) = read_u64(data, pos).ok_or("min_accum_gas")?;
     pos += n; ctx.min_accum_gas = v;
 
-    // min_item_gas: u64
-    let (v, n) = read_u64(data, pos).ok_or("min_item_gas")?;
-    pos += n; ctx.min_item_gas = v;
-
-    // min_on_transfer_gas: u64
-    let (v, n) = read_u64(data, pos).ok_or("min_on_transfer_gas")?;
-    pos += n; ctx.min_on_transfer_gas = v;
+    // min_memo_gas: u64 (a_m)
+    let (v, n) = read_u64(data, pos).ok_or("min_memo_gas")?;
+    pos += n; ctx.min_memo_gas = v;
 
     // items_count: u32
     let (v, n) = read_u32(data, pos).ok_or("items_count")?;
@@ -493,7 +488,7 @@ pub fn decode_pvm_config(data: &[u8], ctx: &mut JamHostContext) -> Result<usize,
 /// Layout: same as encode but in-line:
 /// ```text
 /// [u8;32]: code_hash
-/// u64: balance, threshold, min_accum_gas, min_item_gas, min_on_transfer_gas
+/// u64: balance, threshold, min_accum_gas, min_memo_gas
 /// u32: items_count
 /// u64: footprint
 /// u32: recent_count, accum_gas_limit, preimage_pages
@@ -514,10 +509,8 @@ fn decode_service_account(data: &[u8], start: usize) -> Result<(ServiceAccount, 
     pos += n; acct.threshold = v;
     let (v, n) = read_u64(data, pos).ok_or("acct min_accum_gas")?;
     pos += n; acct.min_accum_gas = v;
-    let (v, n) = read_u64(data, pos).ok_or("acct min_item_gas")?;
-    pos += n; acct.min_item_gas = v;
-    let (v, n) = read_u64(data, pos).ok_or("acct min_on_transfer_gas")?;
-    pos += n; acct.min_on_transfer_gas = v;
+    let (v, n) = read_u64(data, pos).ok_or("acct min_memo_gas")?;
+    pos += n; acct.min_memo_gas = v;
 
     let (v, n) = read_u32(data, pos).ok_or("acct items_count")?;
     pos += n; acct.items_count = v;

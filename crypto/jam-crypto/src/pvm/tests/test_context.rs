@@ -374,8 +374,7 @@ fn test_encode_info_layout() {
         code_hash: [0xAA; 32],
         threshold: 500,
         min_accum_gas: 100_000,
-        min_item_gas: 50_000,
-        min_on_transfer_gas: 25_000,
+        min_memo_gas: 50_000,
         items_count: 42,
         footprint: 8192,
         recent_count: 10,
@@ -441,8 +440,7 @@ fn test_self_account_info_roundtrip() {
     ctx.code_hash = [0xBB; 32];
     ctx.threshold = 123;
     ctx.min_accum_gas = 10;
-    ctx.min_item_gas = 20;
-    ctx.min_on_transfer_gas = 30;
+    ctx.min_memo_gas = 20;
     ctx.recent_count = 3;
     ctx.accum_gas_limit = 50000;
     ctx.preimage_pages = 2;

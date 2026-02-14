@@ -371,7 +371,7 @@
                                            (let ((exp-si (load-service-info expected-val))
                                                  (got-si (load-service-info computed-val)))
                                              ;; Compare each non-hash field explicitly
-                                             (dolist (field '(:version :balance :min-item-gas :min-memo-gas
+                                             (dolist (field '(:version :balance :min-accum-gas :min-memo-gas
                                                              :bytes :deposit-offset :items
                                                              :creation-slot :last-accumulation-slot :parent-service))
                                                (let ((ev (getf exp-si field))

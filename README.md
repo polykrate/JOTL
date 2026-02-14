@@ -6,44 +6,43 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
 ## Conformance
 
-| Trace suite | Chain | Step | 1st divergence | Root cause |
-|-------------|------:|-----:|----------------|------------|
-| fallback | **100/100** | **100/100** | — | — |
-| safrole | **100/100** | **100/100** | — | — |
-| storage | 37/38 | **98/100** | block 38 | π gas → δ balance |
-| storage_light | 77/78 | **99/100** | block 78 | π gas → δ balance |
-| preimages | 29/30 | 91/100 | block 30 | π gas → δ balance |
-| preimages_light | 10/11 | 94/100 | block 11 | π gas + δ svc |
-| fuzzy | 5/6 | 32/200 | block 6 | θ/guarantees |
-| fuzzy_light | 5/6 | 38/200 | block 6 | θ/guarantees |
-| **Total** | **363/369** | **652/1000** | | **0 errors** |
+| Trace suite | Chain | Step | Root cause |
+|-------------|------:|-----:|------------|
+| fallback | **100/100** | **100/100** | — |
+| safrole | **100/100** | **100/100** | — |
+| storage | 88/100 | **98/100** | π gas |
+| storage_light | **99/100** | **99/100** | π gas |
+| preimages | 33/100 | 91/100 | π gas |
+| preimages_light | 70/100 | 94/100 | π gas |
+| fuzzy | 5/200 | 32/200 | θ/guarantees |
+| fuzzy_light | 5/200 | 38/200 | θ/guarantees |
+| **Total** | **500/1000** | **652/1000** | **0 errors** |
 
 **Step mode** tests each block independently from the reference pre-state.
-**Chain mode** applies blocks sequentially — stops at first divergence (cascading).
+**Chain mode** applies blocks sequentially — failures cascade (a wrong σ
+produces wrong σ' for all subsequent blocks).
 
 ### Step-mode divergence breakdown
 
-All non-PVM transitions pass 100%. Failures classified by segment:
+All non-PVM transitions pass 100%. Failures are PVM-only:
 
-| Suite | Pass | π only | π + δ | δ only | GUARANTEE-ERROR |
-|-------|-----:|-------:|------:|-------:|----------------:|
-| storage | 98 | 0 | 2 | 0 | — |
-| storage_light | 99 | 0 | 1 | 0 | — |
-| preimages | 91 | 2 | 7 | 0 | — |
-| preimages_light | 94 | 0 | 4 | 2 | — |
-| fuzzy | 32 | — | — | — | ~100 |
-| fuzzy_light | 38 | — | — | — | ~80 |
+| Suite | Pass | Fail | Root cause |
+|-------|-----:|-----:|------------|
+| storage | 98 | 2 | π gas (basic block charging) |
+| storage_light | 99 | 1 | π gas |
+| preimages | 91 | 9 | π gas |
+| preimages_light | 94 | 6 | π gas |
+| fuzzy | 32 | 168 | θ/guarantees not implemented |
+| fuzzy_light | 38 | 162 | θ/guarantees not implemented |
 
 Root causes:
-- **π gas → δ balance** (16 blocks): PolkaVM 0.29 instruction-level gas metering
-  differs from the reference PVM by a few instructions per accumulate call.
-  This makes `accumulate-gas-used` in π_S diverge, which changes the gas refund,
-  which changes `a_b` (balance) in the ServiceInfo stored in δ's Merkle trie.
+- **π gas** (~20 blocks): PolkaVM 0.29 charges gas per basic block, not per
+  instruction. When a host call (`ecalli`) interrupts a basic block, the full
+  block cost was already charged — the guest sees 1–3 extra gas consumed per
+  host call. This shifts `accumulate-gas-used` in π_S, which changes the gas
+  refund, which changes `a_b` (balance) in ServiceInfo → δ's Merkle trie.
   All host call gas costs verified correct (10 per call, ΩT = 10+l on success).
   Instruction gas = 1 per RISC-V instruction (PolkaVM `GasMeteringKind::Sync`).
-- **δ only** (2 blocks: preimages_light 11, 50): service storage diverges while
-  π matches — PVM runs same gas but produces different storage. Under investigation
-  (likely residual ServiceInfo field mapping or preimage integration edge case).
 - **θ/guarantees**: fuzzy traces exercise `refine`, which is not yet implemented.
 
 **0 errors** — no panics, no parse failures across all 1100 blocks.
@@ -96,9 +95,9 @@ spec survives Common Lisp, it survives anything.
 |-------|-------:|-----:|------:|
 | fallback (no PVM) | 100 | 0.39s | ~254 |
 | safrole (Bandersnatch VRF) | 100 | 1.15s | ~87 |
-| storage (PVM accumulate) | 37 | 0.42s | ~88 |
+| storage (PVM accumulate) | 100 | 1.1s | ~90 |
 
-Breakdown (storage, 37 chain blocks): I/O 2%, **STF 87%**, Merkle 11%.
+Breakdown (storage, 100 step blocks): I/O 2%, **STF 87%**, Merkle 11%.
 Crypto and PVM execute in Rust via FFI. Lisp does the routing.
 JAM slot time is 6 seconds; JOTL processes test blocks in ~11ms each.
 

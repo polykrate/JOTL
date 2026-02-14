@@ -362,7 +362,7 @@
     (let* ((sid (getf r :service-id))
            (gas (getf r :accumulate-gas))
            (account (funcall delta :account sid))
-           (min-gas (when account (getf (getf account :service) :min-item-gas))))
+           (min-gas (when account (getf (getf account :service) :min-accum-gas))))
       (when (and min-gas (< gas min-gas))
         (reject-guarantee :service-item-gas-too-low)))))
 

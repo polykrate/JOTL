@@ -61,7 +61,7 @@
       (let* ((version (read-u8))
              (code-hash (read-hash))
              (balance (read-u64))
-             (min-item-gas (read-u64))
+             (min-accum-gas (read-u64))
              (min-memo-gas (read-u64))
              (total-bytes (read-u64))
              (deposit-offset (read-u64))
@@ -73,7 +73,7 @@
          (list :version version
                :code-hash code-hash
                :balance balance
-               :min-item-gas min-item-gas
+               :min-accum-gas min-accum-gas
                :min-memo-gas min-memo-gas
                :bytes total-bytes
                :deposit-offset deposit-offset
@@ -108,7 +108,7 @@
       (write-u8  (or (getf info :version) 0))
       (write-hash (getf info :code-hash))
       (write-u64 (getf info :balance))
-      (write-u64 (getf info :min-item-gas))
+      (write-u64 (getf info :min-accum-gas))
       (write-u64 (getf info :min-memo-gas))
       (write-u64 (getf info :bytes))
       (write-u64 (getf info :deposit-offset))

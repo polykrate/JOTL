@@ -502,8 +502,7 @@ pub unsafe extern "C" fn jam_instance_set_service_info(
     balance: u64,
     threshold: u64,
     min_accum_gas: u64,
-    min_item_gas: u64,
-    min_on_transfer_gas: u64,
+    min_memo_gas: u64,
     items_count: u32,
     footprint: u64,
     recent_count: u32,
@@ -517,8 +516,7 @@ pub unsafe extern "C" fn jam_instance_set_service_info(
     acct.balance = balance;
     acct.threshold = threshold;
     acct.min_accum_gas = min_accum_gas;
-    acct.min_item_gas = min_item_gas;
-    acct.min_on_transfer_gas = min_on_transfer_gas;
+    acct.min_memo_gas = min_memo_gas;
     acct.items_count = items_count;
     acct.footprint = footprint;
     acct.recent_count = recent_count;
@@ -704,8 +702,7 @@ pub unsafe extern "C" fn jam_instance_set_own_service_info(
     code_hash: *const u8,
     threshold: u64,
     min_accum_gas: u64,
-    min_item_gas: u64,
-    min_on_transfer_gas: u64,
+    min_memo_gas: u64,
     items_count: u32,
     footprint: u64,
     recent_count: u32,
@@ -717,8 +714,7 @@ pub unsafe extern "C" fn jam_instance_set_own_service_info(
     ctx.code_hash.copy_from_slice(std::slice::from_raw_parts(code_hash, 32));
     ctx.threshold = threshold;
     ctx.min_accum_gas = min_accum_gas;
-    ctx.min_item_gas = min_item_gas;
-    ctx.min_on_transfer_gas = min_on_transfer_gas;
+    ctx.min_memo_gas = min_memo_gas;
     ctx.items_count = items_count;
     ctx.footprint = footprint;
     ctx.recent_count = recent_count;

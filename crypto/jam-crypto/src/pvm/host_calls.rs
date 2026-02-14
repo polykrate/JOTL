@@ -1673,9 +1673,9 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
 
     let o       = inst.reg(Reg::A0) as u32;   // code hash pointer
     let l       = inst.reg(Reg::A1);           // code length
-    let g       = inst.reg(Reg::A2);           // min accumulate gas
-    let m       = inst.reg(Reg::A3);           // min item gas
-    let f       = inst.reg(Reg::A4);           // min on_transfer gas (also privilege flag)
+    let g       = inst.reg(Reg::A2);           // min accumulate gas (a_g)
+    let m       = inst.reg(Reg::A3);           // min memo gas (a_m)
+    let f       = inst.reg(Reg::A4);           // balance offset (a_f) + privilege flag
     let i_tilde = inst.reg(Reg::A5) as u32;   // target index (privileged creation)
 
     // S = 2^16 = 65536 — minimum public service index
@@ -1694,7 +1694,7 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     c.copy_from_slice(&c_bytes);
 
     // ── f ≠ 0 ∧ x_s ≠ (x_e)_m → HUH ──
-    // If f (on_transfer_gas) is non-zero, caller must be the manager service.
+    // If f (balance offset a_f) is non-zero, caller must be the manager service.
     if f != 0 {
         let is_manager = ctx.empower.as_ref()
             .map(|e| ctx.service_id == e.manager)
@@ -1725,13 +1725,13 @@ fn omega_n(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     }
 
     // ── Build new service account a ──
-    // (c, s:{}, l:{((c,l)↦[])}, b:a_t, g, m, p:{}, r:t, f, a:0, p:x_s)
+    // GP: (c, s:{}, l:{((c,l)↦[])}, b:a_t, g, m, p:{}, r:t, f, a:0, p:x_s)
     let a = ServiceAccount {
         code_hash: c,
-        balance: a_t_new,                // b: a_t (deposit = computed threshold)
+        balance: a_t_new,                // a_b = a_t (deposit = computed threshold)
         min_accum_gas: g,                // a_g
-        min_item_gas: m,                 // a_m
-        min_on_transfer_gas: f,          // a_o = f
+        min_memo_gas: m,                 // a_m
+        threshold: f,                    // a_f (balance offset)
         recent_count: ctx.timeslot,      // a_r = t (current timeslot)
         // All other fields: empty storage, 0 items, 0 footprint, etc.
         ..Default::default()
@@ -1823,7 +1823,7 @@ fn omega_u(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // ── OK: mutate (x_s)_c, (x_s)_g, (x_s)_m ──
     ctx.code_hash = c;
     ctx.min_accum_gas = g;
-    ctx.min_item_gas = m;
+    ctx.min_memo_gas = m;
 
     // Also push to upgrades list for external tracking / collapse output.
     ctx.upgrades.push((ctx.service_id, c));
@@ -1890,17 +1890,15 @@ fn omega_t(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     }
 
     // ── l < d[d]_m → LOW ──
-    // Gas limit must be ≥ destination's min_on_transfer_gas.
-    let dest_min_on_transfer = if d == ctx.service_id {
-        // Self: use our own field
-        ctx.min_on_transfer_gas
+    // Gas limit must be ≥ destination's min memo gas (a_m).
+    let dest_min_memo = if d == ctx.service_id {
+        ctx.min_memo_gas
     } else {
-        // Look up in service_accounts
         ctx.service_accounts.get(&d)
-            .map(|acct| acct.min_on_transfer_gas)
+            .map(|acct| acct.min_memo_gas)
             .unwrap_or(0)
     };
-    if l < dest_min_on_transfer {
+    if l < dest_min_memo {
         inst.set_reg(Reg::A0, HC_LOW);
         return Ok(OmegaResult::Continue);
     }
@@ -2010,7 +2008,7 @@ fn omega_j(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     };
 
     // ── l = max(81, d_o) − 81 ──
-    // d_o = target's footprint (a_o = bytes), NOT min_on_transfer_gas
+    // d_o = target's footprint (a_o = total octets)
     // GP: d_o refers to the target service's total byte footprint field.
     let d_o = acct.footprint;
     let l = (d_o.max(81) - 81) as u32;

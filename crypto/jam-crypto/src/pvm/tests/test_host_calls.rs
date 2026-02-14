@@ -852,19 +852,19 @@ fn test_omega_n_new_account_fields() {
     // Verify the new service account gets the right fields
     let a = ServiceAccount {
         code_hash: [0xAA; 32],
-        balance: 100,           // a_t
-        min_accum_gas: 5000,    // g
-        min_item_gas: 200,      // m
-        min_on_transfer_gas: 0, // f
-        recent_count: 42,       // t (timeslot)
+        balance: 100,           // a_b
+        min_accum_gas: 5000,    // a_g
+        min_memo_gas: 200,      // a_m
+        threshold: 0,           // a_f (balance offset)
+        recent_count: 42,       // a_r (timeslot)
         ..Default::default()
     };
 
     assert_eq!(a.code_hash, [0xAA; 32]);
     assert_eq!(a.balance, 100);
     assert_eq!(a.min_accum_gas, 5000);
-    assert_eq!(a.min_item_gas, 200);
-    assert_eq!(a.min_on_transfer_gas, 0);
+    assert_eq!(a.min_memo_gas, 200);
+    assert_eq!(a.threshold, 0);
     assert_eq!(a.recent_count, 42);
     assert!(a.storage.is_empty());
     assert!(a.preimages.is_empty());
@@ -883,7 +883,7 @@ fn test_omega_u_mutates_ctx_fields() {
         service_id: 42,
         code_hash: [0x11; 32],
         min_accum_gas: 100,
-        min_item_gas: 50,
+        min_memo_gas: 50,
         ..Default::default()
     };
 
@@ -894,12 +894,12 @@ fn test_omega_u_mutates_ctx_fields() {
 
     ctx.code_hash = new_code_hash;
     ctx.min_accum_gas = new_g;
-    ctx.min_item_gas = new_m;
+    ctx.min_memo_gas = new_m;
     ctx.upgrades.push((ctx.service_id, new_code_hash));
 
     assert_eq!(ctx.code_hash, [0xBB; 32]);
     assert_eq!(ctx.min_accum_gas, 9999);
-    assert_eq!(ctx.min_item_gas, 7777);
+    assert_eq!(ctx.min_memo_gas, 7777);
     assert_eq!(ctx.upgrades.len(), 1);
     assert_eq!(ctx.upgrades[0], (42, [0xBB; 32]));
 }
@@ -911,17 +911,16 @@ fn test_omega_u_preserves_other_fields() {
         service_id: 10,
         balance: 5000,
         threshold: 100,
-        min_on_transfer_gas: 42,
+        min_memo_gas: 42,
         ..Default::default()
     };
 
     ctx.code_hash = [0xCC; 32];
     ctx.min_accum_gas = 1000;
-    ctx.min_item_gas = 500;
+    ctx.min_memo_gas = 500;
 
     assert_eq!(ctx.balance, 5000); // untouched
     assert_eq!(ctx.threshold, 100); // untouched
-    assert_eq!(ctx.min_on_transfer_gas, 42); // untouched
 }
 
 // ------------------------------------------------------------------
@@ -970,7 +969,7 @@ fn test_omega_t_low_when_gas_limit_insufficient() {
 
     let mut service_accounts = HashMap::new();
     service_accounts.insert(99u32, ServiceAccount {
-        min_on_transfer_gas: 500,
+        min_memo_gas: 500,
         ..Default::default()
     });
 
@@ -982,7 +981,7 @@ fn test_omega_t_low_when_gas_limit_insufficient() {
 
     // l = 100 < d[99]_m = 500 → LOW
     let dest_min = ctx.service_accounts.get(&99u32)
-        .map(|a| a.min_on_transfer_gas).unwrap_or(0);
+        .map(|a| a.min_memo_gas).unwrap_or(0);
     assert!(100u64 < dest_min); // → LOW
 }
 
@@ -1218,7 +1217,7 @@ fn test_omega_j_huh_when_preimage_too_recent() {
     sa.insert(99u32, ServiceAccount {
         code_hash: e32,
         items_count: 2,
-        min_on_transfer_gas: d_o,
+        footprint: d_o,
         lookup,
         ..Default::default()
     });
@@ -1261,7 +1260,7 @@ fn test_omega_j_ok_ejects_and_credits_balance() {
     sa.insert(target_id, ServiceAccount {
         code_hash: e32,
         items_count: 2,
-        min_on_transfer_gas: d_o,
+        footprint: d_o,
         balance: 5000,
         lookup,
         ..Default::default()

@@ -376,8 +376,8 @@
 
 (defun build-cross-service-accounts (caller-id delta-kvs)
   "Build alist of (service-id . plist) for all services EXCEPT caller-id.
-   Each plist contains :code-hash :balance :threshold :min-accum-gas :min-item-gas
-   :min-on-transfer-gas :items-count :footprint :storage :preimages :lookup.
+   Each plist contains :code-hash :balance :threshold :min-accum-gas :min-memo-gas
+   :items-count :footprint :storage :preimages :lookup.
    Storage is h27-keyed (trie-classified) — PVM hashes raw keys internally."
   (let ((result nil))
     (dolist (sid (extract-all-service-ids delta-kvs))
@@ -391,9 +391,8 @@
                                                         :initial-element 0))
                               :balance (or (getf metadata :balance) 0)
                               :threshold (or (getf metadata :deposit-offset) 0)
-                              :min-accum-gas (or (getf metadata :min-item-gas) 0)
-                              :min-item-gas (or (getf metadata :min-memo-gas) 0)
-                              :min-on-transfer-gas (or (getf metadata :min-memo-gas) 0) ;; a_m (ΩT LOW check)
+                              :min-accum-gas (or (getf metadata :min-accum-gas) 0)
+                              :min-memo-gas (or (getf metadata :min-memo-gas) 0)
                               :items-count (or (getf metadata :items) 0)
                               :footprint (or (getf metadata :bytes) 0)               ;; a_o (total octets)
                               :storage (getf svc-data :storage)
@@ -442,7 +441,7 @@
                                  transfer-balance))  ;; B.9: e_d[s]_b + Σ r_a
                (code-hash     (or (getf metadata :code-hash)
                                   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))
-               (min-accum-gas (or (getf metadata :min-item-gas) 0))
+               (min-accum-gas (or (getf metadata :min-accum-gas) 0))
                (min-memo-gas  (or (getf metadata :min-memo-gas) 0))
                (items-count   (or (getf metadata :items) 0))
                (total-bytes   (or (getf metadata :bytes) 0))
@@ -468,9 +467,8 @@
                                    (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
               :code-hash       code-hash
               :threshold       deposit-off     ;; a_f → Rust self.threshold (balance offset for compute_threshold)
-              :min-accum-gas   min-accum-gas   ;; a_g → Rust self.min_accum_gas
-              :min-item-gas    min-memo-gas    ;; a_m → Rust self.min_item_gas
-              :min-on-transfer-gas min-memo-gas ;; a_m → Rust self.min_on_transfer_gas (ΩT LOW check)
+              :min-accum-gas   min-accum-gas   ;; a_g
+              :min-memo-gas    min-memo-gas    ;; a_m
               :items-count     items-count     ;; a_i → Rust self.items_count
               :footprint       total-bytes     ;; a_o → Rust self.footprint (total octets, encode_info a_o)
               :recent-count    recent-count
