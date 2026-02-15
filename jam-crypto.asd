@@ -4,7 +4,7 @@
 (asdf:defsystem #:jam-crypto
   :description "JAM Cryptography FFI to Rust (Blake2b, Ed25519, Bandersnatch, PVM)"
   :author "Polycrate"
-  :license "MIT"
+  :license "GPL-3.0"
   :version "1.0.0"
   :serial t
   :depends-on (#:cffi)

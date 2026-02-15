@@ -9,7 +9,7 @@
 (asdf:defsystem #:jotl
   :description "JAM (Join-Accumulate Machine) implementation in Common Lisp"
   :author "Polycrate"
-  :license "MIT"
+  :license "GPL-3.0"
   :version "5.0.0"
   :serial t
   :depends-on (#:alexandria

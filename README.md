@@ -65,4 +65,4 @@ tests/conformance.lisp  Trace runner (colored diff on 800+ blocks)
 
 ## License
 
-MIT
+GPL-3.0
