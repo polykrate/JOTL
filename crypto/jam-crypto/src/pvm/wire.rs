@@ -693,6 +693,7 @@ pub unsafe extern "C" fn jam_pvm_new(
         balance,
         slot,
         protocol_params: encoded_params,
+        min_turnaround_period: params.min_turnaround_period,
         ..Default::default()
     };
 

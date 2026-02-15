@@ -6,52 +6,61 @@ Gray Paper: [graypaper.com](https://graypaper.com) (v0.7.2)
 
 ## Conformance
 
-| Trace suite | Chain | Step | Root cause |
-|-------------|------:|-----:|------------|
-| fallback | **100/100** | **100/100** | — |
-| safrole | **100/100** | **100/100** | — |
-| storage | 37/100 | **98/100** | π gas |
-| storage_light | 77/100 | **99/100** | π gas |
-| preimages | 29/100 | 91/100 | π gas |
-| preimages_light | 10/100 | 94/100 | π gas |
+| Trace suite | Chain | Step | Status |
+|-------------|------:|-----:|--------|
+| fallback | **100/100** | **100/100** | ✅ |
+| safrole | **100/100** | **100/100** | ✅ |
+| storage | **100/100** | **100/100** | ✅ |
+| storage_light | **100/100** | **100/100** | ✅ |
+| preimages | **100/100** | **100/100** | ✅ |
+| preimages_light | **100/100** | **100/100** | ✅ |
 | fuzzy | 5/200 | 32/200 | θ/refine |
 | fuzzy_light | 5/200 | 38/200 | θ/refine |
-| **Total** | **363/1000** | **652/1000** | **0 errors** |
+| **Total** | **610/1000** | **670/1000** | **0 errors** |
 
 **Step mode** tests each block independently from the reference pre-state.
 **Chain mode** applies blocks sequentially — the first mismatch stops chain
 testing (a wrong σ produces wrong σ' for all subsequent blocks); step mode
 continues independently.
 
-### Step-mode divergence breakdown
+All deterministic traces (fallback, safrole, storage, preimages) pass **100%**
+in both chain and step modes.
 
-All non-PVM transitions pass 100%. Failures are PVM-only:
+### Remaining: fuzzy traces
+
+Fuzzy traces exercise `refine` (Ψ_R), which is not yet implemented. This is
+the only remaining failure category.
 
 | Suite | Pass | Fail | Root cause |
 |-------|-----:|-----:|------------|
-| storage | 98 | 2 | π gas (blocks 38, 51) |
-| storage_light | 99 | 1 | π gas |
-| preimages | 91 | 9 | π gas |
-| preimages_light | 94 | 6 | π gas |
 | fuzzy | 32 | 168 | `refine` not implemented |
 | fuzzy_light | 38 | 162 | `refine` not implemented |
 
-### Root causes
+### Fixed root causes
 
-Two independent issues remain:
+Three independent bugs were found and fixed:
 
-1. **π gas** (~18 blocks across PVM traces): `accumulate-gas-used` in π_S
-   (service statistics) is slightly off. The PVM execution is correct — the
-   guest processes all work items, storage operations (ΩR/ΩW) match, and the
-   final δ state is correct — but the gas counter diverges by a few thousand
-   units. This shifts the π encoding, causing the state root mismatch. The gas
-   difference propagates: it changes the gas refund, which changes `a_b`
-   (balance) in δ, which shifts the Merkle trie. **First appears at block 6**
-   in chain mode across all PVM traces. Suspected cause: PolkaVM gas metering
-   granularity (per basic-block vs per-instruction).
+1. **R\* report ordering** (storage traces): `compute-r-star` incorrectly
+   pre-filtered work report dependencies against ξ̃ (already-accumulated
+   package hashes) before partitioning into R! (immediate) and R^Q (deferred).
+   This led to incorrect ordering: `DeleteItems` executed before
+   `RandomStorageAccumulate`, causing storage key deletions to become no-ops
+   since the keys hadn't been created yet. **Fix**: Use raw dependencies for
+   partitioning, then edit R^Q with both ξ̃ and P(R!) before enqueueing.
 
-2. **θ/refine** (fuzzy only): fuzzy traces exercise `refine`, which is not
-   yet implemented.
+2. **Hardcoded D=5 in ΩF/ΩJ** (preimages traces): The `omega_f` (forget) and
+   `omega_j` (eject) host calls used a hardcoded `const D: u32 = 5` for the
+   preimage availability timeout. The tiny chainspec defines
+   `preimage-expunge-period = 32` (GP §I.4.4, `min_turnaround_period`). This
+   caused the PVM guest to incorrectly determine preimage availability,
+   leading to panics (`ActionInvalid`) and gas divergences. **Fix**: Read `D`
+   from `ProtocolParameters::tiny().min_turnaround_period` in `JamHostContext`.
+
+3. **π gas accumulation** (all PVM traces): The `accumulate-gas-used` field
+   in π_S (service statistics) was off by thousands of units due to a
+   combination of the above two bugs causing different guest execution paths.
+   With correct R\* ordering and correct D parameter, gas consumption matches
+   the reference exactly.
 
 ### Verified correct
 
@@ -66,8 +75,11 @@ Two independent issues remain:
 - **ΩW storage operations**: Item/footprint tracking, DELETE/CREATE/UPDATE logic,
   h27 key hashing — all verified via debug trace logging.
 
-- **R\* ordering**: Work reports ordered by ascending core index via `nreverse`
-  on `push`-accumulated list.
+- **R\* ordering**: Work reports correctly partitioned and queue-edited per
+  GP §12.1-12.12. Dependencies resolved through queue editing, not pre-filtering.
+
+- **Preimage host calls**: ΩF (forget), ΩJ (eject), ΩQ (query), ΩS (solicit)
+  correctly use `min_turnaround_period` from chainspec for expunge eligibility.
 
 **0 errors** — no panics, no parse failures across all 1000 blocks.
 
@@ -477,11 +489,10 @@ This is acknowledged debt, not an oversight. The accumulate orchestrator
 is comparable to Υ itself: a multi-component coordinator that cannot be
 owned by any single closure.
 
-### Known gaps: remaining PVM divergences
+### Known gaps
 
 | Gap | Impact | Status |
 |-----|--------|--------|
-| π_S gas metering | ~18 blocks across PVM traces | Investigating PolkaVM gas granularity |
 | `refine` (θ) | fuzzy traces ~80% fail | Not implemented |
 
 ## Quick Start

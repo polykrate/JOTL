@@ -692,6 +692,18 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // Storage is keyed by h27 = H(E₄(2³²−1) ⌢ k)[0:27].
     let h27 = storage_hash_key(&key);
 
+    // Helper: format h27 as uppercase hex for debug logs
+    let h27_hex = if ctx.debug_trace {
+        h27.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+    } else {
+        String::new()
+    };
+    let raw_hex = if ctx.debug_trace {
+        key.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    } else {
+        String::new()
+    };
+
     // ── l = old length or NONE ─────────────────────────────
     let old_len = ctx.storage.get(&h27).map(|v| v.len() as u64).unwrap_or(HC_NONE);
 
@@ -718,15 +730,15 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 ctx.footprint = ctx.footprint.saturating_sub(34 + key_sz + old_val.len() as u64);
                 if ctx.debug_trace {
                     ctx.debug_log.push(format!(
-                        "omega_w: DELETE key_len={} old_val_len={} items={}→{} footprint={}→{} storage_count={}",
-                        key_sz, old_val.len(), pre_items, ctx.items_count,
+                        "omega_w: DELETE key_len={} old_val_len={} h27={} raw={} items={}→{} footprint={}→{} storage_count={}",
+                        key_sz, old_val.len(), h27_hex, raw_hex, pre_items, ctx.items_count,
                         pre_footprint, ctx.footprint, ctx.storage.len()
                     ));
                 }
             } else if ctx.debug_trace {
                 ctx.debug_log.push(format!(
-                    "omega_w: DELETE_NOOP key_len={} (key not found) items={} footprint={} storage_count={}",
-                    key_sz, ctx.items_count, ctx.footprint, ctx.storage.len()
+                    "omega_w: DELETE_NOOP key_len={} h27={} raw={} (key not found) items={} footprint={} storage_count={}",
+                    key_sz, h27_hex, raw_hex, ctx.items_count, ctx.footprint, ctx.storage.len()
                 ));
             }
         }
@@ -742,8 +754,8 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 }
                 if ctx.debug_trace {
                     ctx.debug_log.push(format!(
-                        "omega_w: UPDATE key_len={} old_val_len={} new_val_len={} items={} footprint={}→{} storage_count={}",
-                        key_sz, old_val_len, new_val_len, ctx.items_count,
+                        "omega_w: UPDATE key_len={} h27={} raw={} old_val_len={} new_val_len={} items={} footprint={}→{} storage_count={}",
+                        key_sz, h27_hex, raw_hex, old_val_len, new_val_len, ctx.items_count,
                         pre_footprint, ctx.footprint, ctx.storage.len()
                     ));
                 }
@@ -753,8 +765,8 @@ fn omega_w(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
                 ctx.footprint += 34 + key_sz + new_val_len;
                 if ctx.debug_trace {
                     ctx.debug_log.push(format!(
-                        "omega_w: CREATE key_len={} val_len={} items={}→{} footprint={}→{} storage_count={}",
-                        key_sz, new_val_len, pre_items, ctx.items_count,
+                        "omega_w: CREATE key_len={} h27={} raw={} val_len={} items={}→{} footprint={}→{} storage_count={}",
+                        key_sz, h27_hex, raw_hex, new_val_len, pre_items, ctx.items_count,
                         pre_footprint, ctx.footprint, ctx.storage.len()
                     ));
                 }
@@ -2051,12 +2063,11 @@ fn omega_t(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
 ///   (▸, HUH, (x_e)_d)                         otherwise
 /// ```
 ///
-/// D = availability timeout (5 timeslots).
+/// D = min_turnaround_period (GP §I.4.4). Tiny=32, Full=19200.
 ///
 /// Registers: A0=d (target service ID), A1=o (code hash ptr)
 fn omega_j(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, JamHostError> {
-    /// Availability timeout (GP §11 — U). Preimage must be older than t − D.
-    const D: u32 = 5;
+    let d = ctx.min_turnaround_period;
 
     let d_id = inst.reg(Reg::A0) as u32;  // target service ID
     let o    = inst.reg(Reg::A1) as u32;   // code hash pointer
@@ -2113,7 +2124,7 @@ fn omega_j(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
     // Entry must be exactly 2 elements, and y (provision timeslot) < t − D
     if entry.len() == 2 {
         let y = entry[1];
-        if ctx.timeslot >= D && y < ctx.timeslot - D {
+        if ctx.timeslot >= d && y < ctx.timeslot - d {
             // OK: remove target, credit balance to caller
             let target_balance = acct.balance;
             ctx.service_accounts.remove(&d_id);
@@ -2316,12 +2327,11 @@ fn omega_s(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
 ///   (▸, OK, a)              otherwise
 /// ```
 ///
-/// D = 5 (availability timeout).
+/// D = min_turnaround_period (GP §I.4.4). Tiny=32, Full=19200.
 ///
 /// Registers: A0=o (hash ptr), A1=z (expected length)
 fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, JamHostError> {
-    /// Availability timeout (same as Ω_J).
-    const D: u32 = 5;
+    let d = ctx.min_turnaround_period;
 
     let o = inst.reg(Reg::A0) as u32;   // hash pointer
     let z = inst.reg(Reg::A1) as u32;   // expected length
@@ -2368,13 +2378,13 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
             // Entry = [x, y] → full removal if y < t − D
             // Removes BOTH the lookup entry AND the preimage blob.
             let y = entry[1];
-            if ctx.timeslot >= D && y < ctx.timeslot - D {
+            if ctx.timeslot >= d && y < ctx.timeslot - d {
                 ctx.lookup.remove(&key);
                 ctx.preimages.remove(&h);
                 // Removed lookup: items -2, footprint -(81+z)
                 ctx.items_count = ctx.items_count.saturating_sub(2);
                 ctx.footprint = ctx.footprint.saturating_sub(81 + z as u64);
-                log::debug!("ΩF (forget): removed [x,y] entry ({:02x?}…, {}) y={} < t−D={}", &h[..8], z, y, ctx.timeslot - D);
+                log::debug!("ΩF (forget): removed [x,y] entry ({:02x?}…, {}) y={} < t−D={}", &h[..8], z, y, ctx.timeslot - d);
             } else {
                 // y >= t − D → too recent → a = ∇ → HUH
                 inst.set_reg(Reg::A0, HC_HUH);
@@ -2387,7 +2397,7 @@ fn omega_f(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
             // Lookup still exists → no items/footprint change
             let y = entry[1];
             let w = entry[2];
-            if ctx.timeslot >= D && y < ctx.timeslot - D {
+            if ctx.timeslot >= d && y < ctx.timeslot - d {
                 ctx.lookup.insert(key, vec![w, ctx.timeslot]);
                 log::debug!("ΩF (forget): [x,y,w] -> [{}, {}] for ({:02x?}…, {})", w, ctx.timeslot, &h[..8], z);
             } else {

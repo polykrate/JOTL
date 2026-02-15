@@ -424,6 +424,10 @@ pub struct JamHostContext {
     pub export_base: u32,
     /// t — current timeslot. Used by Ω_H (historical lookup) for Λ.
     pub timeslot: u32,
+    /// D — min turnaround period (GP §I.4.4). Used by ΩF (forget) and ΩJ (eject)
+    /// for preimage expunge eligibility: y < t − D.
+    /// Tiny=32, Full=19200.
+    pub min_turnaround_period: u32,
 
     // ── Refine-specific data (ΩY / ΩH in Ψ_R) ─────────
     /// Work item payload (w.y) — the payload bytes for the current refine.
@@ -527,6 +531,7 @@ impl Default for JamHostContext {
             service_accounts: Default::default(),
             export_base: 0,
             timeslot: 0,
+            min_turnaround_period: 32, // Default for tiny; overridden by configure
             payload: Default::default(),
             package_hash: [0u8; 32],
             import_segments: Default::default(),

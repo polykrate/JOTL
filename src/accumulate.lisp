@@ -168,18 +168,19 @@
                                (let ((idx (mod (+ prev-timeslot k) e)))
                                (setf (nth idx q) nil)))
                            q))
-         ;; ── Step 1: Compute deps for each new report ──
+         ;; ── Step 1: Compute RAW deps for each new report ──
+         ;; GP §12.6: D(r) = K(r_s) ∪ r_x_p  (raw, NOT filtered by ξ̃)
+         ;; ξ̃ filtering happens during queue editing (Step 4), not here.
+         ;; This ensures reports with ξ̃-resolved deps go through Q() ordering
+         ;; rather than directly into R!, preserving the correct R* order.
          (new-entries
           (mapcar (lambda (r)
-                    (let ((deps (accum-deps r)))
-                      ;; Remove deps already in ξ̃ (already accumulated)
-                      (let ((filtered-deps
-                             (remove-if (lambda (d)
-                                          (member d xi-flattened :test #'equalp))
-                                        deps)))
-                        (list :report r :deps filtered-deps))))
+                    (list :report r :deps (accum-deps r)))
                   (or reports '())))
-         ;; ── Step 2: Partition: R! = zero deps, R^Q = has deps ──
+         ;; ── Step 2: Partition: R! = truly zero deps, R^Q = any deps ──
+         ;; Only reports with NO dependencies at all go into R! (immediate).
+         ;; Reports whose deps happen to be in ξ̃ go into R^Q and are
+         ;; resolved through the queue editing process (Q()).
          (r-immediate (remove-if-not (lambda (entry) (null (getf entry :deps)))
                                      new-entries))
          (r-deferred  (remove-if     (lambda (entry) (null (getf entry :deps)))
@@ -208,7 +209,12 @@
                p-r-bang)))
 
       ;; ── Step 4: Add R^Q to slot m ──
-      (let ((r-deferred-edited (accum-edit r-deferred p-r-bang)))
+      ;; Edit deferred entries with BOTH ξ̃ (already accumulated) AND P(R!)
+      ;; (immediate reports). This resolves dependencies that are either
+      ;; already accumulated or just became available from R!.
+      (let ((r-deferred-edited (accum-edit
+                                (accum-edit r-deferred xi-flattened)
+                                p-r-bang)))
         (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
         (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
 
@@ -625,7 +631,7 @@
           ;; Store Δ(s) result (even if nil, to mark service as processed)
           (setf (gethash sid delta-results) effects)
 
-          ;; u: gas usage — (sid n-items gas-used)
+          ;; u: gas usage — (sid n-items gas-used)g
           ;; GP 13.12: accumulate-count = number of work-items, not invocations
           ;; Always record stats if service has work items, even if gas=0
           (when (or (plusp gas-used) (plusp (length (or items '()))))
