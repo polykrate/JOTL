@@ -364,7 +364,6 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_with_commitment(
                     return false;
                 }
             };
-        eprintln!("DEBUG: RingProofParams created with ring_size={}", ring_size);
         
         // Deserialize ring commitment (gamma_z)
         // Try compressed first, then uncompressed (JAM may use different serialization)
@@ -420,19 +419,12 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_with_commitment(
             }
         };
         
-        eprintln!("DEBUG: VRF input: {} bytes, aux_data: {} bytes", input_bytes.len(), aux_bytes.len());
         
         // Verify
         use ark_vrf::ring::Verifier;
         match Public::verify(input, output, aux_bytes, &proof, &verifier) {
-            Ok(()) => {
-                eprintln!("DEBUG: ✓ Verification SUCCESS!");
-                true
-            },
-            Err(e) => {
-                eprintln!("DEBUG: Verification failed: {:?}", e);
-                false
-            }
+            Ok(()) => true,
+            Err(_) => false,
         }
     }
 }
@@ -573,8 +565,7 @@ pub unsafe extern "C" fn bandersnatch_debug_ring_commitment(
         let pcs_params: PcsParams = 
             match PcsParams::deserialize_uncompressed_unchecked(&mut &srs_bytes[..]) {
                 Ok(p) => p,
-                Err(e) => {
-                    eprintln!("DEBUG: Failed to deserialize PCS params: {:?}", e);
+                Err(_) => {
                     return false;
                 }
             };
@@ -582,25 +573,18 @@ pub unsafe extern "C" fn bandersnatch_debug_ring_commitment(
         let params: RingProofParams<BandersnatchSha512Ell2> = 
             match RingProofParams::from_pcs_params(num_validators, pcs_params) {
                 Ok(p) => p,
-                Err(e) => {
-                    eprintln!("DEBUG: Failed to create RingProofParams: {:?}", e);
+                Err(_) => {
                     return false;
                 }
             };
-        eprintln!("DEBUG: RingProofParams created with ring_size={}", num_validators);
         
         // Build ring from public keys
         let mut ring = Vec::with_capacity(num_validators);
         for i in 0..num_validators {
             let pk_bytes = &pks_bytes[i*32..(i+1)*32];
             match Public::deserialize_compressed(&pk_bytes[..]) {
-                Ok(pk) => {
-                    eprintln!("DEBUG: Key {}: {:02x}{:02x}{:02x}{:02x}...", i,
-                             pk_bytes[0], pk_bytes[1], pk_bytes[2], pk_bytes[3]);
-                    ring.push(pk.0);
-                },
-                Err(e) => {
-                    eprintln!("DEBUG: Failed to deserialize key {}: {:?}", i, e);
+                Ok(pk) => ring.push(pk.0),
+                Err(_e) => {
                     return false;
                 }
             }
@@ -614,27 +598,8 @@ pub unsafe extern "C" fn bandersnatch_debug_ring_commitment(
         let mut computed_bytes = Vec::new();
         computed.serialize_compressed(&mut computed_bytes).unwrap();
         
-        eprintln!("DEBUG: Computed commitment ({} bytes): {:02x}{:02x}{:02x}{:02x}...",
-                 computed_bytes.len(),
-                 computed_bytes[0], computed_bytes[1], computed_bytes[2], computed_bytes[3]);
-        eprintln!("DEBUG: Expected commitment ({} bytes): {:02x}{:02x}{:02x}{:02x}...",
-                 expected_bytes.len(),
-                 expected_bytes[0], expected_bytes[1], expected_bytes[2], expected_bytes[3]);
-        
         // Compare
-        if computed_bytes == expected_bytes {
-            eprintln!("DEBUG: ✓ Commitments MATCH!");
-            true
-        } else {
-            eprintln!("DEBUG: ✗ Commitments do NOT match");
-            // Check if maybe order is different
-            // Print full hex
-            let computed_hex: String = computed_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            let expected_hex: String = expected_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            eprintln!("DEBUG: Full computed: {}", computed_hex);
-            eprintln!("DEBUG: Full expected: {}", expected_hex);
-            false
-        }
+        computed_bytes == expected_bytes
     }
 }
 
@@ -782,7 +747,6 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_signature(
                 return false;
             }
         };
-        eprintln!("DEBUG [pks]: Signature deserialized OK");
         
         // Deserialize SRS into RingProofParams (UNCOMPRESSED format from Zcash ceremony)
         let params: RingProofParams<BandersnatchSha512Ell2> = 
@@ -793,7 +757,6 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_signature(
                     return false;
                 }
             };
-        eprintln!("DEBUG [pks]: SRS loaded OK");
         
         // Deserialize ring public keys
         let mut ring: Vec<AffinePoint> = Vec::with_capacity(num_validators);
@@ -807,29 +770,17 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_signature(
                 }
             }
         }
-        eprintln!("DEBUG [pks]: {} public keys loaded", ring.len());
         
         // Build verifier
         let verifier_key = params.verifier_key(&ring);
         
-        // Debug: print the computed commitment
-        let computed_commitment = verifier_key.commitment();
-        let mut commitment_bytes = Vec::new();
-        computed_commitment.serialize_compressed(&mut commitment_bytes).unwrap();
-        eprintln!("DEBUG [pks]: Computed commitment: {} bytes, first 8: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                 commitment_bytes.len(),
-                 commitment_bytes[0], commitment_bytes[1], commitment_bytes[2], commitment_bytes[3],
-                 commitment_bytes[4], commitment_bytes[5], commitment_bytes[6], commitment_bytes[7]);
-        
         let verifier = params.verifier(verifier_key);
-        eprintln!("DEBUG [pks]: Verifier built");
         
         // Split input: [domain_prefix + eta2] goes to vrf_input, [attempt] goes to aux_data
         // Format: "jam_ticket_seal" (15) + eta2 (32) + attempt (1) = 48 bytes
         let (vrf_input_bytes, aux_data) = if input_bytes.len() == 48 {
             (&input_bytes[0..47], &input_bytes[47..48])
         } else {
-            eprintln!("DEBUG [pks]: Unexpected input length: {}, using all as input", input_bytes.len());
             (input_bytes, &[][..])
         };
         
@@ -841,19 +792,12 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_signature(
                 return false;
             }
         };
-        eprintln!("DEBUG [pks]: VRF input: {} bytes, aux_data: {:?}", vrf_input_bytes.len(), aux_data);
         
         // Verify with attempt as auxiliary data
         use ark_vrf::ring::Verifier;
         match Public::verify(input, sig.output, aux_data, &sig.proof, &verifier) {
-            Ok(()) => {
-                eprintln!("DEBUG [pks]: ✓ Verification SUCCESS!");
-                true
-            },
-            Err(e) => {
-                eprintln!("DEBUG [pks]: Verification failed: {:?}", e);
-                false
-            }
+            Ok(()) => true,
+            Err(_) => false,
         }
     }
 }
