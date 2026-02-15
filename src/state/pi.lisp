@@ -346,6 +346,7 @@
   (:transition (&key header tau tau-prime
                      tickets preimages assurances guarantees
                      kappa-prime accum-stats r-star)
+    (declare (ignore kappa-prime))
     (let* ((v (num-validators))
            (e (epoch-duration))
            (epoch-old (floor (funcall tau :slot) e))

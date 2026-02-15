@@ -33,3 +33,6 @@ quicklisp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Gray Paper PDF (reference only, not distributed)
+*.pdf

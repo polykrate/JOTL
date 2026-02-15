@@ -355,13 +355,7 @@
     (replace k s :start1 1 :end1 5)
     k))
 
-(defun bytes< (a b)
-  "Lexicographic less-than for byte vectors."
-  (let ((la (length a)) (lb (length b)))
-    (loop for i below (min la lb) do
-      (cond ((< (aref a i) (aref b i)) (return t))
-            ((> (aref a i) (aref b i)) (return nil)))
-      finally (return (< la lb)))))
+;; bytes< is defined in lib/types.lisp
 
 (defun integrate-preimages (raw-kvs preimages timeslot)
   "GP S9.2 / S4.18 -- Integrate EP preimages into delta's raw key-value pairs.

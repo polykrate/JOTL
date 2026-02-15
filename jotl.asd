@@ -4,7 +4,7 @@
 ;;;;   lib/     — Macros (v1+v2), constants, codecs, Merkle, MMR, display
 ;;;;   state/   — State σ: one file per GP component (define-state-closure)
 ;;;;   src/     — Υ(σ,B)→σ' orchestrator (upsilon.lisp)
-;;;;   archive/ — Previous implementation (reference only, not loaded)
+;;;;   tests/   — Conformance runner (600+ trace blocks)
 
 (asdf:defsystem #:jotl
   :description "JAM (Join-Accumulate Machine) implementation in Common Lisp"
@@ -85,5 +85,4 @@
    ;; 7. Block Importer — M1 API (parse binary, import block, run traces)
    (:file "import" :pathname "src/import")
    
-   ;; 8. Fuser — Unix Socket API (init-state, add-block, debug)
-   (:file "fuser" :pathname "src/fuser")))
+   ))

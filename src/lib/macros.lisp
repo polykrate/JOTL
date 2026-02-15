@@ -68,9 +68,7 @@
                       (string= key-name "TRANSITION-" :end1 11)))
              (push (list :key key
                          :lambda-list (first body)
-                         :body (if (= (length (rest body)) 1)
-                                   (second body)
-                                   `(progn ,@(rest body))))
+                         :body-forms (rest body))
                    transition-clauses))
             ((and (>= (length body) 2)
                   (eq (first body) :memo))
@@ -83,9 +81,7 @@
                   (every #'symbolp (first body)))
              (push (list :key key
                          :lambda-list (first body)
-                         :body (if (= (length (rest body)) 1)
-                                   (second body)
-                                   `(progn ,@(rest body))))
+                         :body-forms (rest body))
                    method-clauses))
             (t (push clause regular-clauses))))))
     (setf memo-clauses (nreverse memo-clauses))
@@ -117,11 +113,11 @@
                             ,@(loop for mc in method-clauses
                                     collect `(,(getf mc :key)
                                               (destructuring-bind ,(getf mc :lambda-list) (cdr args)
-                                                ,(getf mc :body))))
+                                                ,@(getf mc :body-forms))))
                             ,@(loop for tc in transition-clauses
                                     collect `(,(getf tc :key)
                                               (destructuring-bind ,(getf tc :lambda-list) (cdr args)
-                                                ,(getf tc :body))))
+                                                ,@(getf tc :body-forms))))
                             (otherwise
                              (error ,(format nil "Unknown ~A message: ~~a" name) msg))))))
                #'self)))

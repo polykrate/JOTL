@@ -1,26 +1,34 @@
 ;;;; load-jotl.lisp - Load JOTL system with crypto FFI
+;;;;
+;;;; Quiet loader: suppresses compilation noise (notes, style-warnings).
+;;;; Only genuine errors reach the terminal.
 
 (in-package :cl-user)
 
-(format t "~%Loading JOTL v4...~%")
-
-;; 1. Load ASDF systems (crypto FFI is loaded via jam-crypto ASDF system)
-(format t "  Loading ASDF systems...~%")
-(let* ((jotl-root (make-pathname :directory 
-                                 (butlast (pathname-directory 
+;; Locate project root from this script's path
+(let* ((jotl-root (make-pathname :directory
+                                 (butlast (pathname-directory
                                            (or *load-truename* *default-pathname-defaults*)))))
        (jam-crypto-asd (merge-pathnames "jam-crypto.asd" jotl-root))
        (jotl-asd (merge-pathnames "jotl.asd" jotl-root)))
-  ;; Load system definitions
+  ;; Register system definitions
   (load jam-crypto-asd)
   (load jotl-asd)
-  
-  ;; Load systems
-  (asdf:load-system :jam-crypto :force t)
-  (asdf:load-system :jotl :force t))
 
-(format t "~%✅ JOTL loaded successfully!~%~%")
-(format t "Available packages:~%")
-(format t "  - JOTL (main)~%")
-(format t "  - JAM.FFI (crypto)~%~%")
-(format t "Try: (in-package :jotl)~%~%")
+  ;; Load systems — suppress all compilation noise
+  ;; (style-warnings, compiler notes, "compiling file" messages)
+  ;; Only genuine errors and our own prints (via *error-output*) pass through.
+  (let ((sink (make-broadcast-stream)))
+    (handler-bind ((style-warning #'muffle-warning)
+                   #+sbcl (sb-ext:compiler-note #'muffle-warning))
+      (let ((*standard-output* sink)
+            (*trace-output* sink)
+            (*compile-verbose* nil)
+            (*compile-print* nil)
+            (asdf:*asdf-verbose* nil))
+        (asdf:load-system :jam-crypto)
+        (asdf:load-system :jotl)))))
+
+;; Hint for REPL use (only visible interactively, not in test scripts)
+(when (interactive-stream-p *standard-input*)
+  (format *error-output* "~%Try: (in-package :jotl)~%~%"))

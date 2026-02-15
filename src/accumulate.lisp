@@ -662,7 +662,7 @@
            (v-des  (getf state :chi-designate))
            (r-stk  (getf state :chi-creation))
            (a-auth (getf state :chi-authorizers))
-           (z-gas  (getf state :chi-always-accum))
+           ;; z-gas = (getf state :chi-always-accum) — used via setf below
            ;; e* = Δ(m)_e — manager service's empower output
            (mgr-effects (gethash m-mgr delta-results))
            (e-star (when mgr-effects (getf mgr-effects :empower))))
@@ -1006,7 +1006,8 @@
          (omega-queues (funcall omega :queues))
          (xi-flattened (funcall xi :flattened))
          (e (epoch-duration))
-         (m (mod timeslot e)))
+         (m (mod timeslot e)))  ;; epoch-relative slot index (used in refine)
+    (declare (ignorable m))
 
     ;; ── §12.1: Compute R* via queue editing and priority ordering ──
     (multiple-value-bind (r-star new-omega-queues accumulated-hashes)

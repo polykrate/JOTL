@@ -301,21 +301,16 @@
    #:load-genesis
    #:load-trace-step
    #:import-block
-   #:run-trace
+   #:kv-key-name
+   #:trace-block-path
+   #:trace-genesis-path
+   #:trace-has-genesis-p
+   #:count-trace-blocks
+   ;; Chain log controls
+   #:*chain-log-level*
+   #:*chain-log-stream*
+   #:*chain-block-count*
    
-   ;; ═══════════════════════════════════════════
-   ;; Fuser — Unix Socket API
-   ;; ═══════════════════════════════════════════
-   #:encode-raw-state-bin
-   #:fuser-init-state
-   #:fuser-add-block
-   #:fuser-debug
-   #:fuser-set-state
-   #:fuser-start
-   #:fuser-run-trace
-   #:fuser-run-all-traces
-   #:*fuser-sigma*
-   #:*fuser-block-count*
    
    ;; ═══════════════════════════════════════════
    ;; Crypto (re-exported from jam.ffi)

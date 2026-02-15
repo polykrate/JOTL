@@ -7,7 +7,7 @@
   :license "MIT"
   :version "1.0.0"
   :serial t
-  :depends-on (#:cffi #:ironclad)
+  :depends-on (#:cffi)
   :components ((:module "crypto"
                 :serial t
                 :components
