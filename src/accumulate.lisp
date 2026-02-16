@@ -496,7 +496,13 @@
 
             ;; ── Debug: enable host-call tracing if requested ──
             (when *debug-pvm-trace*
-              (jam.ffi:pvm-debug-trace-enable ctx))
+              (jam.ffi:pvm-debug-trace-enable ctx)
+              (let ((enc-items (encode-accumulate-items items svc-transfers)))
+                (format *error-output*
+                        "~&[PVM-DBG] sid=~D items=~D transfers=~D encoded-blobs=~D blob-sizes=~{~D~^ ~}~%"
+                        service-id (length items) (length svc-transfers)
+                        (length enc-items)
+                        (mapcar #'length enc-items))))
 
             ;; ── Run PVM accumulate_ext ──
             (multiple-value-bind (status result gas-remaining)
@@ -666,6 +672,17 @@
            ;; e* = Δ(m)_e — manager service's empower output
            (mgr-effects (gethash m-mgr delta-results))
            (e-star (when mgr-effects (getf mgr-effects :empower))))
+
+      ;; DEBUG: dump empower data
+      (when (and *debug-pvm-trace* e-star)
+        (format *error-output*
+                "~&[CHI-DBG] m=~D v=~D r=~D a=~S~%"
+                m-mgr v-des r-stk a-auth)
+        (format *error-output*
+                "~&[CHI-DBG] e*: manager=~D validator=~D staker=~D auth-agents=~S gas-map=~S~%"
+                (getf e-star :manager) (getf e-star :validator)
+                (getf e-star :staker) (getf e-star :auth-agents)
+                (getf e-star :gas-map)))
 
       ;; (m', z') = e*_{(m,z)}
       (when e-star
@@ -987,7 +1004,7 @@
    TAU:       τ closure (pre-transition timeslot)
    TAU-PRIME: τ' closure (post-transition timeslot)
    ETA:       η encoded bytes (128 bytes = 4×32 entropy)
-   HEADER-HASH: H_p parent header hash (32 bytes)
+   HEADER-HASH: H_T block header hash — H(E(H)) (32 bytes)
 
    Storage is h27-keyed (GP Appendix D) — classified from trie on each call.
    No raw-storage cache needed; PVM hashes raw keys internally.

@@ -213,12 +213,20 @@ pub unsafe extern "C" fn jam_run(
             }
             InvocationContext::Accumulate | InvocationContext::OnTransfer => {
                 // B.9: accumulate_ext(slot, service_id, item_count)
+                let item_count = jam.context.accumulate_items.len() as u32;
+                eprintln!(
+                    "[JOTL-PVM] accumulate_ext: slot={} sid={} item_count={} items_sizes={:?}",
+                    jam.context.slot, jam.context.service_id, item_count,
+                    jam.context.accumulate_items.iter().map(|i| i.len()).collect::<Vec<_>>()
+                );
                 let params = jam_types::AccumulateParams {
                     slot: jam.context.slot,
                     service_id: jam.context.service_id,
-                    item_count: jam.context.accumulate_items.len() as u32,
+                    item_count,
                 };
-                params.encode()
+                let encoded = params.encode();
+                eprintln!("[JOTL-PVM] AccumulateParams encoded ({} bytes): {:02x?}", encoded.len(), &encoded);
+                encoded
             }
         }
     };

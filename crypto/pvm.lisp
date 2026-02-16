@@ -678,7 +678,9 @@
          (auth-output (when (and auth-output (plusp (length auth-output))) auth-output))
          (result-len (if result-data (length result-data) 0))
          (auth-len (if auth-output (length auth-output) 0))
-         (out-capacity 1024)
+         ;; Dynamic capacity: 4×32 fixed hashes + 8 gas + 1 kind + compact-len
+         ;; + result-data + auth-output + overhead for compact encoding
+         (out-capacity (max 1024 (+ 256 result-len auth-len)))
          (out-buf (cffi:foreign-alloc :uint8 :count out-capacity))
          (pkg (ensure-octets (or package-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
          (exp (ensure-octets (or exports-root (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))

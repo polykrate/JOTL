@@ -170,17 +170,20 @@
 
 (defun service-metadata-key-p (key-31)
   "Is KEY-31 a service metadata key C(255, s)?
-   Format: [255, E4(s)_0..3, 0...0] -- first byte 255, bytes 5-30 all zero."
-  (and (= (aref key-31 0) 255)
-       (loop for i from 5 below (length key-31) always (zerop (aref key-31 i)))))
+   Interleaved format: interleave(255, [E4(s), 0..0]).
+   The SID at positions [0,2,4,6] must be 255, and hash bytes [4..26] must be zero."
+  (and (= (service-id-from-sub-key key-31) 255)
+       (let ((h (extract-sub-key-h key-31)))
+         (loop for i from 4 below 27 always (zerop (aref h i))))))
 
 (defun service-id-from-metadata-key (key-31)
   "Extract service ID from C(255, s) metadata key.
-   s = u32_le(key[1], key[2], key[3], key[4])."
-  (logior (aref key-31 1)
-          (ash (aref key-31 2) 8)
-          (ash (aref key-31 3) 16)
-          (ash (aref key-31 4) 24)))
+   The actual SID is in the first 4 bytes of the hash part (sub-key h)."
+  (let ((h (extract-sub-key-h key-31)))
+    (logior (aref h 0)
+            (ash (aref h 1) 8)
+            (ash (aref h 2) 16)
+            (ash (aref h 3) 24))))
 
 (defun service-id-from-sub-key (key-31)
   "Extract service ID from interleaved sub-key.
@@ -348,12 +351,10 @@
 
 (defun make-metadata-key (service-id)
   "Build the C(255, s) metadata trie key for SERVICE-ID.
-   Format: [255, E4(s)_0..3, 0...0] -- 31 bytes."
-  (let ((k (make-array 31 :element-type '(unsigned-byte 8) :initial-element 0))
-        (s (E4 service-id)))
-    (setf (aref k 0) 255)
-    (replace k s :start1 1 :end1 5)
-    k))
+   Format: interleave(255, [E4(s), 0..0]) -- 31 bytes."
+  (let ((a (make-array 27 :element-type '(unsigned-byte 8) :initial-element 0)))
+    (replace a (E4 service-id) :start1 0 :end1 4)
+    (interleave-sub-key 255 a)))
 
 ;; bytes< is defined in lib/types.lisp
 
@@ -391,19 +392,20 @@
                  (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
                  (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
 
-            ;; GP §9.2: skip if service doesn't exist
-            (when (find-kv (make-metadata-key sid))
-              ;; Check lookup entry exists with even-length status (solicited)
-              (let ((lookup-entry (find-kv lookup-key)))
-                (when (and lookup-entry
-                           (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                             (evenp (length statuses))))
-                  (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                    ;; Store preimage blob
-                    (push (cons blob-key (ensure-bytes blob)) new-kvs)
-                    ;; Update lookup: append tau' to status list
-                    (replace-kv-val lookup-key
-                                    (encode-lookup-value (append statuses (list timeslot)))))))))))
+            ;; GP §9.2: integrate if lookup entry exists with even-length status
+            ;; The lookup entry's existence proves the service solicited this preimage.
+            ;; No separate metadata check — a service can have lookup entries without
+            ;; a metadata key (e.g. freshly created or partially populated).
+            (let ((lookup-entry (find-kv lookup-key)))
+              (when (and lookup-entry
+                         (let ((statuses (load-lookup-value (cdr lookup-entry))))
+                           (evenp (length statuses))))
+                (let ((statuses (load-lookup-value (cdr lookup-entry))))
+                  ;; Store preimage blob
+                  (push (cons blob-key (ensure-bytes blob)) new-kvs)
+                  ;; Update lookup: append tau' to status list
+                  (replace-kv-val lookup-key
+                                  (encode-lookup-value (append statuses (list timeslot))))))))))
       new-kvs)))
 
 ;;; =====================================================================

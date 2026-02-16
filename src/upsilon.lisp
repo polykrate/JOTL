@@ -156,7 +156,7 @@
                           r-star omega xi delta chi iota phi
                           tau tau-prime
                           :eta (funcall eta-prime :save)
-                          :header-hash (funcall h :parent-hash)))
+                          :header-hash (funcall h :hash)))
                  ;; Destructure accumulation results
                  (omega-prime   (getf accum :omega-prime))
                  (xi-prime      (getf accum :xi-prime))
@@ -222,7 +222,10 @@
                :pi*     (funcall pi-prime :save)
                :omega   (funcall omega-prime :save)
                :xi      (funcall xi-prime :save)
+               ;; GP (12.26): θ' is ALWAYS fresh — empty sequence when no accumulation.
+               ;; θ = [(s, H(y)) | s ∈ s, y = yield(Δ(s))] — never carry forward old θ.
                :theta   (if theta-prime
                             (funcall theta-prime :save)
-                            (funcall sigma :segment :theta))
+                            (make-array 1 :element-type '(unsigned-byte 8)
+                                          :initial-element 0))
                :extra-kvs (funcall delta-prime :extra-kvs)))))))))
