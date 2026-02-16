@@ -258,7 +258,32 @@ pub unsafe extern "C" fn jam_run(
 
     match run_result {
         Ok(()) => {
-            *result = jam.instance.reg(Reg::A0);
+            let a0 = jam.instance.reg(Reg::A0);
+            let a1 = jam.instance.reg(Reg::A1);
+            *result = a0;
+
+            // ── GP B.9: Detect yield via return value ─────────────
+            // The accumulate_ext / on_transfer_ext entry points may return
+            // (hash_ptr, hash_len) in (A0, A1) to indicate a yield hash.
+            // If A0 ≠ 0 and A1 = 32, and no omega_yield was called during
+            // execution, the yield hash is at guest memory address A0.
+            if jam.context.yield_output.is_none()
+                && a0 != 0
+                && a1 == 32
+                && matches!(jam.context.invocation,
+                    InvocationContext::Accumulate | InvocationContext::OnTransfer)
+            {
+                if let Ok(hash_bytes) = jam.instance.read_memory(a0 as u32, 32) {
+                    if hash_bytes.len() == 32 {
+                        let mut h = [0u8; 32];
+                        h.copy_from_slice(&hash_bytes);
+                        jam.context.yield_output = Some(h);
+                        log::debug!("jam_run: yield via return value A0=0x{:08x} A1={}: {:02x?}…",
+                            a0, a1, &h[..8]);
+                    }
+                }
+            }
+
             0
         }
         Err(e) => call_error_to_code(&jam.instance, e, result),

@@ -1115,20 +1115,23 @@
                              :always-accum (or (getf accum-state :chi-always-accum) chi-az)))))
 
                ;; ── θ' (12.26): accumulation output log ──
+               ;; Encoding: compact(count) + count*(u32_le(service_id) + H32(yield_hash))
                (theta-prime
-                (when (getf accum-state :commitments)
-                  (make-theta-state
-                   :raw (apply #'concatenate '(vector (unsigned-byte 8))
-                               (mapcar (lambda (c)
-                                         (let ((sid (car c))
-                                               (yh  (cdr c)))
-                                           (concatenate '(vector (unsigned-byte 8))
-                                                        (vector (ldb (byte 8  0) sid)
-                                                                (ldb (byte 8  8) sid)
-                                                                (ldb (byte 8 16) sid)
-                                                                (ldb (byte 8 24) sid))
-                                                        (coerce yh '(vector (unsigned-byte 8))))))
-                                       (getf accum-state :commitments))))))
+                (let ((commits (getf accum-state :commitments)))
+                  (when commits
+                    (make-theta-state
+                     :raw (apply #'concatenate '(vector (unsigned-byte 8))
+                                 (encode-compact (length commits))
+                                 (mapcar (lambda (c)
+                                           (let ((sid (car c))
+                                                 (yh  (cdr c)))
+                                             (concatenate '(vector (unsigned-byte 8))
+                                                          (vector (ldb (byte 8  0) sid)
+                                                                  (ldb (byte 8  8) sid)
+                                                                  (ldb (byte 8 16) sid)
+                                                                  (ldb (byte 8 24) sid))
+                                                          (coerce yh '(vector (unsigned-byte 8))))))
+                                         commits))))))
 
                ;; ── S (12.28-12.29): service statistics for π' ──
                (service-stats (getf accum-state :gas-usage)))
@@ -1147,4 +1150,5 @@
                                      (make-phi-state :queues new-qs)
                                      phi))
                 :theta-prime   theta-prime
+                :commitments   (getf accum-state :commitments)
                 :service-stats service-stats))))))

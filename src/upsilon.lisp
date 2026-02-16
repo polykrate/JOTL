@@ -165,6 +165,7 @@
                  (iota-prime    (getf accum :iota-prime))
                  (phi-prime     (getf accum :phi-prime))
                  (theta-prime   (getf accum :theta-prime))
+                 (commitments   (getf accum :commitments))
                  (service-stats (getf accum :service-stats)))
 
             ;; ═══════════════════════════════════════════════════════════
@@ -202,7 +203,7 @@
                    (beta-prime (funcall beta-dagger :transition
                                         :header h
                                         :guarantees e-g
-                                        :theta-prime theta-prime)))
+                                        :theta-prime commitments)))
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
