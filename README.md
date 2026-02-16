@@ -17,7 +17,7 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | fuzzy_light | 5/6 | 178/200 |
 | fuzzy | 5/6 | 92/200 |
 
-**600/600 deterministic traces pass** — byte-exact state root match,
+**870/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
 Remaining fuzzy failures: π gas accounting (90%), δ-KVS storage (54%),
