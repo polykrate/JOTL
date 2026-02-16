@@ -20,8 +20,14 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 **870/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
-Remaining fuzzy failures: π gas accounting (90%), δ-KVS storage (54%),
-β MMR (9%), χ privilege (2%), θ accumulation output (3% fuzzy only).
+### Remaining fuzzy failures
+
+| Bug | Impact | Status |
+|-----|--------|--------|
+| **π gas accounting** | ~90% of failures — Δg=−93 on every deferred-transfer round. Second PVM call (self-transfer) expected to consume 94 gas; program traps at PC=10 (`on_transfer_ext`) after 1 gas. `accumulate_ext` (PC=5) with empty items over-charges (3216 gas). Needs GP B.8 / §12.18 clarification on entry-point resolution and panic gas semantics. | 🔴 blocked |
+| **δ-KVS storage** | ~8 blocks — storage divergence, likely downstream of π | 🟡 pending |
+| **β MMR** | 2 blocks (#88, #179) — accumulate-root mismatch | 🟡 pending |
+| **χ privilege** | 1 block (#8) — privilege resolution edge case | 🟡 pending |
 
 ## Architecture
 
