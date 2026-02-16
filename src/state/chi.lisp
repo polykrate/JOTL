@@ -10,9 +10,11 @@
 ;;;; No :transition — modified by transition-accumulate (accumulate.lisp).
 ;;;; Merkle key: C(12).
 ;;;;
-;;;; Encoding (JAM tuple order = definition order):
-;;;;   E4(χ_M) ⌢ E4(χ_V) ⌢ E4(χ_R)                   (12 bytes)
+;;;; Encoding (state S field order: m, a, v, r, z):
+;;;;   E4(χ_M)                                           (4 bytes)
 ;;;;   C × E4(χ_A[c])                                   (C × 4 bytes)
+;;;;   E4(χ_V)                                           (4 bytes)
+;;;;   E4(χ_R)                                           (4 bytes)
 ;;;;   compact(|χ_Z|) ⌢ |χ_Z| × (E4(sid) ⌢ E8(gas))   (variable)
 ;;;;
 ;;;; Messages:
@@ -34,20 +36,24 @@
 
 (defun load-chi-fields (bytes &optional (offset 0))
   "Decode χ from raw bytes starting at OFFSET.
+   Encoding follows state S field order: (m, a, v, r, z)
+   i.e. χ_M, χ_A (C×u32), χ_V, χ_R, χ_Z.
    Returns: (values plist bytes-consumed)
    Plist keys: :manager :designate :creation :authorizers :always-accum"
   (let ((pos offset)
         (c (num-cores)))
-    ;; χ_M, χ_V, χ_R — 3 × u32
+    ;; χ_M — u32
     (multiple-value-bind (chi-m n) (decode-u32 bytes pos) (incf pos n)
-      (multiple-value-bind (chi-v n) (decode-u32 bytes pos) (incf pos n)
-        (multiple-value-bind (chi-r n) (decode-u32 bytes pos) (incf pos n)
-          ;; χ_A — C × u32
-          (let ((chi-a (make-list c)))
-            (loop for i from 0 below c do
-              (multiple-value-bind (val n) (decode-u32 bytes pos)
-                (setf (nth i chi-a) val)
-                (incf pos n)))
+      ;; χ_A — C × u32  (comes BEFORE v,r in state order)
+      (let ((chi-a (make-list c)))
+        (loop for i from 0 below c do
+          (multiple-value-bind (val n) (decode-u32 bytes pos)
+            (setf (nth i chi-a) val)
+            (incf pos n)))
+        ;; χ_V — u32
+        (multiple-value-bind (chi-v n) (decode-u32 bytes pos) (incf pos n)
+          ;; χ_R — u32
+          (multiple-value-bind (chi-r n) (decode-u32 bytes pos) (incf pos n)
             ;; χ_Z — compact-prefixed dict of (u32 → u64)
             (multiple-value-bind (count n) (decode-compact bytes pos)
               (incf pos n)
@@ -65,15 +71,19 @@
 
 (defun encode-chi-fields (chi-plist)
   "Encode χ fields to bytes.
+   Encoding follows state S field order: (m, a, v, r, z)
+   i.e. χ_M, χ_A (C×u32), χ_V, χ_R, χ_Z.
    CHI-PLIST: (:manager u32 :designate u32 :creation u32 :authorizers list :always-accum alist)"
   (let ((parts nil))
-    ;; χ_M, χ_V, χ_R
+    ;; χ_M — u32
     (push (E4 (getf chi-plist :manager))    parts)
-    (push (E4 (getf chi-plist :designate))  parts)
-    (push (E4 (getf chi-plist :creation))   parts)
-    ;; χ_A — C × u32
+    ;; χ_A — C × u32  (comes BEFORE v,r in state order)
     (dolist (sid (getf chi-plist :authorizers))
       (push (E4 sid) parts))
+    ;; χ_V — u32
+    (push (E4 (getf chi-plist :designate))  parts)
+    ;; χ_R — u32
+    (push (E4 (getf chi-plist :creation))   parts)
     ;; χ_Z — compact(count) + entries
     (let ((az (getf chi-plist :always-accum)))
       (push (encode-compact (length az)) parts)

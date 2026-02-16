@@ -1549,8 +1549,8 @@ fn omega_b(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         let agents_str: Vec<String> = auth_agents.iter().map(|a| a.to_string()).collect();
         let gas_str: Vec<String> = gas_map.iter().map(|(s,g)| format!("{}:{}", s, g)).collect();
         ctx.debug_log.push(format!(
-            "ΩB m={} a_ptr={} v={} r={} agents=[{}] gas_map=[{}]",
-            m, a_ptr, v, r, agents_str.join(","), gas_str.join(",")
+            "ΩB m={} v={} r={} agents=[{}] gas_map=[{}]",
+            m, v, r, agents_str.join(","), gas_str.join(",")
         ));
     }
 

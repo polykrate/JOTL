@@ -14,13 +14,13 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | storage_light | 100/100 | 100/100 |
 | preimages | 100/100 | 100/100 |
 | preimages_light | 100/100 | 100/100 |
-| fuzzy_light | 5/6 | 38/200 |
-| fuzzy | 5/6 | 32/200 |
+| fuzzy_light | 5/6 | 129/200 |
+| fuzzy | 5/6 | 87/200 |
 
 **600/600 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
-Fuzzy failures all require `refine` (Ψ), not yet implemented.
+Fuzzy failures are theta/beta divergences (PVM yield).
 
 ## Architecture
 

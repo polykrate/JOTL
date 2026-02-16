@@ -689,43 +689,48 @@
         (setf (getf state :chi-manager)      (getf e-star :manager))
         (setf (getf state :chi-always-accum) (getf e-star :gas-map)))
 
-      ;; v' = R(v, e*_v, (Δ(v)_e)_v)
+      ;; v' = R(v, Δ(m)ₑ.v, Δ(v)ₑ.v)
+      ;; GP 12.20: when Δ(s)ₑ = ∅, default to current value (no change)
       (let* ((des-effects (gethash v-des delta-results))
-             (des-empower (when des-effects (getf des-effects :empower))))
-        (when (and e-star des-empower)
-          (setf (getf state :chi-designate)
-                (privilege-resolve v-des
-                                  (getf e-star :validator)
-                                  (getf des-empower :validator))))
-        ;; i' = (Δ(v)_e)_i — validator keys from designate service
+             (des-empower (when des-effects (getf des-effects :empower)))
+             ;; Manager's choice for designate; defaults to v if no ΩB
+             (mgr-v (if e-star (getf e-star :validator) v-des))
+             ;; Designate's choice for itself; defaults to v if no ΩB
+             (des-v (if des-empower (getf des-empower :validator) v-des)))
+        (setf (getf state :chi-designate)
+              (privilege-resolve v-des mgr-v des-v))
+        ;; i' = (Δ(v)ₑ)_i — validator keys from designate service
         (when des-empower
           (setf (getf state :iota-validators) (getf des-empower :validators))))
 
-      ;; r' = R(r, e*_r, (Δ(r)_e)_r)
+      ;; r' = R(r, Δ(m)ₑ.r, Δ(r)ₑ.r)
       (let* ((stk-effects (gethash r-stk delta-results))
-             (stk-empower (when stk-effects (getf stk-effects :empower))))
-        (when (and e-star stk-empower)
-          (setf (getf state :chi-creation)
-                (privilege-resolve r-stk
-                                  (getf e-star :staker)
-                                  (getf stk-empower :staker)))))
+             (stk-empower (when stk-effects (getf stk-effects :empower)))
+             (mgr-r (if e-star (getf e-star :staker) r-stk))
+             (stk-r (if stk-empower (getf stk-empower :staker) r-stk)))
+        (setf (getf state :chi-creation)
+              (privilege-resolve r-stk mgr-r stk-r)))
 
-      ;; ∀c ∈ N_C: a'_c = R(a_c, (e*_a)_c, ((Δ(a_c)_e)_a)_c)
-      ;; ∀c ∈ N_C: q'_c = ((Δ(a_c)_e)_q)_c
+      ;; ∀c ∈ N_C: a'_c = R(a_c, (Δ(m)ₑ.a)_c, (Δ(a_c)ₑ.a)_c)
+      ;; ∀c ∈ N_C: q'_c = ((Δ(a_c)ₑ)_q)_c
       (when a-auth
         (let ((new-auth (copy-list a-auth))
               (new-queues (getf state :phi-queues)))
           (loop for c from 0 below (num-cores)
                 for a-c = (nth c a-auth)
                 do (let* ((ac-effects (gethash a-c delta-results))
-                          (ac-empower (when ac-effects (getf ac-effects :empower))))
+                          (ac-empower (when ac-effects (getf ac-effects :empower)))
+                          ;; Manager's choice for auth[c]; defaults to a_c if no ΩB
+                          (mgr-ac (if e-star
+                                      (or (nth c (getf e-star :auth-agents)) a-c)
+                                      a-c))
+                          ;; Auth service's choice for itself; defaults to a_c if no ΩB
+                          (self-ac (if ac-empower
+                                       (or (nth c (getf ac-empower :auth-agents)) a-c)
+                                       a-c)))
                      ;; a'_c
-                     (when (and e-star ac-empower)
-                       (let ((e-star-ac (nth c (getf e-star :auth-agents)))
-                             (self-ac   (nth c (getf ac-empower :auth-agents))))
-                         (when (and e-star-ac self-ac)
-                           (setf (nth c new-auth)
-                                 (privilege-resolve a-c e-star-ac self-ac)))))
+                     (setf (nth c new-auth)
+                           (privilege-resolve a-c mgr-ac self-ac))
                      ;; q'_c
                      (when (and ac-empower new-queues)
                        (let ((q-c (nth c (getf ac-empower :queues))))
