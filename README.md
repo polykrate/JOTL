@@ -14,21 +14,28 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | storage_light | 100/100 | 100/100 |
 | preimages | 100/100 | 100/100 |
 | preimages_light | 100/100 | 100/100 |
-| fuzzy_light | 5/6 | 178/200 |
-| fuzzy | 5/6 | 92/200 |
+| fuzzy_light | 5/6 | 188/200 |
+| fuzzy | 5/6 | 94/200 |
 
-**870/1000 deterministic traces pass** — byte-exact state root match,
+**882/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
-### Remaining fuzzy failures (130 steps)
+### Remaining fuzzy failures (118 steps)
 
 | Bug | Blocks | Root cause | Status |
 |-----|-------:|------------|--------|
-| **π gas (sbrk)** | ~102 | PolkaVM interpreter lacks dynamic paging → `sbrk` heap accesses don't charge gas → OOG at 10000 instead of ~94 on transfer-only rounds (Δg≈+9906). Compiler backend needed but blocked by sandbox/SBCL compat. See [sbrk notes](tests/jamtestvectors/traces/README.md#notes-on-sbrk). | 🔴 blocked (polkavm) |
-| **δ-KVS code_hash** | ~17 | 1 service-info trie entry per block has wrong code_hash (bytes 1-5 = `BB8648E2EB` vs `0000000000`). Independent of π. | 🟡 fixable |
-| **BAD-CODE-HASH crash** | 8 | `import-block` crashes on guarantee validation (fuzzy blocks 143,160,162-3,176,180-1,183). Possibly related to code_hash bug above. | 🟡 fixable |
-| **β accumulate-root** | 3 | Accumulate-root mismatch at byte 1096 in β (fuzzy_light #88,#179; fuzzy #78). No π/θ divergence → independent MMR/root bug. | 🟡 fixable |
-| **χ privilege** | 2 | Blocks with `chi` divergence (fuzzy_light #8, fuzzy #7-8). | 🟡 fixable |
+| **π gas (sbrk)** | ~105 | PolkaVM interpreter lacks dynamic paging → `sbrk` heap accesses don't charge gas → OOG at 10000 instead of ~94 on transfer-only rounds (Δg≈+9906). Compiler backend needed but blocked by sandbox/SBCL compat. | 🔴 blocked (polkavm) |
+| **δ-KVS (sbrk-related)** | ~11 | Storage values diverge due to incorrect PVM gas accounting from sbrk. Always co-occurs with π. | 🔴 blocked (polkavm) |
+| **χ privilege** | 1–2 | Block #8 has `chi` divergence (fuzzy_light #8, fuzzy #7-8). | 🟡 fixable |
+
+### Fixed bugs (this session)
+
+| Fix | Impact | Details |
+|-----|-------:|---------|
+| **BAD-CODE-HASH crashes** | +8 blocks | PVM `:upgrades`/`:created` side-effects now applied to δ-KVS via extended wire format. |
+| **δ-KVS code_hash** | +6 blocks | Caller's final `code_hash`, `min_accum_gas`, `min_memo_gas` propagated from PVM. |
+| **β accumulate-root** | +2 blocks | Binary Merkle node function N (GP E.1) now uses `$node` prefix: `HK("node" ⌢ N(left) ⌢ N(right))`. |
+| **θ/β yield** | +54 blocks | PVM yield detected via A0/A1 return registers, not just `omega_yield` host call. |
 
 ## Architecture
 

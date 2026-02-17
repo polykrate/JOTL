@@ -38,7 +38,7 @@
    #:rotation-period
    #:num-ec-pieces-per-segment
    ;; Protocol constants (GP I.4.4)
-   #:+zero-hash+ #:+mmr-peak-prefix+
+   #:+zero-hash+ #:+mmr-peak-prefix+ #:+merkle-node-prefix+
    #:+history-size+ #:+availability-timeout+
    #:+max-work-items+ #:+max-dependencies+
    #:+max-lookup-anchor-age+ #:+max-auth-pool+ #:+auth-queue-size+

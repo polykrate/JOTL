@@ -97,27 +97,53 @@
            (incf h)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; BINARY MERKLIZATION — MB (GP §D.2)
+;;; BINARY MERKLIZATION — GP Appendix E.1 / E.3
 ;;; ═══════════════════════════════════════════════════════════════
+;;;
+;;; E.1  Node function N:
+;;;   N(v, H):
+;;;     |v| = 0  → H₀
+;;;     |v| = 1  → v₀           (identity — NO hashing)
+;;;     otherwise → H($node ⌢ N(v_{...⌈|v|/2⌉}, H) ⌢ N(v_{⌈|v|/2⌉...}, H))
+;;;
+;;; E.3  Well-Balanced Binary Merkle M_B:
+;;;   M_B(v, H):
+;;;     |v| = 1  → H(v₀)       (hash the single item)
+;;;     otherwise → N(v, H)
+
+(defun merkle-node (items)
+  "GP E.1: N(v, HK) — Internal node function for binary Merkle.
+   |v|=0 → zero-hash
+   |v|=1 → v₀ (identity, no hashing)
+   |v|>1 → HK($node ⌢ N(left) ⌢ N(right))
+   Split at ⌈|v|/2⌉."
+  (let ((n (length items)))
+    (cond
+      ((zerop n) +zero-hash+)
+      ((= n 1) (first items))
+      (t
+       (let* ((mid (ceiling n 2))
+              (left  (coerce (subseq items 0 mid) 'list))
+              (right (coerce (subseq items mid) 'list)))
+         (jam.ffi:keccak-256
+          (concatenate '(vector (unsigned-byte 8))
+                       +merkle-node-prefix+
+                       (merkle-node left)
+                       (merkle-node right))))))))
 
 (defun binary-merkle-root-keccak (items)
-  "MB(items, HK) — Binary Merklization using Keccak-256.
-   
-   GP §D.2: Binary Merkle tree. Used by accumulate root (§7.6).
+  "GP E.3: M_B(v, HK) — Well-balanced binary Merkle root using Keccak-256.
+   Used by accumulate root (§7.6).
    items: list of byte vectors (leaves).
-   Returns: 32-byte Keccak-256 root hash."
+   Returns: 32-byte Keccak-256 root hash.
+   |v|=0 → N([], HK) = H₀ (zero-hash)
+   |v|=1 → HK(v₀)
+   |v|>1 → N(v, HK)"
   (cond
     ((null items) +zero-hash+)
     ((= (length items) 1)
      (jam.ffi:keccak-256 (first items)))
-    (t
-     (let* ((mid (ceiling (length items) 2))
-            (left  (subseq items 0 mid))
-            (right (subseq items mid)))
-       (jam.ffi:keccak-256
-        (concatenate '(vector (unsigned-byte 8))
-                     (binary-merkle-root-keccak (coerce left 'list))
-                     (binary-merkle-root-keccak (coerce right 'list))))))))
+    (t (merkle-node items))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; HELPERS

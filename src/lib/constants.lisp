@@ -217,6 +217,10 @@ FULL (production, must match Gray Paper):
   (map '(vector (unsigned-byte 8)) #'char-code "peak")
   "The 'peak' prefix used in MMR super-peak computation (GP E.11).")
 
+(defparameter +merkle-node-prefix+
+  (map '(vector (unsigned-byte 8)) #'char-code "node")
+  "The 'node' prefix used in binary Merkle node function N (GP E.1).")
+
 ;;; ─── Core protocol constants (GP I.4.4) ──────────────────────
 
 (defconstant +history-size+ 8
