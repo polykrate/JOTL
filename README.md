@@ -15,23 +15,22 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 |
 | preimages_light | 100/100 | 100/100 |
 | fuzzy_light | 5/6 | 188/200 |
-| fuzzy | 5/6 | 94/200 |
+| fuzzy | 5/6 | 95/200 |
 
-**882/1000 deterministic traces pass** — byte-exact state root match,
+**883/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
-### Remaining fuzzy failures (118 steps)
+### Remaining fuzzy failures (117 steps)
 
-| Bug | Blocks | Root cause | Status |
-|-----|-------:|------------|--------|
-| **π gas (sbrk)** | ~105 | PolkaVM interpreter lacks dynamic paging → `sbrk` heap accesses don't charge gas → OOG at 10000 instead of ~94 on transfer-only rounds (Δg≈+9906). Compiler backend needed but blocked by sandbox/SBCL compat. | 🔴 blocked (polkavm) |
-| **δ-KVS (sbrk-related)** | ~11 | Storage values diverge due to incorrect PVM gas accounting from sbrk. Always co-occurs with π. | 🔴 blocked (polkavm) |
-| **χ privilege** | 1–2 | Block #8 has `chi` divergence (fuzzy_light #8, fuzzy #7-8). | 🟡 fixable |
+All remaining failures are `π gas + δ-KVS` — caused by PolkaVM interpreter's
+naive `sbrk` (no dynamic paging → incorrect gas accounting). Blocked until
+PolkaVM compiler backend sandbox is compatible with SBCL.
 
 ### Fixed bugs (this session)
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
+| **χ privilege (ΩB)** | +1 block | Removed incorrect `existing_services` check from ΩB. GP B.7: `N_S = N_{2^32}` (any u32 is valid). |
 | **BAD-CODE-HASH crashes** | +8 blocks | PVM `:upgrades`/`:created` side-effects now applied to δ-KVS via extended wire format. |
 | **δ-KVS code_hash** | +6 blocks | Caller's final `code_hash`, `min_accum_gas`, `min_memo_gas` propagated from PVM. |
 | **β accumulate-root** | +2 blocks | Binary Merkle node function N (GP E.1) now uses `$node` prefix: `HK("node" ⌢ N(left) ⌢ N(right))`. |

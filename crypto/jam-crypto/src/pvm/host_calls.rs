@@ -1535,14 +1535,10 @@ fn omega_b(inst: &mut Inst, ctx: &mut JamHostContext) -> Result<OmegaResult, Jam
         gas_map.insert(sid, gas);
     }
 
-    // ── (m, v, r) ∈ N_S³ check — all must be existing services ──
-    if !ctx.existing_services.contains(&m)
-        || !ctx.existing_services.contains(&v)
-        || !ctx.existing_services.contains(&r)
-    {
-        inst.set_reg(Reg::A0, HC_WHO);
-        return Ok(OmegaResult::Continue);
-    }
+    // ── (m, v, r) ∈ N_S³ check — GP B.7: N_S = N_{2^32} ──
+    // N_S is the full u32 range (GP §2.4), NOT existing services.
+    // All u32 values are valid service indices for ΩB.
+    // The check is trivially satisfied for any u32 triple.
 
     // ── Debug trace inputs ──
     if ctx.debug_trace {

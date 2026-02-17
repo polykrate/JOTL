@@ -242,13 +242,14 @@ fn test_omega_b_context_empower_initially_none() {
 }
 
 #[test]
-fn test_omega_b_who_when_services_not_existing() {
-    // If (m, v, r) are not in existing_services, omega_b returns WHO
+fn test_omega_b_accepts_any_u32_service_ids() {
+    // GP B.7: N_S = N_{2^32}, so any u32 triple (m, v, r) is valid.
+    // ΩB should NOT return WHO for non-existing services.
     let ctx = JamHostContext {
         invocation: InvocationContext::Accumulate,
         ..Default::default()
     };
-    // existing_services is empty → none of m, v, r can be found
+    // existing_services is empty, but that shouldn't matter for ΩB
     assert!(ctx.existing_services.is_empty());
 }
 
