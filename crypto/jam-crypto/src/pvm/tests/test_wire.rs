@@ -60,11 +60,13 @@ fn test_encode_side_effects_empty() {
     assert!(!blob.is_empty());
 
     // Should contain: u64(0) + i64(0) + 8 × compact(0) + 2 × option-none(0x00)
-    // + items_count(4) + footprint(8)
+    // + items_count(4) + footprint(8) + code_hash(32) + min_accum_gas(8) + min_memo_gas(8)
+    // + created_full compact(0)
     // balance(8) + gas(8) + storage(1) + transfers(1) + ejected(1) + created(1)
     // + upgrades(1) + empower-none(1) + provided(1) + lookup(1) + preimages(1)
-    // + yield-none(1) + items_count(4) + footprint(8)
-    assert_eq!(blob.len(), 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 8);
+    // + yield-none(1) + items_count(4) + footprint(8) + code_hash(32) + min_accum(8) + min_memo(8)
+    // + created_full(1)
+    assert_eq!(blob.len(), 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 8 + 32 + 8 + 8 + 1);
 }
 
 // ============================================================================
@@ -164,8 +166,10 @@ fn test_items_count_footprint_incremental() {
     // Verify via encode_side_effects (uses stored fields)
     let blob = encode_side_effects(&ctx, 0);
     let len = blob.len();
-    let items_bytes = &blob[len - 12..len - 8];
-    let footprint_bytes = &blob[len - 8..len];
+    // After items_count(4)+footprint(8) come: code_hash(32)+min_accum(8)+min_memo(8)+created_full(1)=49
+    let tail_offset = 49;
+    let items_bytes = &blob[len - tail_offset - 12..len - tail_offset - 8];
+    let footprint_bytes = &blob[len - tail_offset - 8..len - tail_offset];
     let items = u32::from_le_bytes(items_bytes.try_into().unwrap());
     let footprint = u64::from_le_bytes(footprint_bytes.try_into().unwrap());
     assert_eq!(items, 7, "items_count in blob");

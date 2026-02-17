@@ -127,6 +127,12 @@ fn read_blob(data: &[u8], pos: usize) -> Option<(Vec<u8>, usize)> {
 /// seq[([u8;32], u32, seq[u32])]: lookup
 /// seq[([u8;32], blob)]: preimages (a_P blob store)
 /// option([u8;32]): yield_output
+/// u32: items_count
+/// u64: footprint
+/// [u8;32]: code_hash (caller's final)
+/// u64: min_accum_gas (caller's final)
+/// u64: min_memo_gas (caller's final)
+/// seq[(u32, [u8;32], u64, u64, u64, u64, u32)]: created_full
 /// ```
 pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(256);
@@ -222,6 +228,37 @@ pub fn encode_side_effects(ctx: &JamHostContext, gas: i64) -> Vec<u8> {
     //   a_o = Σ_{(h,z)∈K(a_l)} (81+z) + Σ_{(x,y)∈a_s} (34+|y|+|x|)  (footprint)
     buf.extend_from_slice(&ctx.items_count.to_le_bytes());
     buf.extend_from_slice(&ctx.footprint.to_le_bytes());
+
+    // code_hash: [u8;32] — caller's final code hash (may be changed by ΩU)
+    buf.extend_from_slice(&ctx.code_hash);
+    // min_accum_gas: u64 — caller's final min accumulate gas (may be changed by ΩU)
+    buf.extend_from_slice(&ctx.min_accum_gas.to_le_bytes());
+    // min_memo_gas: u64 — caller's final min memo gas (may be changed by ΩU)
+    buf.extend_from_slice(&ctx.min_memo_gas.to_le_bytes());
+
+    // created_full: seq[(u32, [u8;32], u64, u64, u64, u64, u32)] — full metadata for new services
+    // Fields: (service_id, code_hash, balance, min_accum_gas, min_memo_gas, deposit_offset, parent_service)
+    // Created services also get: creation_slot=timeslot, last_accum_slot=0, items/bytes from PVM
+    compact_to(&mut buf, ctx.created_services.len() as u64);
+    for &(id, ref code_hash) in &ctx.created_services {
+        buf.extend_from_slice(&id.to_le_bytes());
+        buf.extend_from_slice(code_hash);
+        // Look up the full metadata from service_accounts if available
+        if let Some(acct) = ctx.service_accounts.get(&id) {
+            buf.extend_from_slice(&acct.balance.to_le_bytes());
+            buf.extend_from_slice(&acct.min_accum_gas.to_le_bytes());
+            buf.extend_from_slice(&acct.min_memo_gas.to_le_bytes());
+            buf.extend_from_slice(&acct.threshold.to_le_bytes());  // deposit_offset (a_f)
+            buf.extend_from_slice(&(id).to_le_bytes());  // parent_service = caller for non-privileged
+        } else {
+            // Fallback: zeros
+            buf.extend_from_slice(&0u64.to_le_bytes());  // balance
+            buf.extend_from_slice(&0u64.to_le_bytes());  // min_accum_gas
+            buf.extend_from_slice(&0u64.to_le_bytes());  // min_memo_gas
+            buf.extend_from_slice(&0u64.to_le_bytes());  // deposit_offset
+            buf.extend_from_slice(&0u32.to_le_bytes());  // parent_service
+        }
+    }
 
     buf
 }

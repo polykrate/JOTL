@@ -168,6 +168,17 @@
 ;;; TRIE KEY CLASSIFICATION
 ;;; =====================================================================
 
+(defun make-service-metadata-key (service-id)
+  "Create a 31-byte metadata trie key C(255, s) for SERVICE-ID.
+   Format: interleave(255, [E4(s), 0..0]) — GP Appendix D."
+  (let ((h (make-array 27 :element-type '(unsigned-byte 8) :initial-element 0))
+        (e4-sid (E4 service-id)))
+    (setf (aref h 0) (aref e4-sid 0)
+          (aref h 1) (aref e4-sid 1)
+          (aref h 2) (aref e4-sid 2)
+          (aref h 3) (aref e4-sid 3))
+    (interleave-sub-key 255 h)))
+
 (defun service-metadata-key-p (key-31)
   "Is KEY-31 a service metadata key C(255, s)?
    Interleaved format: interleave(255, [E4(s), 0..0]).

@@ -757,6 +757,14 @@
                ;; Update balance if provided by PVM
                (when (and effects (getf effects :balance))
                  (setf (getf info :balance) (getf effects :balance)))
+               ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
+               ;; These may have been changed by ΩU (upgrade host call)
+               (when (and effects (getf effects :final-code-hash))
+                 (setf (getf info :code-hash) (getf effects :final-code-hash)))
+               (when (and effects (getf effects :final-min-accum-gas))
+                 (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
+               (when (and effects (getf effects :final-min-memo-gas))
+                 (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas)))
                (setf (cdr meta-entry) (encode-service-info info)))))
 
          ;; Apply side-effects if present
@@ -891,6 +899,32 @@
                                            (not (segment-key-p (car kv)))
                                            (= (service-id-from-sub-key (car kv)) target-id))))
                                 current-kvs))))
+
+           ;; ── Handle created services (ΩN) ──
+           ;; For each created service, add a new ServiceInfo metadata entry.
+           ;; The :created-full field has the full metadata (from PVM context).
+           (dolist (cs (getf effects :created-full))
+             (let* ((new-sid      (getf cs :id))
+                    (meta-key     (make-service-metadata-key new-sid))
+                    (info (list :version 0
+                                :code-hash (getf cs :code-hash)
+                                :balance (or (getf cs :balance) 0)
+                                :min-accum-gas (or (getf cs :min-accum-gas) 0)
+                                :min-memo-gas (or (getf cs :min-memo-gas) 0)
+                                :bytes 0
+                                :deposit-offset (or (getf cs :deposit-offset) 0)
+                                :items 0
+                                :creation-slot timeslot
+                                :last-accumulation-slot 0
+                                :parent-service (or (getf cs :parent-service) sid))))
+               ;; Remove any existing metadata entry for this service
+               (setf current-kvs
+                     (remove-if (lambda (kv)
+                                  (and (service-metadata-key-p (car kv))
+                                       (= (service-id-from-metadata-key (car kv)) new-sid)))
+                                current-kvs))
+               ;; Add the new metadata entry
+               (push (cons meta-key (encode-service-info info)) current-kvs)))
 
              ;; ── Update items/bytes from PVM-tracked values ──
              ;; The PVM tracks items_count and footprint incrementally:

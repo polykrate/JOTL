@@ -550,7 +550,23 @@
          ;; items_count: u32 (PVM-tracked)
          (items-count (%read-u32 r))
          ;; footprint: u64 (PVM-tracked)
-         (footprint (%read-u64 r)))
+         (footprint (%read-u64 r))
+         ;; code_hash: [u8;32] — caller's final code hash (may be changed by ΩU)
+         (final-code-hash (%read-fixed r 32))
+         ;; min_accum_gas: u64 — caller's final min accumulate gas
+         (final-min-accum-gas (%read-u64 r))
+         ;; min_memo_gas: u64 — caller's final min memo gas
+         (final-min-memo-gas (%read-u64 r))
+         ;; created_full: seq[(u32, [u8;32], u64, u64, u64, u64, u32)]
+         ;; Full metadata for newly created services
+         (created-full (loop repeat (%read-compact r)
+                             collect (list :id (%read-u32 r)
+                                           :code-hash (%read-fixed r 32)
+                                           :balance (%read-u64 r)
+                                           :min-accum-gas (%read-u64 r)
+                                           :min-memo-gas (%read-u64 r)
+                                           :deposit-offset (%read-u64 r)
+                                           :parent-service (%read-u32 r)))))
     (list :balance balance
           :gas-remaining gas
           :storage storage
@@ -564,7 +580,11 @@
           :preimages preimages
           :yield-output yield-output
           :items-count items-count
-          :footprint footprint)))
+          :footprint footprint
+          :final-code-hash final-code-hash
+          :final-min-accum-gas final-min-accum-gas
+          :final-min-memo-gas final-min-memo-gas
+          :created-full created-full)))
 
 
 (defun %decode-empower (reader)
