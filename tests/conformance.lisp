@@ -365,8 +365,12 @@
                                       (format t "~%"))
                                     (format t "~%")))))))
                   (error (e)
-                    (declare (ignore e))
-                    (incf step-fail))))))
+                    (incf step-fail)
+                    (incf errors)
+                    (when verbose
+                      (format t "  ~A#~3D  step  ✗ ERROR~A ~A: ~A~%"
+                              +bred+ b +reset+
+                              (type-of e) e)))))))
         (error (e)
           (incf errors)
           (when verbose
