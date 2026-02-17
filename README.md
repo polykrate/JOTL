@@ -20,14 +20,15 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 **870/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes.
 
-### Remaining fuzzy failures
+### Remaining fuzzy failures (130 steps)
 
-| Bug | Impact | Status |
-|-----|--------|--------|
-| **π gas accounting** | ~90% of failures — Δg=−93 on every deferred-transfer round. Second PVM call (self-transfer) expected to consume 94 gas; program traps at PC=10 (`on_transfer_ext`) after 1 gas. `accumulate_ext` (PC=5) with empty items over-charges (3216 gas). Needs GP B.8 / §12.18 clarification on entry-point resolution and panic gas semantics. | 🔴 blocked |
-| **δ-KVS storage** | ~8 blocks — storage divergence, likely downstream of π | 🟡 pending |
-| **β MMR** | 2 blocks (#88, #179) — accumulate-root mismatch | 🟡 pending |
-| **χ privilege** | 1 block (#8) — privilege resolution edge case | 🟡 pending |
+| Bug | Blocks | Root cause | Status |
+|-----|-------:|------------|--------|
+| **π gas (sbrk)** | ~102 | PolkaVM interpreter lacks dynamic paging → `sbrk` heap accesses don't charge gas → OOG at 10000 instead of ~94 on transfer-only rounds (Δg≈+9906). Compiler backend needed but blocked by sandbox/SBCL compat. See [sbrk notes](tests/jamtestvectors/traces/README.md#notes-on-sbrk). | 🔴 blocked (polkavm) |
+| **δ-KVS code_hash** | ~17 | 1 service-info trie entry per block has wrong code_hash (bytes 1-5 = `BB8648E2EB` vs `0000000000`). Independent of π. | 🟡 fixable |
+| **BAD-CODE-HASH crash** | 8 | `import-block` crashes on guarantee validation (fuzzy blocks 143,160,162-3,176,180-1,183). Possibly related to code_hash bug above. | 🟡 fixable |
+| **β accumulate-root** | 3 | Accumulate-root mismatch at byte 1096 in β (fuzzy_light #88,#179; fuzzy #78). No π/θ divergence → independent MMR/root bug. | 🟡 fixable |
+| **χ privilege** | 2 | Blocks with `chi` divergence (fuzzy_light #8, fuzzy #7-8). | 🟡 fixable |
 
 ## Architecture
 
