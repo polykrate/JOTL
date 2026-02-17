@@ -6,35 +6,44 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 
 ## Conformance
 
-| Trace | Chain | Step |
-|-------|------:|-----:|
-| fallback | 100/100 | 100/100 |
-| safrole | 100/100 | 100/100 |
-| storage | 100/100 | 100/100 |
-| storage_light | 100/100 | 100/100 |
-| preimages | 100/100 | 100/100 |
-| preimages_light | 100/100 | 100/100 |
-| fuzzy_light | 5/6 | 188/200 |
-| fuzzy | 5/6 | 95/200 |
+| Trace | Chain | Step | Errors |
+|-------|------:|-----:|-------:|
+| fallback | 100/100 | 100/100 | 0 |
+| safrole | 100/100 | 100/100 | 0 |
+| storage | 100/100 | 100/100 | 0 |
+| storage_light | 100/100 | 100/100 | 0 |
+| preimages | 100/100 | 100/100 | 0 |
+| preimages_light | 100/100 | 100/100 | 0 |
+| fuzzy_light | 5/6 | 188/200 | 0 |
+| fuzzy | 5/6 | 103/200 | 0 |
 
-**883/1000 deterministic traces pass** — byte-exact state root match,
-both chain and step modes.
+**891/1000 deterministic traces pass** — byte-exact state root match,
+both chain and step modes. 0 silent errors.
 
-### Remaining fuzzy failures (117 steps)
+### Remaining failures — 109 steps (12 fuzzy_light + 97 fuzzy)
 
-All remaining failures are `π gas + δ-KVS` — caused by PolkaVM interpreter's
-naive `sbrk` (no dynamic paging → incorrect gas accounting). Blocked until
-PolkaVM compiler backend sandbox is compatible with SBCL.
+| Category | Pattern | Count | Root cause | Status |
+|----------|---------|------:|------------|--------|
+| A1 | `pi` only | 48 | sbrk gas accounting | Blocked (PolkaVM) |
+| A2 | `pi + delta-kvs` | 50 | sbrk gas + storage | Blocked (PolkaVM) |
+| A3 | `delta-kvs` only | 8 | sbrk storage | Blocked (PolkaVM) |
+| B | `beta + pi + theta` (±kvs) | 3 | sbrk → wrong yield hash | Blocked (PolkaVM) |
+
+**All 109 remaining failures** are caused by PolkaVM interpreter's `sbrk`
+pre-allocating memory without page-level gas accounting (no `userfaultfd`).
+Blocked until PolkaVM compiler backend sandbox is compatible with SBCL,
+or `sbrk` is replaced by a host function (JIP in progress).
 
 ### Fixed bugs (this session)
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
-| **χ privilege (ΩB)** | +1 block | Removed incorrect `existing_services` check from ΩB. GP B.7: `N_S = N_{2^32}` (any u32 is valid). |
-| **BAD-CODE-HASH crashes** | +8 blocks | PVM `:upgrades`/`:created` side-effects now applied to δ-KVS via extended wire format. |
-| **δ-KVS code_hash** | +6 blocks | Caller's final `code_hash`, `min_accum_gas`, `min_memo_gas` propagated from PVM. |
-| **β accumulate-root** | +2 blocks | Binary Merkle node function N (GP E.1) now uses `$node` prefix: `HK("node" ⌢ N(left) ⌢ N(right))`. |
-| **θ/β yield** | +54 blocks | PVM yield detected via A0/A1 return registers, not just `omega_yield` host call. |
+| **Invalid block handling** | +8 blocks | Blocks with bad-code-hash guarantee → return pre-state unchanged (no-op). Category C eliminated |
+| **Silent error display** | — | Step-mode errors now shown in conformance table instead of being swallowed |
+| **χ privilege (ΩB)** | +1 block | Removed incorrect `existing_services` check. GP B.7: `N_S = N_{2^32}` |
+| **δ-KVS code_hash** | +6 blocks | PVM `:upgrades`/`:created` side-effects applied to δ-KVS via extended wire format |
+| **β accumulate-root** | +2 blocks | Binary Merkle N function (GP E.1) now uses `$node` prefix |
+| **θ/β yield** | +54 blocks | PVM yield detected via A0/A1 return registers, not just `omega_yield` host call |
 
 ## Architecture
 

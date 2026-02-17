@@ -169,10 +169,21 @@
 (defun import-block (sigma block)
   "M1 Block Import: Υ(σ, B) → (σ', state-root).
    Applies the STF and computes the Merkle root of σ'.
+   If any extrinsic validation fails (guarantee-error, assurance-error),
+   the block is treated as invalid: the pre-state is returned unchanged
+   (GP: invalid blocks are simply not applied).
    Emits chain logs when *chain-log-level* is set.
    Returns: (values σ' state-root)."
   (let* ((t0 (get-internal-real-time))
-         (sigma-prime (apply-block sigma block))
+         (sigma-prime
+          (handler-case
+              (apply-block sigma block)
+            (guarantee-error (e)
+              (declare (ignore e))
+              sigma)
+            (assurance-error (e)
+              (declare (ignore e))
+              sigma)))
          (state-root (funcall sigma-prime :state-root))
          (elapsed-ms (round (* 1000 (/ (- (get-internal-real-time) t0)
                                         internal-time-units-per-second)))))

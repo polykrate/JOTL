@@ -332,20 +332,16 @@
 
 (defun validate-guarantee-code-hashes (report delta)
   "Each work result's code hash must match δ[s].code_hash.
-   GP §11: c is the code hash at the time of REPORTING (lookup anchor),
-   not necessarily the current δ.  When the current code_hash is zero
-   (service created via ΩN without code yet), the check cannot be
-   performed against the current state — skip it.  The anchor state-root
-   validation (validate-guarantee-anchor) already covers integrity."
+   GP §11.34: c_s = δ[s]_c — the work-result's code hash must equal
+   the current service's code hash.  If they differ the guarantee
+   extrinsic is invalid and the block must be rejected."
   (dolist (r (getf report :results))
     (let* ((sid (getf r :service-id))
            (code-hash (ensure-bytes (getf r :code-hash)))
            (account (funcall delta :account sid))
            (expected (when account
                        (ensure-bytes (getf (getf account :service) :code-hash)))))
-      (when (and expected
-                 (not (every #'zerop expected))   ;; skip if δ[s].code_hash = 0
-                 (not (equalp code-hash expected)))
+      (when (and expected (not (equalp code-hash expected)))
         (reject-guarantee :bad-code-hash)))))
 
 (defun validate-guarantee-authorization (report alpha)
