@@ -1148,24 +1148,28 @@
                              :authorizers (or (getf accum-state :chi-authorizers) chi-auth)
                              :always-accum (or (getf accum-state :chi-always-accum) chi-az)))))
 
+               ;; ── GP: B is a set of (s, o) pairs → sort by service-id ascending ──
+               ;; This sorted list is used for BOTH θ' encoding and β' accumulate-root.
+               (sorted-commits (sort (copy-list (or (getf accum-state :commitments) nil))
+                                     #'< :key #'car))
+
                ;; ── θ' (12.26): accumulation output log ──
                ;; Encoding: compact(count) + count*(u32_le(service_id) + H32(yield_hash))
                (theta-prime
-                (let ((commits (getf accum-state :commitments)))
-                  (when commits
-                    (make-theta-state
-                     :raw (apply #'concatenate '(vector (unsigned-byte 8))
-                                 (encode-compact (length commits))
-                                 (mapcar (lambda (c)
-                                           (let ((sid (car c))
-                                                 (yh  (cdr c)))
-                                             (concatenate '(vector (unsigned-byte 8))
-                                                          (vector (ldb (byte 8  0) sid)
-                                                                  (ldb (byte 8  8) sid)
-                                                                  (ldb (byte 8 16) sid)
-                                                                  (ldb (byte 8 24) sid))
-                                                          (coerce yh '(vector (unsigned-byte 8))))))
-                                         commits))))))
+                (when sorted-commits
+                  (make-theta-state
+                   :raw (apply #'concatenate '(vector (unsigned-byte 8))
+                               (encode-compact (length sorted-commits))
+                               (mapcar (lambda (c)
+                                         (let ((sid (car c))
+                                               (yh  (cdr c)))
+                                           (concatenate '(vector (unsigned-byte 8))
+                                                        (vector (ldb (byte 8  0) sid)
+                                                                (ldb (byte 8  8) sid)
+                                                                (ldb (byte 8 16) sid)
+                                                                (ldb (byte 8 24) sid))
+                                                        (coerce yh '(vector (unsigned-byte 8))))))
+                                       sorted-commits)))))
 
                ;; ── S (12.28-12.29): service statistics for π' ──
                (service-stats (getf accum-state :gas-usage)))
@@ -1184,5 +1188,5 @@
                                      (make-phi-state :queues new-qs)
                                      phi))
                 :theta-prime   theta-prime
-                :commitments   (getf accum-state :commitments)
+                :commitments   sorted-commits   ;; sorted for β' accumulate-root
                 :service-stats service-stats))))))
