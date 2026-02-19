@@ -1,0 +1,101 @@
+;;;; dispatch.lisp — Host-call dispatch table (GP B.15–B.16)
+;;;;
+;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs dispatch().
+;;;; Maps ecalli index → Ω function, handles gas gating and context gating.
+
+(in-package #:jam-host)
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Omega function registry
+;;;
+;;; Each Ω function has signature:
+;;;   (omega-fn vm ctx) → :continue | :fault | :oog
+;;;
+;;; Register A0 is set by the omega for result codes (HC_OK, HC_NONE, …).
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *omega-table* (make-hash-table)
+  "Map: ecalli-id (u32) → omega function (lambda (vm ctx) → keyword).")
+
+(defmacro defomega (id name (vm ctx) &body body)
+  "Define and register an omega host-call handler for ecalli ID."
+  `(progn
+     (defun ,name (,vm ,ctx)
+       ,@body)
+     (setf (gethash ,id *omega-table*) #',name)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; host-dispatch — THE canonical dispatch function
+;;;
+;;; GP B.15: ϱ' = ϱ − g (g = 10 for all host calls)
+;;; GP B.16: if ϱ < g → (∞, φ, μ, s) — OOG, no mutations
+;;;
+;;; Context gating: if host call not allowed in invocation context,
+;;; charge gas but leave registers untouched (GP B.2/B.6).
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun host-dispatch (vm ctx id)
+  "Dispatch host call ID for VM with host context CTX.
+   Returns :continue, :fault, or :oog.
+   Called by vm-run-host's f function on ecalli."
+  (let ((gas (pvm-gas vm))
+        (cost +host-call-gas-cost+))
+
+    ;; ── B.16: OOG gating ──────────────────────────────
+    (when (< gas cost)
+      (decf (pvm-gas vm) cost)  ; go negative to signal OOG
+      (return-from host-dispatch :oog))
+
+    ;; ── B.15: ϱ' = ϱ − g ──────────────────────────────
+    (decf (pvm-gas vm) cost)
+
+    ;; ── Context gating ─────────────────────────────────
+    (unless (context-allows-p ctx id)
+      ;; Blocked: charge gas, don't touch registers, continue
+      (when (hctx-debug-trace ctx)
+        (push (list id gas (- gas cost) (reg vm +a0+)
+                    (hash-table-count (hctx-storage ctx)))
+              (hctx-host-call-log ctx)))
+      (return-from host-dispatch :continue))
+
+    ;; ── Dispatch to Ω function ─────────────────────────
+    (let ((omega-fn (gethash id *omega-table*)))
+      (unless omega-fn
+        ;; B.11 fallback: φ'₇ = WHAT
+        (set-reg vm +a0+ +hc-what+)
+        (when (hctx-debug-trace ctx)
+          (push (list id gas (- gas cost) +hc-what+
+                      (hash-table-count (hctx-storage ctx)))
+                (hctx-host-call-log ctx)))
+        (return-from host-dispatch :continue))
+
+      (let ((result (funcall omega-fn vm ctx)))
+
+        ;; ── Debug trace AFTER dispatch ──────────────────
+        (when (hctx-debug-trace ctx)
+          (push (list id gas (- gas cost) (reg vm +a0+)
+                      (hash-table-count (hctx-storage ctx)))
+                (hctx-host-call-log ctx)))
+
+        result))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; host-run — Full execution with integrated host-call handling
+;;;
+;;; Wraps vm-run-host with host-dispatch as the handler function.
+;;; This is the top-level entry point for running a PVM program
+;;; with full host-call support.
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun host-run (vm ctx)
+  "Run VM with full host-call handling via CTX.
+   Returns (values exit-status exit-arg ctx)."
+  (vm-run-host vm
+               (lambda (h vm x)
+                 (let ((result (host-dispatch vm x h)))
+                   (case result
+                     (:continue (values :continue x))
+                     (:fault    (values :panic x))
+                     (:oog      (values :oog x))
+                     (t         (values :panic x)))))
+               ctx))
