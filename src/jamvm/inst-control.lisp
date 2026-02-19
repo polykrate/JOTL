@@ -27,9 +27,11 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 ;; 10 = ecalli: host call interrupt, ε = ℏ × ν_X
-(register-opcode 10 :ecalli :imm 1)
+;; Gas cost: 0 (the host call handler charges 10 gas per GP B.15)
+(register-opcode 10 :ecalli :imm 0)
 (definstruction :ecalli (vm args)
-  (cons :ecalli (getf args :imm)))
+  (let ((id (getf args :imm)))
+    (cons :ecalli (u32 (or id 0)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.5 — One offset

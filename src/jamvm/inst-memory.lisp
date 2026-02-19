@@ -1,5 +1,6 @@
 ;;;; inst-memory.lisp — Memory access instructions (loads & stores)
 ;;;;
+;;;; A.5.1  memset(2)
 ;;;; A.5.3  load_imm_64(20)
 ;;;; A.5.4  store_imm_{u8,u16,u32,u64}(30-33)
 ;;;; A.5.6  load_imm(51), load_{u8..u64}(52-58), store_{u8..u64}(59-62)
@@ -7,6 +8,49 @@
 ;;;; A.5.10 store_ind_{u8..u64}(120-123), load_ind_{u8..i32}(124-129)
 
 (in-package #:jamvm)
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; A.5.1 — No arguments: memset
+;;;
+;;; 2 = memset: [A0..A0+A2] ← u8(A1)
+;;; Fills A2 bytes starting at address A0 with value A1 (lowest byte).
+;;; Each byte write costs 1 gas.  On page fault or OOG, execution pauses
+;;; with partial progress preserved (A0, A2 reflect progress).
+;;;
+;;; Unlike other instructions, memset is NON-ATOMIC: on fault/OOG,
+;;; registers are NOT rolled back. This is handled by returning
+;;; (:partial-fault . addr) or :partial-oog, which vm-step recognises.
+;;; ═══════════════════════════════════════════════════════════════════
+
+(register-opcode 2 :memset :none 0)
+(definstruction :memset (vm args)
+  (block memset-body
+    (let* ((dst   (u32 (reg vm +a0+)))
+           (value (logand (reg vm +a1+) #xFF))
+           (count (reg vm +a2+))
+           (one-byte (make-array 1 :element-type '(unsigned-byte 8)
+                                   :initial-contents (list value))))
+      (loop while (> count 0) do
+        ;; Check gas — 1 gas per byte (check BEFORE write, like polkavm)
+        (when (<= (pvm-gas vm) 0)
+          (set-reg vm +a0+ dst)
+          (set-reg vm +a2+ count)
+          (return-from memset-body :partial-oog))
+        ;; Write one byte
+        (multiple-value-bind (ok fault-addr)
+            (mem-write (pvm-memory vm) dst one-byte)
+          (unless ok
+            (set-reg vm +a0+ dst)
+            (set-reg vm +a2+ count)
+            (return-from memset-body (cons :partial-fault fault-addr))))
+        ;; Charge 1 gas, advance
+        (decf (pvm-gas vm) 1)
+        (setf dst (u32 (1+ dst)))
+        (decf count))
+      ;; Done — update registers
+      (set-reg vm +a0+ dst)
+      (set-reg vm +a2+ count)
+      :continue)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.3 — One register + extended 8-byte immediate

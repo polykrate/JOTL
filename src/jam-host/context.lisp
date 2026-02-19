@@ -105,7 +105,8 @@
                   :type (simple-array (unsigned-byte 8) (32)))  ; w_c
   (gas-limit      0 :type (unsigned-byte 64))     ; w_g
   (gas-limit-accum 0 :type (unsigned-byte 64))    ; w_g_a
-  (payload        #() :type (simple-array (unsigned-byte 8) (*))))  ; w_y
+  (payload        (make-array 0 :element-type '(unsigned-byte 8))
+                  :type (simple-array (unsigned-byte 8) (*))))  ; w_y
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; EmpowerState — B.7 privileged outputs (ΩB / ΩA / ΩD)
@@ -212,12 +213,15 @@
   (checkpoint nil)
 
   ;; ── Fetch data (ΩY) ────────────────────────────────
-  (entropy-raw       #() :type (simple-array (unsigned-byte 8) (*)))
+  (entropy-raw       (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
   (entropy           (make-array '(4 32) :element-type '(unsigned-byte 8)
                                          :initial-element 0))
   (accumulate-items  nil :type list)   ; list of octet vectors
-  (work-package      #() :type (simple-array (unsigned-byte 8) (*)))
-  (protocol-params   #() :type (simple-array (unsigned-byte 8) (*)))
+  (work-package      (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
+  (protocol-params   (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
 
   ;; ── Block context ───────────────────────────────────
   (header-hash       (make-array 32 :element-type '(unsigned-byte 8)
@@ -239,21 +243,26 @@
   (min-turnaround    32 :type (unsigned-byte 32))
 
   ;; ── Refine-specific data ────────────────────────────
-  (payload           #() :type (simple-array (unsigned-byte 8) (*)))
+  (payload           (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
   (package-hash      (make-array 32 :element-type '(unsigned-byte 8)
                                      :initial-element 0)
                      :type (simple-array (unsigned-byte 8) (32)))
   (import-segments   nil :type list)   ; list of octet vectors
-  (authorizer-trace  #() :type (simple-array (unsigned-byte 8) (*)))
+  (authorizer-trace  (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
   (export-segments   nil :type list)
   (work-item-index   0 :type (unsigned-byte 32))
   (lookup-anchor-hash (make-array 32 :element-type '(unsigned-byte 8)
                                       :initial-element 0)
                       :type (simple-array (unsigned-byte 8) (32)))
   (extrinsics        nil :type list)   ; list of (list of octet vectors)
-  (authorizer-code   #() :type (simple-array (unsigned-byte 8) (*)))
-  (justification     #() :type (simple-array (unsigned-byte 8) (*)))
-  (work-package-context #() :type (simple-array (unsigned-byte 8) (*)))
+  (authorizer-code   (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
+  (justification     (make-array 0 :element-type '(unsigned-byte 8))
+                     :type (simple-array (unsigned-byte 8) (*)))
+  (work-package-context (make-array 0 :element-type '(unsigned-byte 8))
+                        :type (simple-array (unsigned-byte 8) (*)))
   (work-items        nil :type list)   ; list of work-item-info
 
   ;; ── Inner PVM machines (ΩM/ΩP/ΩO/ΩZ/ΩK/ΩX) ───────

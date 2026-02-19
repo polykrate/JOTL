@@ -49,20 +49,45 @@
           (ash (aref bytes (+ offset 2)) 16)
           (ash (aref bytes (+ offset 3)) 24)))
 
+(defun read-jam-compact (bytes offset)
+  "Read a JAM compact-encoded integer (GP C.5).
+   Returns (values value bytes-consumed) or signals error.
+   Matches the Rust compact_from() in wire.rs exactly."
+  (let* ((first (aref bytes offset))
+         (leading-ones (- 8 (integer-length (logxor first #xFF))))
+         ;; leading-ones: count of leading 1-bits in first byte
+         ;; But we need to handle the case where first = 0xFF specially
+         )
+    ;; Correct leading-ones calculation:
+    ;; Count how many leading 1-bits the byte has.
+    (let ((leading-ones
+            (cond
+              ((= first #xFF) 8)
+              (t (loop for i from 7 downto 0
+                       while (logbitp i first)
+                       count t)))))
+      (let ((total (1+ leading-ones)))
+        ;; Special case: 0xFF prefix = pure 8-byte LE
+        (when (= leading-ones 8)
+          (let ((val 0))
+            (loop for i from 1 to 8
+                  do (setf val (logior val (ash (aref bytes (+ offset i))
+                                                (* 8 (1- i))))))
+            (return-from read-jam-compact (values val 9))))
+        ;; General case
+        (let* ((data-bits (max 0 (- 7 leading-ones)))
+               (mask (1- (ash 1 data-bits)))
+               (rem (logand first mask))
+               (low 0))
+          (loop for i from 1 below total
+                do (setf low (logior low (ash (aref bytes (+ offset i))
+                                              (* 8 (1- i))))))
+          (values (+ low (ash rem (* 8 leading-ones)))
+                  total))))))
+
 (defun read-metadata-length (bytes offset)
   "Read the compact-encoded metadata length. Returns (values length consumed-bytes)."
-  (let ((first (aref bytes offset)))
-    (cond
-      ;; 0xxxxxxx → length = first byte, 1 byte consumed
-      ((zerop (logand first #x80))
-       (values first 1))
-      ;; 1xxxxxxx → length is in next 2 bytes (u16 LE) + continuation
-      (t
-       ;; For JAM blobs, metadata is typically short.
-       ;; The compact encoding: if first byte has high bit set,
-       ;; it means (first & 0x7f) | (next << 7) etc.
-       ;; For simplicity, handle the common case.
-       (values (logand first #x7f) 1)))))
+  (read-jam-compact bytes offset))
 
 (defstruct (program-blob (:conc-name blob-))
   "Parsed JAM program blob (GP A.2 + A.7)."
@@ -112,7 +137,8 @@
                              :rw-data (coerce rw-data '(simple-array (unsigned-byte 8) (*)))
                              :code-blob (coerce code-blob '(simple-array (unsigned-byte 8) (*)))
                              :rw-padding-pages rw-pad
-                             :stack-size (* stack-sz +page-size+)))))))))))))
+                             ;; stack_size is in BYTES (not pages), page-aligned
+                             :stack-size (align-up stack-sz +page-size+)))))))))))))
     (error () nil)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -136,26 +162,10 @@
       (let ((pos 0)
             (len (length code-blob)))
         (flet ((read-compact ()
-                 (let ((first (aref code-blob pos)))
-                   (cond
-                     ;; Simple case: < 128
-                     ((zerop (logand first #x80))
-                      (incf pos)
-                      first)
-                     ;; Two-byte: 10xxxxxx + next byte
-                     ((zerop (logand first #x40))
-                      (let ((val (logior (logand first #x3f)
-                                         (ash (aref code-blob (1+ pos)) 6))))
-                        (incf pos 2)
-                        val))
-                     ;; Four-byte: for larger values
-                     (t
-                      (let ((val (logior (logand first #x1f)
-                                         (ash (aref code-blob (+ pos 1)) 5)
-                                         (ash (aref code-blob (+ pos 2)) 13)
-                                         (ash (aref code-blob (+ pos 3)) 21))))
-                        (incf pos 4)
-                        val))))))
+                 (multiple-value-bind (val consumed)
+                     (read-jam-compact code-blob pos)
+                   (incf pos consumed)
+                   val)))
           ;; 1. |j| = number of jump table entries
           (let ((j-len (read-compact)))
             ;; 2. z = bytes per jump table entry (1 byte)
@@ -201,53 +211,80 @@
 
 (defun standard-prog-init (blob)
   "GP A.7: Initialize a PVM from a parsed program-blob.
-   Sets up memory layout and returns a fresh PVM struct.
+   Sets up memory layout matching PolkaVM's MemoryMap exactly.
    Returns PVM or NIL on failure."
   (multiple-value-bind (code bitmask jump-table) (deblob (blob-code-blob blob))
     (unless code
       (return-from standard-prog-init nil))
 
     (let* ((mem (make-memory))
-           ;; RO region: [0, ro-end)
+           ;; ── Constants matching polkavm-common/abi.rs ──
+           (vm-max-page #x10000)                    ; VM_MAX_PAGE_SIZE = 64KB
+           (addr-space-bottom vm-max-page)           ; VM_ADDRESS_SPACE_BOTTOM = 0x10000
+           (addr-space-top (- +max-address+ vm-max-page)) ; VM_ADDRESS_SPACE_TOP = 0xFFFF0000
+
+           ;; ── RO region: starts at VM_ADDRESS_SPACE_BOTTOM ──
            (ro-data (blob-ro-data blob))
-           (ro-end  (length ro-data))
-           ;; RW region: page-aligned after RO
-           (rw-start (align-up ro-end +page-size+))
-           (rw-data  (blob-rw-data blob))
-           (rw-end   (+ rw-start (length rw-data)))
-           ;; RW padding: extra zeroed pages
-           (rw-padded-end (+ rw-end (* (blob-rw-padding-pages blob) +page-size+)))
-           ;; Heap: starts at page-aligned boundary after rw region
-           (heap-base (align-up rw-padded-end +page-size+))
-           ;; Stack: at top of address space
+           (ro-start addr-space-bottom)              ; 0x10000
+           (ro-data-size (length ro-data))
+           (ro-addr-space (align-up ro-data-size vm-max-page)) ; align to 64KB blocks
+           (ro-data-aligned (align-up ro-data-size +page-size+))
+
+           ;; ── RW region: after RO + guard gap ──
+           ;; address_low = BOTTOM + ro_addr_space + VM_MAX_PAGE (guard)
+           (rw-start (+ addr-space-bottom ro-addr-space vm-max-page)) ; e.g. 0x30000
+           (rw-data (blob-rw-data blob))
+           (rw-data-size (length rw-data))
+
+           ;; ── Heap base: right after RW data ──
+           (heap-base (+ rw-start rw-data-size))
+           ;; RW data gets page-aligned for address space, heap gets slack
+           (rw-data-aligned (align-up rw-data-size +page-size+))
+           (rw-addr-space (align-up rw-data-size vm-max-page))
+           ;; After rw_data_address_space + guard:
+           ;; heap_slack = rw_addr_space - rw_data_size (rest of the aligned space)
+
+           ;; ── Stack: at top of address space ──
            (stack-size (blob-stack-size blob))
-           (stack-top  (- +max-address+ +page-size+))  ; leave guard page at very top
-           (stack-base (- stack-top stack-size)))
+           (stack-aligned (align-up stack-size +page-size+))
+           (stack-addr-high addr-space-top)           ; 0xFFFF0000
+           (stack-addr-low (- stack-addr-high stack-aligned))
 
-      ;; ── Map RO data ──
-      (when (> ro-end 0)
-        (mem-map-range mem 0 ro-end :read-only ro-data))
+           ;; ── Compute actual heap range ──
+           ;; max_heap_size includes slack from RW alignment
+           (address-low-after-heap (+ addr-space-bottom ro-addr-space vm-max-page
+                                      rw-addr-space vm-max-page))
+           (heap-slack (- (+ rw-start rw-addr-space) heap-base))
+           (max-heap-size (+ (- (- stack-addr-high stack-aligned) address-low-after-heap)
+                             heap-slack)))
 
-      ;; ── Map RW data ──
-      (when (> (length rw-data) 0)
-        (mem-map-range mem rw-start (length rw-data) :read-write rw-data))
+      ;; ── Map RO data (read-only) ──
+      (when (> ro-data-size 0)
+        (mem-map-range mem ro-start ro-data-size :read-only ro-data))
 
-      ;; ── Map RW padding pages (zeroed) ──
+      ;; ── Map RW data (read-write) ──
+      (when (> rw-data-size 0)
+        (mem-map-range mem rw-start rw-data-size :read-write rw-data))
+
+      ;; ── Map RW padding pages (zeroed, read-write) ──
+      ;; Padding starts right after RW data (page-aligned)
       (when (> (blob-rw-padding-pages blob) 0)
-        (let ((pad-start (align-up rw-end +page-size+)))
+        (let ((pad-start (align-up (+ rw-start rw-data-size) +page-size+)))
           (dotimes (i (blob-rw-padding-pages blob))
             (mem-map-page mem (page-index (+ pad-start (* i +page-size+)))
-                          :read-write t))))
+                          :read-write t))
+          ;; Update heap base to after padding
+          (setf heap-base (+ pad-start (* (blob-rw-padding-pages blob) +page-size+)))))
 
-      ;; ── Map stack ──
-      (when (> stack-size 0)
-        (mem-map-range mem stack-base stack-size :read-write))
+      ;; ── Map stack (read-write) ──
+      (when (> stack-aligned 0)
+        (mem-map-range mem stack-addr-low stack-aligned :read-write))
 
       ;; ── Set heap tracking ──
       (setf (mem-heap-base mem) heap-base
             (mem-heap-top mem)  heap-base
-            (mem-stack-base mem) stack-base
-            (mem-stack-top mem)  stack-top)
+            (mem-stack-base mem) stack-addr-low
+            (mem-stack-top mem)  stack-addr-high)
 
       ;; ── Build PVM ──
       (let ((vm (make-pvm
@@ -257,8 +294,10 @@
                  :memory mem
                  :pc 0
                  :gas 0)))
-        ;; Initialize SP to stack top
-        (set-reg vm +sp+ stack-top)
+        ;; Initialize SP to stack top (matching PolkaVM: stack_address_high)
+        (set-reg vm +sp+ stack-addr-high)
+        ;; Precompute basic-block starts ω̄ (GP A.5)
+        (setf (pvm-basic-blocks vm) (compute-basic-block-starts vm))
         vm))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

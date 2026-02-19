@@ -333,7 +333,7 @@
                    (result-data (when (getf result-entry :ok)
                                   (getf result-entry :ok)))
                    (auth-output (getf u :auth-output)))
-              (jam.ffi:pvm-encode-work-item-record
+              (jam-host:encode-work-item-record
                (getf u :package-hash)
                (getf u :exports-root)
                (getf u :auth-hash)
@@ -350,7 +350,7 @@
    TRANSFERS: list of plists (:sender :destination :amount :memo :gas-limit)
    Returns: list of encoded byte vectors."
   (mapcar (lambda (x)
-            (jam.ffi:pvm-encode-transfer-record
+            (jam-host:encode-transfer-record
              (or (getf x :sender) 0)
              (or (getf x :destination) 0)
              (or (getf x :amount) 0)
@@ -369,8 +369,8 @@
   "Read all PVM side-effects after accumulate execution.
    Returns a plist with :balance :gas-remaining :storage :transfers :ejected
    :created :upgrades :empower :provided-preimages :lookup :yield-output.
-   Uses jam_pvm_collect (single JAM-codec blob) instead of 12 individual getters."
-  (jam.ffi:pvm-collect ctx))
+   CTX is now a jam-host:host-context (not a Rust pointer)."
+  (jam-host:collect-effects ctx))
 
 (defun extract-all-service-ids (delta-kvs)
   "Extract list of all service IDs present in delta-kvs."
@@ -442,6 +442,7 @@
       (return-from accumulate-service (values nil 0)))
 
     ;; ── Create PVM instance + Configure + Run + Collect ──
+    ;; Now uses Lisp JamVM instead of Rust FFI
     (handler-case
         (let* ((balance       (+ (or (getf metadata :balance) 0)
                                  transfer-balance))  ;; B.9: e_d[s]_b + Σ r_a
@@ -453,94 +454,52 @@
                (total-bytes   (or (getf metadata :bytes) 0))
                (deposit-off   (or (getf metadata :deposit-offset) 0))
                ;; Extra service fields for ΩI (info on self) — GP §9.3 + §B.7
-               ;; ΩI encoding: E_4(a_r, a_a, a_p)
-               ;; GP §9.3 defines: r = creation timeslot, a = most recent accumulation, p = parent
-               ;; a_r = r = creation-slot,  a_a = a = last-accumulation-slot,  a_p = p = parent-service
-               (creation-ts  (or (getf metadata :creation-slot) 0))            ;; a_r (field r)
-               (last-accum   (or (getf metadata :last-accumulation-slot) 0))   ;; a_a (field a)
-               (parent-svc   (or (getf metadata :parent-service) 0)))
-          (jam.ffi:with-pvm (ctx code-blob service-id balance timeslot)
-            ;; Configure context as one JAM blob
-            (jam.ffi:pvm-configure ctx
-              :invocation      2  ;; Accumulate
-              :service-id      service-id
-              :balance         balance
-              :timeslot        timeslot
-              :entropy         (or (getf state :entropy)
-                                   (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))
-              :header-hash     (or (getf state :header-hash)
-                                   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
-              :code-hash       code-hash
-              :threshold       deposit-off     ;; a_f → Rust self.threshold (balance offset for compute_threshold)
-              :min-accum-gas   min-accum-gas   ;; a_g
-              :min-memo-gas    min-memo-gas    ;; a_m
-              :items-count     items-count     ;; a_i → Rust self.items_count
-              :footprint       total-bytes     ;; a_o → Rust self.footprint (total octets, encode_info a_o)
-              :recent-count    creation-ts     ;; a_r (field r = creation timeslot)
-              :accum-gas-limit last-accum      ;; a_a (field a = last accumulation timeslot)
-              :preimage-pages  parent-svc      ;; a_p (field p = parent service)
-              :gas             gas-limit
-              ;; Service account data:
-              ;; Storage is h27-keyed (GP Appendix D). The PVM hashes raw
-              ;; guest keys to h27 before lookup/insert (ΩR/ΩW).
-              ;; Trie-classified entries go in directly — chain & step identical.
-              :storage         h27-storage
-              :preimages       (getf svc-data :preimages)
-              :lookup          (getf svc-data :lookup)
-              ;; Cross-service accounts for ΩJ (eject), ΩT (transfer), etc
-              :service-accounts cross-services
-              :existing-services existing-services
-              ;; Accumulate items: GP 12.24 i = i^T ⌢ i^U
-              ;; Transfers first, then work items
-              :accumulate-items (encode-accumulate-items items svc-transfers))
+               (creation-ts  (or (getf metadata :creation-slot) 0))            ;; a_r
+               (last-accum   (or (getf metadata :last-accumulation-slot) 0))   ;; a_a
+               (parent-svc   (or (getf metadata :parent-service) 0)))          ;; a_p
 
-            ;; ── Debug: enable host-call tracing if requested ──
-            (when *debug-pvm-trace*
-              (jam.ffi:pvm-debug-trace-enable ctx)
-              (let ((enc-items (encode-accumulate-items items svc-transfers)))
-                (format *error-output*
-                        "~&[PVM-DBG] sid=~D items=~D transfers=~D encoded-blobs=~D blob-sizes=~{~D~^ ~}~%"
-                        service-id (length items) (length svc-transfers)
-                        (length enc-items)
-                        (mapcar #'length enc-items))))
+          ;; ── Debug: log before run ──
+          (when *debug-pvm-trace*
+            (let ((enc-items (encode-accumulate-items items svc-transfers)))
+              (format *error-output*
+                      "~&[PVM-DBG] sid=~D items=~D transfers=~D encoded-blobs=~D blob-sizes=~{~D~^ ~}~%"
+                      service-id (length items) (length svc-transfers)
+                      (length enc-items)
+                      (mapcar #'length enc-items))))
 
-            ;; ── Run PVM accumulate_ext ──
-            (multiple-value-bind (status result gas-remaining)
-                (jam.ffi:pvm-run ctx "accumulate_ext")
-              (declare (ignorable result))
+          ;; ── Run PVM accumulate via Lisp JamVM ──
+          (multiple-value-bind (effects gas-used)
+              (jam-host:lisp-pvm-run-accumulate
+               code-blob service-id balance timeslot
+               :gas             gas-limit
+               :entropy         (or (getf state :entropy)
+                                    (make-array 128 :element-type '(unsigned-byte 8) :initial-element 0))
+               :header-hash     (or (getf state :header-hash)
+                                    (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
+               :code-hash       code-hash
+               :threshold       deposit-off
+               :min-accum-gas   min-accum-gas
+               :min-memo-gas    min-memo-gas
+               :items-count     items-count
+               :footprint       total-bytes
+               :recent-count    creation-ts
+               :accum-gas-limit last-accum
+               :preimage-pages  parent-svc
+               :storage         h27-storage
+               :preimages       (getf svc-data :preimages)
+               :lookup          (getf svc-data :lookup)
+               :service-accounts cross-services
+               :existing-services existing-services
+               :accumulate-items (encode-accumulate-items items svc-transfers))
 
-              ;; ── Collapse (resolve dual context per GP B.13) ──
-              (let ((outcome (jam.ffi:pvm-collapse ctx status)))
+            ;; ── Debug: attach host-call trace ──
+            (when (and *debug-pvm-trace* effects)
+              (push (list :sid service-id :gas-limit gas-limit
+                          :gas-used gas-used
+                          :outcome (getf effects :outcome))
+                    *debug-pvm-traces*))
 
-              ;; ── Collect side-effects (one JAM blob instead of 12 getters) ──
-              (let ((effects (collect-side-effects ctx))
-                      ;; GP A.44: u = ϱ − max(ϱ', 0) — gas consumed, capped at budget
-                      ;; OOG (outcome=2): polkavm sync metering may leave a small
-                      ;; positive residual (not enough for next basic block). The GP
-                      ;; treats OOG as full budget consumption → u = ϱ.
-                      ;; Panic (outcome=1): the program trapped after consuming some
-                      ;; gas. gas-remaining is valid → use the standard formula.
-                      (gas-used (if (= outcome 2)
-                                    gas-limit
-                                    (- gas-limit (max (or gas-remaining 0) 0)))))
-                  ;; Tag effects with the PVM outcome for storage/lookup decisions
-                  ;; 0=Halt 1=Panic 2=OOG 3=HaltWithYield
-                  (setf (getf effects :outcome) outcome)
-                  ;; ── Debug: attach host-call trace if enabled ──
-                  (when *debug-pvm-trace*
-                    (let ((hclog (jam.ffi:pvm-debug-trace-read ctx))
-                          (dlog  (jam.ffi:pvm-debug-log-read ctx))
-                          (glogs (jam.ffi:pvm-guest-log-read ctx)))
-                      (setf (getf effects :host-call-log) hclog)
-                      (setf (getf effects :debug-log) dlog)
-                      (setf (getf effects :guest-logs) glogs)
-                      (push (list :sid service-id :gas-limit gas-limit
-                                  :gas-used gas-used :gas-remaining (or gas-remaining 0)
-                                  :outcome outcome :n-host-calls (length hclog)
-                                  :host-call-log hclog :debug-log dlog
-                                  :guest-logs glogs)
-                            *debug-pvm-traces*)))
-                  (values effects gas-used))))))
+            (values effects gas-used)))
 
       (error (e)
         (format *error-output* "~&accumulate-service: PVM error for service ~D: ~A~%"
@@ -881,7 +840,7 @@
            (dolist (pp (getf effects :provided-preimages))
              (let* ((pp-sid  (car pp))
                     (pp-data (cdr pp))
-                    (pp-hash (jam.ffi:blake2b-256 pp-data))
+                    (pp-hash (jam-host:blake2b-256 pp-data))
                     (h-27    (preimage-trie-h pp-hash))
                     (trie-key (interleave-sub-key pp-sid h-27)))
                (push (cons trie-key (ensure-bytes pp-data)) current-kvs)))

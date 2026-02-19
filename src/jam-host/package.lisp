@@ -60,4 +60,36 @@
    ;; ── Helpers ───────────────────────────────────
    #:read-guest
    #:write-guest
-   #:storage-hash-key))
+   #:storage-hash-key
+
+   ;; ── PVM Adapter (replaces jam.ffi) ──────────
+   #:lisp-pvm-run-accumulate
+   #:encode-work-item-record
+   #:encode-transfer-record
+   #:encode-accumulate-params
+   #:encode-gp-constants
+   #:populate-host-context
+   #:collect-effects
+   #:blake2b-256
+
+   ;; ── Context accessors ──────────────────────
+   #:hctx-storage
+   #:hctx-preimages
+   #:hctx-lookup
+   #:hctx-yield-output
+   #:hctx-balance
+   #:hctx-transfers
+   #:hctx-ejected-services
+   #:hctx-created-services
+   #:hctx-upgrades
+   #:hctx-provided-preimages
+   #:hctx-empower
+   #:hctx-items-count
+   #:hctx-footprint
+   #:hctx-code-hash
+   #:hctx-min-accum-gas
+   #:hctx-min-memo-gas
+   #:hctx-service-id
+   #:hctx-debug-trace
+   #:hctx-host-call-log
+   #:hctx-debug-log))

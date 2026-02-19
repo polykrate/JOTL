@@ -58,6 +58,7 @@
 
    ;; ── A.6 Host calls ────────────────────────────
    #:*host-call-handler*      ; callback: (funcall handler vm id) → continue?
+   #:vm-run-host              ; run with host-call callback f
 
    ;; ── A.7 Program init ──────────────────────────
    #:deblob                   ; p → (c, k, j) or NIL
@@ -66,6 +67,11 @@
 
    ;; ── A.8 Argument invocation ───────────────────
    #:argument-invoke          ; set up regs + memory for entry
+   #:entry-point-pc           ; map name → PC value
+   #:+pc-is-authorized+       ; PC = 0
+   #:+pc-refine+              ; PC = 0
+   #:+pc-accumulate+          ; PC = 5
+   #:+pc-on-transfer+         ; PC = 10
 
    ;; ── Memory ────────────────────────────────────
    #:make-memory              ; constructor
@@ -74,8 +80,19 @@
    #:mem-read-u8 #:mem-read-u16 #:mem-read-u32 #:mem-read-u64
    #:mem-write-u8 #:mem-write-u16 #:mem-write-u32 #:mem-write-u64
    #:mem-sbrk                 ; sbrk with page-level gas accounting
+   #:page-access              ; read page access mode
+   #:ensure-page              ; create page if needed
+   #:mem-pages                ; pages hash-table accessor
+   #:mem-access               ; access hash-table accessor
+
+   ;; ── Arithmetic helpers ────────────────────────
+   #:u32                      ; mask to 32-bit unsigned
+   #:u64                      ; mask to 64-bit unsigned
+   #:u64->s64                 ; interpret as signed 64-bit
+   #:u64->s32                 ; interpret as signed 32-bit
 
    ;; ── Constants ─────────────────────────────────
    #:+page-size+              ; Z_P = 4096
    #:+num-regs+               ; 13 registers
-   #:+max-address+))          ; 2^32
+   #:+max-address+            ; 2^32
+   #:+gas-per-page+))          ; 2^32

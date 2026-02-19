@@ -136,6 +136,28 @@
                           (pvm-exit-arg vm) page-addr)
                     :page-fault)))))
 
+            ;; ∃ Partial fault (memset) — NO ROLLBACK, preserve partial progress
+            ((and (consp result) (eq (car result) :partial-fault))
+             (let* ((fault-addr (logand (cdr result) +u32-max+)))
+               ;; Keep current registers/gas (partial progress)
+               ;; Only restore PC to current instruction
+               (setf (pvm-pc vm) pc)
+               (cond
+                 ((< fault-addr (expt 2 16))
+                  (setf (pvm-status vm) +exit-panic+)
+                  :panic)
+                 (t
+                  (let ((page-addr (* (floor fault-addr +page-size+) +page-size+)))
+                    (setf (pvm-status vm) +exit-page-fault+
+                          (pvm-exit-arg vm) page-addr)
+                    :page-fault)))))
+
+            ;; ∞ Partial OOG (memset) — NO ROLLBACK, preserve partial progress
+            ((eq result :partial-oog)
+             (setf (pvm-pc vm) pc
+                   (pvm-status vm) +exit-oog+)
+             :oog)
+
             ;; Unknown → ♯ panic
             (t
              (setf (pvm-status vm) +exit-panic+

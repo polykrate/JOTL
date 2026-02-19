@@ -74,4 +74,5 @@
                  (:file "omega-export")
                  (:file "omega-pvm")
                  (:file "omega-privileged")
-                 (:file "omega-service")))))
+                 (:file "omega-service")
+                 (:file "pvm-adapter")))))

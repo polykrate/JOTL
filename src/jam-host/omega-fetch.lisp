@@ -18,17 +18,16 @@
                  (encode-u64-le (wi-gas-limit-accum w))))
 
 (defun encode-items-summary-list (items)
-  "Encode E({S(w)...}) — compact-prefixed list of work item summaries.
-   Simple length prefix (u32 LE) + concatenated summaries."
-  (let ((parts (list (encode-u32-le (length items)))))
+  "Encode E({S(w)...}) — JAM compact-prefixed list of work item summaries."
+  (let ((parts (list (encode-jam-compact (length items)))))
     (dolist (w items)
       (push (encode-item-summary w) parts))
     (apply #'concat-octets (nreverse parts))))
 
 (defun encode-accumulate-items-list (items)
-  "Encode accumulate items as length-prefixed list.
+  "Encode accumulate items as JAM compact-prefixed list.
    ITEMS is a list of octet vectors."
-  (let ((parts (list (encode-u32-le (length items)))))
+  (let ((parts (list (encode-jam-compact (length items)))))
     (dolist (item items)
       (push item parts))
     (apply #'concat-octets (nreverse parts))))

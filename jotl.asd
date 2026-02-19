@@ -13,7 +13,8 @@
   :version "5.0.0"
   :serial t
   :depends-on (#:alexandria
-               #:jam-crypto)
+               #:jam-crypto
+               #:jamvm)
   :components
   (;; 1. Package
    (:file "package")

@@ -18,16 +18,9 @@
 ;;;   2. Sets exit-arg = n (host call identifier)
 ;;;   3. Yields control to the caller (Ψ or Ψ_H)
 ;;;
-;;; ecalli is registered here; Ψ_H below handles it in-line.
+;;; ecalli is registered in inst-control.lisp (opcode 10, :imm format).
+;;; The host call cost (10 gas) is charged by host-dispatch, NOT by ecalli.
 ;;; ═══════════════════════════════════════════════════════════════════
-
-;; 78 = ecalli — host call  (GP A.5.6: one reg + imm format)
-;; The immediate value is the host call index.
-;; Gas cost: 0 (the host call itself charges gas).
-(register-opcode 78 :ecalli :reg-imm 0)
-(definstruction :ecalli (vm args)
-  (let ((id (getf args :imm)))
-    (cons :ecalli (u32 id))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Host call result helpers

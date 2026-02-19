@@ -26,12 +26,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 100 omega-ext-log (vm ctx)
-  "ext_log: Read bytes from guest memory and add to logs."
-  (let* ((ptr (u32 (reg vm +a0+)))
-         (len (u32 (reg vm +a1+)))
-         (data (read-guest vm ptr len)))
-    (if data
-        (progn
-          (push data (hctx-logs ctx))
-          :continue)
-        :fault)))
+  "ext_log: log(level, target_ptr, target_len, text_ptr, text_len)
+   Registers: A0=level, A1=target_ptr, A2=target_len, A3=text_ptr, A4=text_len.
+   Reads text from (A3, A4), adds to ctx logs.
+   Always returns :continue (even on read failure, matching Rust behavior)."
+  (let* ((text-ptr (u32 (reg vm +a3+)))
+         (text-len (u32 (reg vm +a4+)))
+         (data (read-guest vm text-ptr text-len)))
+    (when data
+      (push data (hctx-logs ctx)))
+    :continue))

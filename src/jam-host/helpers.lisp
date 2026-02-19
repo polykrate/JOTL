@@ -103,6 +103,47 @@
       (incf off (length v)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; JAM Compact Integer Encoding (GP C.5) — local copy to avoid dep on jotl
+;;;
+;;; Leading 1-bits in header byte = number of continuation bytes.
+;;; Continuation bytes are LE. Header contains remaining high bits.
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun encode-jam-compact (value)
+  "Encode VALUE as JAM compact integer (GP C.5). Returns octet vector."
+  (cond
+    ;; value < 128 → single byte, high bit clear
+    ((< value 128)
+     (make-array 1 :element-type '(unsigned-byte 8) :initial-element value))
+    ;; value needs full 8 bytes (≥ 2^56)
+    ((>= value (expt 2 56))
+     (let ((result (make-array 9 :element-type '(unsigned-byte 8) :initial-element 0)))
+       (setf (aref result 0) #xFF)
+       (loop for i from 1 to 8
+             do (setf (aref result i) (ldb (byte 8 (* 8 (1- i))) value)))
+       result))
+    (t
+     ;; Find minimal n (1..7): n leading 1-bits, total n+1 bytes
+     ;; capacity = 8*n + (7-n) = 7n+7 data bits
+     (let* ((n (loop for n from 1 to 7
+                     for cap = (+ (* 8 n) (- 7 n))
+                     when (< (integer-length value) (1+ cap))
+                     return n
+                     finally (return 7)))
+            (total (1+ n))
+            (result (make-array total :element-type '(unsigned-byte 8) :initial-element 0))
+            (low-shift (* 8 n))
+            (rem (ash value (- low-shift)))
+            (data-bits (- 7 n))
+            (prefix-mask (- (ash 1 8) (ash 1 (- 8 n))))
+            (header (logior prefix-mask
+                           (logand rem (1- (ash 1 data-bits))))))
+       (setf (aref result 0) header)
+       (loop for i from 1 below total
+             do (setf (aref result i) (ldb (byte 8 (* 8 (1- i))) value)))
+       result))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Hash table deep copy — for checkpoint snapshotting
 ;;; ═══════════════════════════════════════════════════════════════════
 
