@@ -64,20 +64,35 @@
         ;; B.11 fallback: φ'₇ = WHAT
         (set-reg vm +a0+ +hc-what+)
         (when (hctx-debug-trace ctx)
-          (push (list id gas (- gas cost) +hc-what+
-                      (hash-table-count (hctx-storage ctx)))
+          (push (list :id id :gas-before gas :gas-after (- gas cost)
+                      :a0-before (reg vm +a0+) :a0-after +hc-what+
+                      :result :unknown-id)
                 (hctx-host-call-log ctx)))
         (return-from host-dispatch :continue))
 
-      (let ((result (funcall omega-fn vm ctx)))
+      ;; ── Capture pre-call register state for debug ──
+      (let ((pre-a0 (reg vm +a0+))
+            (pre-a1 (reg vm +a1+))
+            (pre-a2 (reg vm +a2+))
+            (pre-a3 (reg vm +a3+))
+            (pre-a4 (reg vm +a4+))
+            (pre-a5 (reg vm +a5+)))
 
-        ;; ── Debug trace AFTER dispatch ──────────────────
-        (when (hctx-debug-trace ctx)
-          (push (list id gas (- gas cost) (reg vm +a0+)
-                      (hash-table-count (hctx-storage ctx)))
-                (hctx-host-call-log ctx)))
+        (let ((result (funcall omega-fn vm ctx)))
 
-        result))))
+          ;; ── Debug trace BEFORE+AFTER dispatch ──────────
+          (when (hctx-debug-trace ctx)
+            (push (list :id id :gas-before gas :gas-after (- gas cost)
+                        :a0-before pre-a0 :a1-before pre-a1
+                        :a2-before pre-a2 :a3-before pre-a3
+                        :a4-before pre-a4 :a5-before pre-a5
+                        :a0-after (reg vm +a0+)
+                        :a1-after (reg vm +a1+)
+                        :storage-cnt (hash-table-count (hctx-storage ctx))
+                        :result result)
+                  (hctx-host-call-log ctx)))
+
+          result)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; host-run — Full execution with integrated host-call handling

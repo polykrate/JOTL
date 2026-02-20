@@ -35,4 +35,5 @@
          (data (read-guest vm text-ptr text-len)))
     (when data
       (push data (hctx-logs ctx)))
+    (set-reg vm +a0+ 0)  ; Rust always returns 0 in A0 for ext_log
     :continue))

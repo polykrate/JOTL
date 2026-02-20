@@ -115,8 +115,8 @@
     (%buf-bytes buf (%ensure-hash32 auth-hash))
     ;; payload: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 payload-hash))
-    ;; gas_limit: u64
-    (%buf-u64-le buf gas-limit)
+    ;; gas_limit: u64 — #[codec(compact)] in WorkItemRecord
+    (%buf-compact buf gas-limit)
     ;; result: Result<WorkOutput, WorkError>
     (cond
       ((zerop result-kind)
@@ -168,12 +168,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun encode-accumulate-params (slot service-id item-count)
-  "Encode AccumulateParams as 12-byte LE tuple."
-  (let ((buf (make-array 12 :element-type '(unsigned-byte 8))))
-    (dotimes (i 4) (setf (aref buf i)     (logand (ash slot       (* -8 i)) #xFF)))
-    (dotimes (i 4) (setf (aref buf (+ 4 i)) (logand (ash service-id (* -8 i)) #xFF)))
-    (dotimes (i 4) (setf (aref buf (+ 8 i)) (logand (ash item-count (* -8 i)) #xFF)))
-    buf))
+  "Encode AccumulateParams with JAM compact fields.
+   All three fields have #[codec(compact)] in the Rust struct."
+  (let ((buf (%make-buf 16)))
+    (%buf-compact buf slot)
+    (%buf-compact buf service-id)
+    (%buf-compact buf item-count)
+    (%buf-finalize buf)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Protocol parameters encoding — for ΩY(0) fetch
@@ -197,25 +198,25 @@
                               (max-work-items 16)       ;; I
                               (max-dependencies 8)      ;; J
                               (max-tickets-per-block 3) ;; K
-                              (max-lookup-anchor-age 14400) ;; L
+                              (max-lookup-anchor-age 24) ;; L  (tiny=24)
                               (tickets-attempts 3)      ;; N
-                              (auth-window 3)           ;; O
+                              (auth-window 8)           ;; O   (tiny=8)
                               (slot-period-sec 6)       ;; P
                               (auth-queue-len 80)       ;; Q
                               (rotation-period 4)       ;; R
-                              (max-extrinsics 16)       ;; T
-                              (availability-timeout 8)  ;; U
+                              (max-extrinsics 128)      ;; T   (tiny=128)
+                              (availability-timeout 5)  ;; U   (tiny=5)
                               (val-count 6)             ;; V
-                              (max-authorizer-code 4194304)   ;; W_A
-                              (max-input 12288)               ;; W_B
-                              (max-service-code 4194304)      ;; W_C
-                              (basic-piece-len 684)           ;; W_E
-                              (max-imports 2048)              ;; W_M (tiny=2048)
-                              (segment-piece-count 1026)      ;; W_P (tiny=1026)
-                              (max-report-elective 4096)      ;; W_R
-                              (transfer-memo-size 128)        ;; W_T
-                              (max-exports 3072)              ;; W_X
-                              (epoch-tail-start 4))           ;; Y
+                              (max-authorizer-code 64000)      ;; W_A (tiny=64000)
+                              (max-input 13794305)             ;; W_B (tiny=13794305)
+                              (max-service-code 4000000)       ;; W_C (tiny=4000000)
+                              (basic-piece-len 4)              ;; W_E (tiny=4)
+                              (max-imports 3072)               ;; W_M (tiny=3072)
+                              (segment-piece-count 1026)       ;; W_P (tiny=1026)
+                              (max-report-elective 49152)      ;; W_R (tiny=48*1024)
+                              (transfer-memo-size 128)         ;; W_T
+                              (max-exports 3072)               ;; W_X
+                              (epoch-tail-start 10))           ;; Y  (tiny=10)
   "Encode protocol parameters for ΩY fetch(kind=0).
    Returns 136-byte octet vector."
   (let ((buf (%make-buf 136)))
@@ -527,7 +528,8 @@
                                   (accumulate-items nil)
                                   (core-count 2)
                                   (auth-queue-len 80)
-                                  (val-count 6))
+                                  (val-count 6)
+                                  (debug-trace nil))
   "Execute PVM accumulate using the Lisp JamVM.
    Returns (values effects-plist gas-used) or (values nil 0) on failure.
 
@@ -565,7 +567,8 @@
                 :accumulate-items accumulate-items
                 :core-count core-count
                 :auth-queue-len auth-queue-len
-                :val-count val-count)))
+                :val-count val-count
+                :debug-trace debug-trace)))
 
       ;; 3. Encode accumulate arguments and invoke
       (let* ((item-count (length (or accumulate-items nil)))
@@ -658,6 +661,9 @@
 
                     (setf (getf effects :outcome) outcome-code)
                     (setf (getf effects :gas-remaining) gas-remaining)
+                    (when debug-trace
+                      (setf (getf effects :host-call-log)
+                            (reverse (hctx-host-call-log ctx))))
 
                     (values effects gas-used))))
 
