@@ -1083,22 +1083,10 @@
         (let* ((n (or (getf accum-state :n-accumulated) 0))
 
                ;; ── ξ' (12.32-12.33): shift register ──
-               ;; ξ'_{E-1} = P(R*_{...n}) — package hashes of actually accumulated reports
-               ;; ∀i ∈ N_{E-1}: ξ'_i = ξ_{i+1} — shift left
-               (old-xi (let ((entries (funcall xi :entries)))
-                         (if (and entries (listp entries) (= (length entries) e))
-                             entries
-                             (make-list e :initial-element nil))))
+               ;; ξ owns its shift logic via :advance message
                (accumulated-n-hashes
                 (accum-package-hashes (subseq r-star 0 (min n (length r-star)))))
-               (new-xi (let ((nxi (make-list e :initial-element nil)))
-                         ;; Shift left: ξ'[i] = ξ[i+1]
-                         (loop for i from 0 below (1- e)
-                               do (setf (nth i nxi) (nth (1+ i) old-xi)))
-                         ;; ξ'[E-1] = P(R*_{...n})
-                         (setf (nth (1- e) nxi) accumulated-n-hashes)
-                         nxi))
-               (xi-prime (make-xi-state :entries new-xi))
+               (xi-prime (funcall xi :advance accumulated-n-hashes))
 
                ;; ── ω' (12.34): update omega ──
                ;; compute-r-star handles: stale gap clearing, ξ̃ editing,

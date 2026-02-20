@@ -6,7 +6,6 @@
 ;;;;
 ;;;; ξ̃ = ⋃_{x∈ξ} (x)  — flattened union of all sets (12.2).
 ;;;;
-;;;; No :transition — modified by transition-accumulate (accumulate.lisp).
 ;;;; Merkle key: C(15).
 ;;;;
 ;;;; Codec layout: E × (compact-len, hash32*)
@@ -18,6 +17,7 @@
 ;;;;   :entry-at (idx)   → list of hashes at slot idx
 ;;;;   :flattened        → ξ̃ = union of all hash sets (memoized)
 ;;;;   :contains? (h)    → T if hash h is in ξ̃
+;;;;   :advance (hashes) → ξ' with shift-left + new hashes at E-1 (GP 12.32-12.33)
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -43,6 +43,22 @@
   ;; Quick membership test against ξ̃
   (:contains? (hash)
     (member hash (self :flattened) :test #'equalp))
+
+  ;; ── Transition: GP 12.32-12.33 ──────────────────────────
+  ;; ξ'_{E-1} = accumulated-hashes (P(R*_{...n}))
+  ;; ∀i ∈ N_{E-1}: ξ'_i = ξ_{i+1}  (shift left)
+  (:advance (accumulated-hashes)
+    (let* ((e (epoch-duration))
+           (old (if (and entries (listp entries) (= (length entries) e))
+                    entries
+                    (make-list e :initial-element nil)))
+           (nxi (make-list e :initial-element nil)))
+      ;; Shift left: ξ'[i] = ξ[i+1]
+      (loop for i from 0 below (1- e)
+            do (setf (nth i nxi) (nth (1+ i) old)))
+      ;; ξ'[E-1] = accumulated-hashes
+      (setf (nth (1- e) nxi) accumulated-hashes)
+      (make-xi-state :entries nxi)))
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, hash32*)
