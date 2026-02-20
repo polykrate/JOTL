@@ -36,25 +36,65 @@
                   +service-index-min+)))
     (error "check-service-id: entire ID space exhausted")))
 
-(defun raw-next-service-id (service-id entropy-0 header-hash)
+(defun encode-compact-u32 (value)
+  "JAM compact encoding for small natural numbers (GP C.5).
+   For 0:                    → #(0)
+   For 1..63 (l=0):          → #(value)
+   For 64..8191 (l=1):       → #(0x80 | hi, lo)
+   For 8192..1048575 (l=2):  → #(0xC0 | hi, mid, lo)
+   For 1048576..134217727:   → #(0xE0 | b3, b2, b1, b0)
+   For ≥134217728 (l=4):     → #(0xF0 | b4, b3, b2, b1, b0)
+   Sufficient for u32 values used in service IDs and timeslots."
+  (cond
+    ((= value 0) (make-array 1 :element-type '(unsigned-byte 8) :initial-element 0))
+    ((< value (ash 1 7))   ;; l=0: 1 byte
+     (make-array 1 :element-type '(unsigned-byte 8) :initial-contents (list value)))
+    ((< value (ash 1 14))  ;; l=1: 2 bytes
+     (let ((lo (logand value #xFF))
+           (hi (ash value -8)))
+       (make-array 2 :element-type '(unsigned-byte 8)
+                     :initial-contents (list (logior #x80 hi) lo))))
+    ((< value (ash 1 21))  ;; l=2: 3 bytes
+     (let ((b0 (logand value #xFF))
+           (b1 (logand (ash value -8) #xFF))
+           (hi (ash value -16)))
+       (make-array 3 :element-type '(unsigned-byte 8)
+                     :initial-contents (list (logior #xC0 hi) b0 b1))))
+    ((< value (ash 1 28))  ;; l=3: 4 bytes
+     (let ((b0 (logand value #xFF))
+           (b1 (logand (ash value -8) #xFF))
+           (b2 (logand (ash value -16) #xFF))
+           (hi (ash value -24)))
+       (make-array 4 :element-type '(unsigned-byte 8)
+                     :initial-contents (list (logior #xE0 hi) b0 b1 b2))))
+    (t  ;; l=4: 5 bytes (covers full u32 range)
+     (let ((b0 (logand value #xFF))
+           (b1 (logand (ash value -8) #xFF))
+           (b2 (logand (ash value -16) #xFF))
+           (b3 (logand (ash value -24) #xFF)))
+       (make-array 5 :element-type '(unsigned-byte 8)
+                     :initial-contents (list #xF0 b0 b1 b2 b3))))))
+
+(defun raw-next-service-id (service-id entropy-0 timeslot)
   "GP B.10: Hash-derived candidate for initial next-service-id.
    i = E₄⁻¹(H(E(s, η'₀, H_T))) mod (2³² − S − 2⁸) + S
-   where E(s, η'₀, H_T) = LE32(s) ‖ η'₀[0..32] ‖ H_T[0..32].
-   NOTE: GP v0.7.2 text says H_T = timeslot, but test vectors use header hash."
-  (let* ((preimage (make-array 68 :element-type '(unsigned-byte 8) :initial-element 0)))
-    ;; LE32(service_id)
-    (setf (aref preimage 0) (ldb (byte 8 0) service-id))
-    (setf (aref preimage 1) (ldb (byte 8 8) service-id))
-    (setf (aref preimage 2) (ldb (byte 8 16) service-id))
-    (setf (aref preimage 3) (ldb (byte 8 24) service-id))
+   where E(s, η'₀, H_T) = compact(s) ⌢ η'₀[0..32] ⌢ compact(H_T).
+   s and H_T use JAM compact encoding (GP C.5), NOT fixed LE32."
+  (let* ((enc-s  (encode-compact-u32 service-id))
+         (enc-ts (encode-compact-u32 timeslot))
+         (eta-len (min 32 (length entropy-0)))
+         (preimage-len (+ (length enc-s) eta-len (length enc-ts)))
+         (preimage (make-array preimage-len :element-type '(unsigned-byte 8) :initial-element 0))
+         (pos 0))
+    ;; compact(service_id)
+    (replace preimage enc-s :start1 pos)
+    (incf pos (length enc-s))
     ;; η'₀ (first 32 bytes of entropy)
-    (dotimes (i 32)
-      (when (< i (length entropy-0))
-        (setf (aref preimage (+ 4 i)) (aref entropy-0 i))))
-    ;; H_T (header hash, 32 bytes)
-    (dotimes (i 32)
-      (when (< i (length header-hash))
-        (setf (aref preimage (+ 36 i)) (aref header-hash i))))
+    (dotimes (i eta-len)
+      (setf (aref preimage (+ pos i)) (aref entropy-0 i)))
+    (incf pos eta-len)
+    ;; compact(timeslot)
+    (replace preimage enc-ts :start1 pos)
     ;; H(...) = blake2b-256
     (let* ((digest (ironclad:make-digest :blake2/256))
            (_ (ironclad:update-digest digest preimage))
@@ -67,10 +107,10 @@
       (declare (ignore _))
       (+ (mod raw +service-id-modulus+) +service-index-min+))))
 
-(defun compute-next-service-id (service-id entropy-0 header-hash ctx)
+(defun compute-next-service-id (service-id entropy-0 timeslot ctx)
   "GP B.10 + B.14: Compute initial next-service-id for accumulation.
    Combines hash-derived candidate with collision checking."
-  (let ((candidate (raw-next-service-id service-id entropy-0 header-hash)))
+  (let ((candidate (raw-next-service-id service-id entropy-0 timeslot)))
     (check-service-id candidate ctx)))
 
 (defun advance-service-id (current ctx)
