@@ -304,15 +304,6 @@
 ;;; §12.2 DELTA LOOPS — Δ* (per-report, GP 12.19) and Δ+ (sequential)
 ;;; ═══════════════════════════════════════════════════════════════
 
-;;; ── R(o, a, b) — Privilege ownership function (GP 12.20) ────
-;;; "If the manager changed it (a≠o), use the manager's choice (a).
-;;;  If the manager didn't change it (a=o), use the service's choice (b)."
-(defun privilege-resolve (original manager-choice service-choice)
-  "GP (12.20): R(o, a, b) = b if a = o, else a."
-  (if (eql manager-choice original)
-      service-choice
-      manager-choice))
-
 (defun compute-service-set (reports transfers free-accum)
   "Compute s = { d_s | r ∈ r, d ∈ r_d } ∪ K(f) ∪ { t_d | t ∈ t }.
    REPORTS:      list of work-reports
@@ -415,83 +406,29 @@
             (decf remaining-gas gas-used)
             (setf (getf state :remaining-gas) remaining-gas)))))
 
-    ;; ── Privilege updates (GP 12.19) ──
-    ;; e = (d, i, q, m, a, v, r, z) — unpack current state
-    (let* ((m-mgr  (getf state :chi-manager))
-           (v-des  (getf state :chi-designate))
-           (r-stk  (getf state :chi-creation))
-           (a-auth (getf state :chi-authorizers))
-           ;; z-gas = (getf state :chi-always-accum) — used via setf below
-           ;; e* = Δ(m)_e — manager service's empower output
-           (mgr-effects (gethash m-mgr delta-results))
-           (e-star (when mgr-effects (getf mgr-effects :empower))))
-
-      ;; DEBUG: dump empower data
-      (when (and *debug-pvm-trace* e-star)
-        (format *error-output*
-                "~&[CHI-DBG] m=~D v=~D r=~D a=~S~%"
-                m-mgr v-des r-stk a-auth)
-        (format *error-output*
-                "~&[CHI-DBG] e*: manager=~D validator=~D staker=~D auth-agents=~S gas-map=~S~%"
-                (getf e-star :manager) (getf e-star :validator)
-                (getf e-star :staker) (getf e-star :auth-agents)
-                (getf e-star :gas-map)))
-
-      ;; (m', z') = e*_{(m,z)}
-      (when e-star
-        (setf (getf state :chi-manager)      (getf e-star :manager))
-        (setf (getf state :chi-always-accum) (getf e-star :gas-map)))
-
-      ;; v' = R(v, Δ(m)ₑ.v, Δ(v)ₑ.v)
-      ;; GP 12.20: when Δ(s)ₑ = ∅, default to current value (no change)
-      (let* ((des-effects (gethash v-des delta-results))
-             (des-empower (when des-effects (getf des-effects :empower)))
-             ;; Manager's choice for designate; defaults to v if no ΩB
-             (mgr-v (if e-star (getf e-star :validator) v-des))
-             ;; Designate's choice for itself; defaults to v if no ΩB
-             (des-v (if des-empower (getf des-empower :validator) v-des)))
-        (setf (getf state :chi-designate)
-              (privilege-resolve v-des mgr-v des-v))
-        ;; i' = (Δ(v)ₑ)_i — validator keys from designate service
-        (when des-empower
-          (setf (getf state :iota-validators) (getf des-empower :validators))))
-
-      ;; r' = R(r, Δ(m)ₑ.r, Δ(r)ₑ.r)
-      (let* ((stk-effects (gethash r-stk delta-results))
-             (stk-empower (when stk-effects (getf stk-effects :empower)))
-             (mgr-r (if e-star (getf e-star :staker) r-stk))
-             (stk-r (if stk-empower (getf stk-empower :staker) r-stk)))
-        (setf (getf state :chi-creation)
-              (privilege-resolve r-stk mgr-r stk-r)))
-
-      ;; ∀c ∈ N_C: a'_c = R(a_c, (Δ(m)ₑ.a)_c, (Δ(a_c)ₑ.a)_c)
-      ;; ∀c ∈ N_C: q'_c = ((Δ(a_c)ₑ)_q)_c
-      (when a-auth
-        (let ((new-auth (copy-list a-auth))
-              (new-queues (getf state :phi-queues)))
-          (loop for c from 0 below (num-cores)
-                for a-c = (nth c a-auth)
-                do (let* ((ac-effects (gethash a-c delta-results))
-                          (ac-empower (when ac-effects (getf ac-effects :empower)))
-                          ;; Manager's choice for auth[c]; defaults to a_c if no ΩB
-                          (mgr-ac (if e-star
-                                      (or (nth c (getf e-star :auth-agents)) a-c)
-                                      a-c))
-                          ;; Auth service's choice for itself; defaults to a_c if no ΩB
-                          (self-ac (if ac-empower
-                                       (or (nth c (getf ac-empower :auth-agents)) a-c)
-                                       a-c)))
-                     ;; a'_c
-                     (setf (nth c new-auth)
-                           (privilege-resolve a-c mgr-ac self-ac))
-                     ;; q'_c
-                     (when (and ac-empower new-queues)
-                       (let ((q-c (nth c (getf ac-empower :queues))))
-                         (when q-c
-                           (setf (nth c new-queues) q-c))))))
-          (setf (getf state :chi-authorizers) new-auth)
-          (when new-queues
-            (setf (getf state :phi-queues) new-queues)))))
+    ;; ── Privilege updates (GP 12.19) — χ owns this logic ──
+    ;; Build a temp χ closure from current state fields, call :resolve-privilege,
+    ;; then write results back into state plist for inter-round compatibility.
+    (let ((temp-chi (make-chi-state
+                     :raw (encode-chi-fields
+                           (list :manager     (getf state :chi-manager)
+                                 :designate   (getf state :chi-designate)
+                                 :creation    (getf state :chi-creation)
+                                 :authorizers (getf state :chi-authorizers)
+                                 :always-accum (getf state :chi-always-accum))))))
+      (multiple-value-bind (chi-new iota-vals phi-qs)
+          (funcall temp-chi :resolve-privilege delta-results (getf state :phi-queues))
+        ;; Write resolved chi fields back into state
+        (setf (getf state :chi-manager)      (funcall chi-new :manager))
+        (setf (getf state :chi-designate)    (funcall chi-new :designate))
+        (setf (getf state :chi-creation)     (funcall chi-new :creation))
+        (setf (getf state :chi-authorizers)  (funcall chi-new :authorizers))
+        (setf (getf state :chi-always-accum) (funcall chi-new :always-accum))
+        ;; Update iota/phi if changed
+        (when iota-vals
+          (setf (getf state :iota-validators) iota-vals))
+        (when phi-qs
+          (setf (getf state :phi-queues) phi-qs))))
 
     ;; ── Update delta-kvs with this round's effects (GP: e' includes d') ──
     ;; So the next Δ* round sees the storage/balance changes from this round.

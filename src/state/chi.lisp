@@ -7,7 +7,6 @@
 ;;;;   χ_A ∈ [N_S]_C : per-core authorizer service indices
 ;;;;   χ_Z ∈ (N_S → N_G) : always-accumulate services + gas map
 ;;;;
-;;;; No :transition — modified by transition-accumulate (accumulate.lisp).
 ;;;; Merkle key: C(12).
 ;;;;
 ;;;; Encoding (state S field order: m, a, v, r, z):
@@ -27,6 +26,8 @@
 ;;;;   :creation      → χ_R
 ;;;;   :authorizers   → χ_A (list of C service indices)
 ;;;;   :always-accum  → χ_Z (alist of (service-id . gas))
+;;;;   :resolve-privilege (delta-results)
+;;;;                      → (values chi' iota-validators phi-queues) GP 12.19-12.20
 
 (in-package #:jotl)
 
@@ -93,6 +94,19 @@
     (apply #'concatenate '(vector (unsigned-byte 8)) (nreverse parts))))
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; PRIVILEGE RESOLUTION — GP 12.20
+;;; ═══════════════════════════════════════════════════════════════
+
+;;; R(o, a, b) — Privilege ownership function (GP 12.20)
+;;; "If the manager changed it (a≠o), use the manager's choice (a).
+;;;  If the manager didn't change it (a=o), use the service's choice (b)."
+(defun privilege-resolve (original manager-choice service-choice)
+  "GP (12.20): R(o, a, b) = b if a = o, else a."
+  (if (eql manager-choice original)
+      service-choice
+      manager-choice))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — χ
 ;;; ═══════════════════════════════════════════════════════════════
 
@@ -116,4 +130,68 @@
   (:designate   (getf (self :fields) :designate))
   (:creation    (getf (self :fields) :creation))
   (:authorizers (getf (self :fields) :authorizers))
-  (:always-accum (getf (self :fields) :always-accum)))
+  (:always-accum (getf (self :fields) :always-accum))
+
+  ;; ── Transition: GP 12.19-12.20 ─────────────────────────────
+  ;; χ owns privilege resolution. Takes delta-results (hash-table sid→effects),
+  ;; phi-queues (current authorization queues for ϕ mutation).
+  ;; Returns: (values chi' iota-validators phi-queues')
+  (:resolve-privilege (delta-results phi-queues)
+    (let* ((fields (self :fields))
+           (m-mgr  (getf fields :manager))
+           (v-des  (getf fields :designate))
+           (r-stk  (getf fields :creation))
+           (a-auth (getf fields :authorizers))
+           (z-az   (getf fields :always-accum))
+           ;; e* = Δ(m)_e — manager service's empower output
+           (mgr-effects (gethash m-mgr delta-results))
+           (e-star (when mgr-effects (getf mgr-effects :empower)))
+           ;; (m', z') = e*_{(m,z)}
+           (new-mgr (if e-star (getf e-star :manager) m-mgr))
+           (new-az  (if e-star (getf e-star :gas-map) z-az))
+           ;; v' = R(v, Δ(m)ₑ.v, Δ(v)ₑ.v)
+           (des-effects (gethash v-des delta-results))
+           (des-empower (when des-effects (getf des-effects :empower)))
+           (mgr-v (if e-star (getf e-star :validator) v-des))
+           (des-v (if des-empower (getf des-empower :validator) v-des))
+           (new-des (privilege-resolve v-des mgr-v des-v))
+           ;; i' = (Δ(v)ₑ)_i — validator keys from designate service
+           (new-iota-validators (when des-empower (getf des-empower :validators)))
+           ;; r' = R(r, Δ(m)ₑ.r, Δ(r)ₑ.r)
+           (stk-effects (gethash r-stk delta-results))
+           (stk-empower (when stk-effects (getf stk-effects :empower)))
+           (mgr-r (if e-star (getf e-star :staker) r-stk))
+           (stk-r (if stk-empower (getf stk-empower :staker) r-stk))
+           (new-stk (privilege-resolve r-stk mgr-r stk-r))
+           ;; a'_c and q'_c
+           (new-auth (if a-auth (copy-list a-auth) nil))
+           (new-phi-queues (when phi-queues (copy-list phi-queues))))
+      ;; ∀c ∈ N_C: a'_c = R(a_c, (Δ(m)ₑ.a)_c, (Δ(a_c)ₑ.a)_c)
+      ;; ∀c ∈ N_C: q'_c = ((Δ(a_c)ₑ)_q)_c
+      (when a-auth
+        (loop for c from 0 below (num-cores)
+              for a-c = (nth c a-auth)
+              do (let* ((ac-effects (gethash a-c delta-results))
+                        (ac-empower (when ac-effects (getf ac-effects :empower)))
+                        (mgr-ac (if e-star
+                                    (or (nth c (getf e-star :auth-agents)) a-c)
+                                    a-c))
+                        (self-ac (if ac-empower
+                                     (or (nth c (getf ac-empower :auth-agents)) a-c)
+                                     a-c)))
+                   (setf (nth c new-auth)
+                         (privilege-resolve a-c mgr-ac self-ac))
+                   (when (and ac-empower new-phi-queues)
+                     (let ((q-c (nth c (getf ac-empower :queues))))
+                       (when q-c
+                         (setf (nth c new-phi-queues) q-c)))))))
+      (values
+       (make-chi-state
+        :raw (encode-chi-fields
+              (list :manager     new-mgr
+                    :designate   new-des
+                    :creation    new-stk
+                    :authorizers new-auth
+                    :always-accum new-az)))
+       new-iota-validators
+       new-phi-queues))))
