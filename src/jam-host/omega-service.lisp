@@ -39,7 +39,8 @@
 (defun raw-next-service-id (service-id entropy-0 header-hash)
   "GP B.10: Hash-derived candidate for initial next-service-id.
    i = E₄⁻¹(H(E(s, η'₀, H_T))) mod (2³² − S − 2⁸) + S
-   where E(s, η'₀, H_T) = LE32(s) ‖ η'₀[0..32] ‖ H_T[0..32]."
+   where E(s, η'₀, H_T) = LE32(s) ‖ η'₀[0..32] ‖ H_T[0..32].
+   NOTE: GP v0.7.2 text says H_T = timeslot, but test vectors use header hash."
   (let* ((preimage (make-array 68 :element-type '(unsigned-byte 8) :initial-element 0)))
     ;; LE32(service_id)
     (setf (aref preimage 0) (ldb (byte 8 0) service-id))
