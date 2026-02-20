@@ -58,6 +58,11 @@
 
    ;; ── A.6 Host calls ────────────────────────────
    #:*host-call-handler*      ; callback: (funcall handler vm id) → continue?
+   #:*vm-last-step-pc*        ; PC before last vm-step (for panic diagnosis)
+   #:*vm-opcode-counts*       ; 256-vector of opcode execution counts
+   #:*vm-trap-log*            ; list of (PC raw-opcode bitmask-bit) for traps
+   #:*vm-trace-stream*        ; stream for instruction trace logging
+   #:*vm-step-counter*        ; step counter for tracing
    #:vm-run-host              ; run with host-call callback f
 
    ;; ── A.7 Program init ──────────────────────────
@@ -95,4 +100,8 @@
    #:+page-size+              ; Z_P = 4096
    #:+num-regs+               ; 13 registers
    #:+max-address+            ; 2^32
-   #:+gas-per-page+))          ; 2^32
+   #:+gas-per-page+
+   #:+z-a+                    ; Z_A = 2 (jump table entry size)
+   #:+halt-sentinel+          ; 2³² − 2¹⁶ (static, but see do-djump)
+   #:+u32-max+
+   #:+u64-max+))          ; 2^32

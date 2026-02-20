@@ -49,6 +49,9 @@ polkavm = "0.29"
 # Logging
 log = "0.4"
 
+# Hex encoding (used by trace_pvm binary)
+hex = "0.4"
+
 # JAM PVM Common - for parsing JAM blob format (used by test vectors)
 # NOTE: polkajam repo is private, so we use crates.io versions
 # Test vectors may use dev versions - compatibility issues possible
@@ -58,6 +61,10 @@ jam-program-blob-common = { version = "0.1", features = ["polkavm"] }
 jam-types = "0.1"
 parity-scale-codec = "3"
 jam-codec = "0.1"
+
+[[bin]]
+name = "trace_pvm"
+path = "src/bin/trace_pvm.rs"
 
 [dev-dependencies]
 hex = "0.4"

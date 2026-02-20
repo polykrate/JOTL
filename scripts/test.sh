@@ -32,7 +32,7 @@ else
 fi
 
 # Chain logs off — the test runner controls all output
-exec sbcl --noinform --load scripts/load-jotl.lisp \
+exec sbcl --noinform --dynamic-space-size 4096 --load scripts/load-jotl.lisp \
      --load tests/conformance.lisp \
      --eval "(setf jotl::*chain-log-level* nil)" \
      --eval "(jotl/test:run-all :verbose $VERBOSE :traces $LISP_TRACES)" \

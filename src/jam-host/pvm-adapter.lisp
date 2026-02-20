@@ -74,14 +74,14 @@
 ;;;   result:         Result<WorkOutput, WorkError>
 ;;;   auth_output:    Vec<u8> (compact-prefixed)
 ;;;
-;;; Result encoding:
+;;; Result encoding (CompactRefineResult — NOT standard Result<T,E>):
 ;;;   Ok(WorkOutput(data)):      0x00 + compact(len) + data
-;;;   Err(WorkError::OutOfGas):  0x01 + 0x00
-;;;   Err(WorkError::Panic):     0x01 + 0x01
-;;;   Err(WorkError::BadExports):0x01 + 0x02
-;;;   Err(WorkError::OutputOversize): 0x01 + 0x03
-;;;   Err(WorkError::BadCode):   0x01 + 0x04
-;;;   Err(WorkError::CodeOversize):   0x01 + 0x05
+;;;   Err(WorkError::OutOfGas):  0x01   (single byte — discriminant only)
+;;;   Err(WorkError::Panic):     0x02
+;;;   Err(WorkError::BadExports):0x03
+;;;   Err(WorkError::OutputOversize): 0x04
+;;;   Err(WorkError::BadCode):   0x05
+;;;   Err(WorkError::CodeOversize):   0x06
 ;;;
 ;;; TransferRecord fields (in order):
 ;;;   source:      u32
@@ -125,9 +125,10 @@
        (let ((data (or result-data #())))
          (%buf-blob buf data)))
       (t
-       ;; Err(WorkError::variant)
-       (%buf-u8 buf 1)  ; Err variant
-       (%buf-u8 buf (1- result-kind))))  ; 1→0, 2→1, 3→2, etc.
+       ;; CompactRefineResult Err encoding: single discriminant byte.
+       ;; WorkError variants: 1=OutOfGas, 2=Panic, 3=BadExports, etc.
+       ;; NO separate "Err" tag — just the variant index.
+       (%buf-u8 buf result-kind)))
     ;; auth_output: Vec<u8>
     (let ((ao (or auth-output #())))
       (%buf-blob buf ao))
@@ -488,7 +489,7 @@
             :created-full     (mapcar (lambda (cs)
                                         (if (consp cs)
                                             (list :id (car cs)
-                                                  :code-hash (cdr cs)
+                                                  :code-hash (second cs) ; (list id hash) → second, not cdr
                                                   :balance 0
                                                   :min-accum-gas 0
                                                   :min-memo-gas 0

@@ -15,30 +15,33 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
 | fuzzy_light | 5/6 | 188/200 | 0 |
-| fuzzy | 5/6 | 103/200 | 0 |
+| fuzzy | 5/6 | 145/200 | 0 |
 
-**891/1000 deterministic traces pass** — byte-exact state root match,
+**933/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 109 steps (12 fuzzy_light + 97 fuzzy)
+### Remaining failures — 67 steps (12 fuzzy_light + 55 fuzzy)
 
 | Category | Pattern | Count | Root cause | Status |
 |----------|---------|------:|------------|--------|
-| A1 | `pi` only | 48 | sbrk gas accounting | Blocked (PolkaVM) |
-| A2 | `pi + delta-kvs` | 50 | sbrk gas + storage | Blocked (PolkaVM) |
-| A3 | `delta-kvs` only | 8 | sbrk storage | Blocked (PolkaVM) |
-| B | `beta + pi + theta` (±kvs) | 3 | sbrk → wrong yield hash | Blocked (PolkaVM) |
+| A1 | `pi` only | 13 | sbrk gas accounting | Blocked (PolkaVM) |
+| A2 | `pi + delta-kvs` | 22 | sbrk gas + storage | Blocked (PolkaVM) |
+| A3 | `delta-kvs` only | 18 | sbrk storage / balance diff | Blocked (PolkaVM) |
+| B | `beta + theta` (±kvs) | 2 | sbrk → wrong yield hash | Blocked (PolkaVM) |
 
-**All 109 remaining failures** are caused by PolkaVM interpreter's `sbrk`
+**All 67 remaining failures** are caused by PolkaVM interpreter's `sbrk`
 pre-allocating memory without page-level gas accounting (no `userfaultfd`).
 Blocked until PolkaVM compiler backend sandbox is compatible with SBCL,
 or `sbrk` is replaced by a host function (JIP in progress).
 
-### Fixed bugs (this session)
+### Fixed bugs
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
-| **Invalid block handling** | +8 blocks | Blocks with bad-code-hash guarantee → return pre-state unchanged (no-op). Category C eliminated |
+| **RA halt sentinel** | +42 steps | `argument-invoke` now sets RA to dynamic halt sentinel `Z_A*(|j|+1)` per GP spec, fixing outermost return |
+| **Created services (list/cons)** | 0 errors | `collect-effects` used `cdr` on 2-element list; fixed to `second` — eliminated 32 TYPE-ERRORs |
+| **read-guest OOM cap** | 0 crashes | Safety cap (64 MB) on `read-guest` prevents heap exhaustion from adversarial lengths |
+| **Invalid block handling** | +8 blocks | Blocks with bad-code-hash guarantee → return pre-state unchanged (no-op) |
 | **Silent error display** | — | Step-mode errors now shown in conformance table instead of being swallowed |
 | **χ privilege (ΩB)** | +1 block | Removed incorrect `existing_services` check. GP B.7: `N_S = N_{2^32}` |
 | **δ-KVS code_hash** | +6 blocks | PVM `:upgrades`/`:created` side-effects applied to δ-KVS via extended wire format |
@@ -57,7 +60,8 @@ no mutation.
 `import-block` is the boundary — pure below, observation above.
 
 Crypto (Blake2b, Bandersnatch, Ed25519) and PVM (PolkaVM + host calls)
-are Rust via CFFI.
+are Rust via CFFI. PVM instruction tracing (`*vm-trace-stream*`) available
+for step-level debugging.
 
 ~10K lines Lisp · ~9K lines Rust
 

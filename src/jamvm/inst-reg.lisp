@@ -18,18 +18,39 @@
   (set-reg vm (getf args :ra) (reg vm (getf args :rb)))
   :continue)
 
-;; 101 = sbrk: allocate φ_A bytes from heap, return old heap-top
+;; 101 = sbrk: allocate φ_A bytes from heap
+;; GP A.5.20: ω_D = Ω_Z(ε_A), where Ω_Z returns ζ_H (OLD heap boundary)
+;; = base address of the newly-allocated region.
+;; Returns 0 on failure (no heap, size overflow, or exceeds max).
 (register-opcode 101 :sbrk :reg-reg 1)
 (definstruction :sbrk (vm args)
   (let* ((mem (pvm-memory vm))
-         (size (reg vm (getf args :rb)))
+         (size-raw (reg vm (getf args :rb)))
          (h (mem-heap-base mem)))
-    (if (zerop h)
-        (progn (set-reg vm (getf args :ra) 0) :continue)
-        (multiple-value-bind (old-top new-pages) (mem-sbrk mem (u32 size))
-          (declare (ignore new-pages))
-          (set-reg vm (getf args :ra) (u64 old-top))
-          :continue))))
+    (cond
+      ;; No heap configured
+      ((zerop h)
+       (set-reg vm (getf args :ra) 0)
+       :continue)
+      ;; Size > u32 max → returns 0 (try_into fails)
+      ((> size-raw #xFFFFFFFF)
+       (set-reg vm (getf args :ra) 0)
+       :continue)
+      (t
+       (let* ((size (u32 size-raw))
+              (old-top (mem-heap-top mem))
+              (new-top (+ old-top size)))
+         ;; GP A.6: Ω_Z(n) returns 0 if ζ_H + n > ζ_M (stack base)
+         (cond
+           ((> new-top (mem-stack-base mem))
+            (set-reg vm (getf args :ra) 0)
+            :continue)
+           (t
+            (mem-sbrk mem size)
+            ;; GP A.5/A.6: sbrk returns ζ_H (the OLD heap boundary)
+            ;; = start of the allocated region.
+            (set-reg vm (getf args :ra) (u64 old-top))
+            :continue)))))))
 
 ;; 102 = count_set_bits_64: popcount(φ_A)
 (register-opcode 102 :count-set-bits-64 :reg-reg 1)

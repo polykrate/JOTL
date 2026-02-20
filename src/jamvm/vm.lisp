@@ -59,13 +59,35 @@
      :host-call  → ℏ ecalli (id in pvm-exit-arg)
      :page-fault → ∃ fault  (page-addr in pvm-exit-arg)"
   (let ((pc (pvm-pc vm)))
+    ;; Capture PC for panic diagnosis
+    (setf *vm-last-step-pc* pc)
 
     ;; ── 1. Decode instruction at ι ──
     (multiple-value-bind (info skip args) (decode-instruction vm pc)
       (unless info
+        ;; ── Trap diagnostic logging ──
+        (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                            (aref (pvm-code vm) pc) 0))
+              (bm-bit (bitmask-bit (pvm-bitmask vm) pc)))
+          (when *vm-trap-log*
+            (push (list :pc pc :raw-opcode raw-byte :bitmask-bit bm-bit
+                        :effective (pvm-opcode vm pc))
+                  *vm-trap-log*)))
         ;; Unknown opcode / out of bounds → ♯ panic
         (setf (pvm-status vm) +exit-panic+)
         (return-from vm-step :panic))
+
+      ;; ── Opcode counting / trace logging ──
+      (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                          (aref (pvm-code vm) pc) 0)))
+        (when *vm-opcode-counts*
+          (incf (aref *vm-opcode-counts* raw-byte)))
+        (when *vm-trace-stream*
+          (incf *vm-step-counter*)
+          (format *vm-trace-stream*
+                  "~D ~D ~D ~D~{ ~D~}~%"
+                  *vm-step-counter* pc raw-byte (pvm-gas vm)
+                  (coerce (pvm-regs vm) 'list))))
 
       ;; ── 2. Charge gas: ϱ' = ϱ − ϱ_Δ ──
       (let ((cost (opi-gas-cost info)))
@@ -178,8 +200,29 @@
   "Callback for host calls: (funcall handler vm id) → T to continue, NIL to stop.
    If NIL, host calls cause the VM to yield back to the caller.")
 
+(defvar *vm-last-step-pc* nil
+  "PC of the last instruction before vm-step executed.
+   Useful for diagnosing panics (vm-step sets pc=0 on panic).")
+
 (defvar *max-steps* nil
   "Maximum number of steps before forced yield. NIL = unlimited.")
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Diagnostic instrumentation
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *vm-opcode-counts* nil
+  "When non-NIL, a 256-element vector counting executions of each opcode.
+   Set to (make-array 256 :initial-element 0) to enable.")
+
+(defvar *vm-trap-log* nil
+  "When non-NIL, a list collecting (PC raw-opcode bitmask-bit) for each trap.")
+
+(defvar *vm-trace-stream* nil
+  "When non-NIL, a stream to log (step# PC opcode gas R0..R12) per instruction.")
+
+(defvar *vm-step-counter* 0
+  "Current step number, incremented by vm-step when tracing is active.")
 
 (defun vm-run (vm)
   "Ψ: Run VM until halt/trap/oog/ecalli/fault.

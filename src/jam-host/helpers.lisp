@@ -9,10 +9,17 @@
 ;;; Guest memory access — wrapping JamVM mem-read / mem-write
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defconstant +max-guest-read+ (* 64 1024 1024)
+  "Maximum bytes read-guest will allocate in one call (64 MB).
+   Guest programs with wild register values can request GBs; cap to avoid OOM.")
+
 (defun read-guest (vm addr len)
   "Read LEN bytes from guest memory at ADDR.
-   Returns octet vector on success, NIL on page fault."
+   Returns octet vector on success, NIL on page fault or oversized read."
   (when (zerop len) (return-from read-guest (make-array 0 :element-type '(unsigned-byte 8))))
+  ;; Safety cap: refuse absurdly large reads that would exhaust the host heap
+  (when (> len +max-guest-read+)
+    (return-from read-guest nil))
   (multiple-value-bind (data ok) (mem-read (pvm-memory vm) addr len)
     (if data data nil)))
 

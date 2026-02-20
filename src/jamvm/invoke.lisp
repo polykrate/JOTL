@@ -74,16 +74,14 @@
       (setf args-len (length args-data))
       (let* ((aligned (align-up args-len 8))
              (mem (pvm-memory vm)))
-        ;; sbrk: advance heap pointer, get pages to charge
+        ;; sbrk: advance heap pointer
+        ;; Note: argument-invoke is a HOST-side setup operation.
+        ;; The Rust PVM (polkaVM) calls instance.sbrk() which is a host-side API,
+        ;; NOT a guest instruction, so no gas is charged for page allocations here.
+        ;; Gas is only charged when the guest executes sbrk (opcode 101).
         (multiple-value-bind (old-top new-pages) (mem-sbrk mem aligned)
           (setf args-addr old-top
                 total-pages (length new-pages))
-          ;; Charge gas for new pages
-          (let ((page-cost (* total-pages +gas-per-page+)))
-            (when (> page-cost 0)
-              (decf (pvm-gas vm) page-cost)
-              (when (minusp (pvm-gas vm))
-                (return-from argument-invoke (values nil :oog)))))
           ;; Write args data into allocated memory
           (multiple-value-bind (ok _fault-addr)
               (mem-write mem old-top
@@ -95,5 +93,12 @@
     ;; 4. Set argument registers
     (set-reg vm +a0+ args-addr)
     (set-reg vm +a1+ args-len)
+
+    ;; 5. Set RA to halt sentinel: Z_A · (|j| + 1)
+    ;; When the outermost function returns via jump_ind(RA),
+    ;; djump(halt_sentinel) triggers a clean halt (■).
+    ;; This matches polkaVM's prepare_call_untyped behavior.
+    (let ((halt-sentinel (* +z-a+ (1+ (length (pvm-jump-table vm))))))
+      (set-reg vm +ra+ halt-sentinel))
 
     (values t total-pages)))

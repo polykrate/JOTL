@@ -27,8 +27,9 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 ;; 10 = ecalli: host call interrupt, ε = ℏ × ν_X
-;; Gas cost: 0 (the host call handler charges 10 gas per GP B.15)
-(register-opcode 10 :ecalli :imm 0)
+;; Gas cost: 1 (polkaVM naive model: every instruction costs 1)
+;; The host call handler additionally charges 10 gas per GP B.15
+(register-opcode 10 :ecalli :imm 1)
 (definstruction :ecalli (vm args)
   (let ((id (getf args :imm)))
     (cons :ecalli (u32 (or id 0)))))

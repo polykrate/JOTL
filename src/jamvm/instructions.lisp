@@ -72,20 +72,49 @@
 
 ;; ── GP A.18: djump(a) — dynamic jump via jump table j ──
 
+(defvar *djump-debug* nil "When T, log djump panics to *error-output*.")
+
 (defun do-djump (vm a)
   "GP A.18: djump(a). Dynamic jump using jump table j.
+   Halt sentinel = Z_A · (|j| + 1), computed dynamically per-program.
    Returns :halt | :panic | (:branch . target)."
-  (let ((jt (pvm-jump-table vm)))
+  (let* ((jt (pvm-jump-table vm))
+         (jt-len (length jt))
+         (halt-value (* +z-a+ (1+ jt-len))))   ; Z_A · (|j| + 1)
     (cond
-      ((= a +halt-sentinel+) :halt)
-      ((zerop a) :panic)
-      ((> a (* (length jt) +z-a+)) :panic)
-      ((/= 0 (mod a +z-a+)) :panic)
+      ;; ■ Halt: a = Z_A · (|j| + 1)
+      ((= a halt-value)
+       (when *djump-debug*
+         (format *error-output* "~&[DJUMP] HALT: a=~D halt-val=~D pc=~D~%"
+                 a halt-value *vm-last-step-pc*))
+       :halt)
+      ;; ϡ Panic: a = 0
+      ((zerop a)
+       (when *djump-debug*
+         (format *error-output* "~&[DJUMP] PANIC: a=0 pc=~D~%" *vm-last-step-pc*))
+       :panic)
+      ;; ϡ Panic: a > Z_A · |j|
+      ((> a (* jt-len +z-a+))
+       (when *djump-debug*
+         (format *error-output* "~&[DJUMP] PANIC: a=~D > jt-max=~D pc=~D~%"
+                 a (* jt-len +z-a+) *vm-last-step-pc*))
+       :panic)
+      ;; ϡ Panic: a mod Z_A ≠ 0
+      ((/= 0 (mod a +z-a+))
+       (when *djump-debug*
+         (format *error-output* "~&[DJUMP] PANIC: a=~D not aligned (mod ~D = ~D) pc=~D~%"
+                 a +z-a+ (mod a +z-a+) *vm-last-step-pc*))
+       :panic)
+      ;; branch(j[a/Z_A − 1], ⊤)
       (t (let* ((index (1- (/ a +z-a+)))
                 (target (aref jt index)))
            (if (basic-block-p vm target)
                (cons :branch target)
-               :panic))))))
+               (progn
+                 (when *djump-debug*
+                   (format *error-output* "~&[DJUMP] PANIC: target=~D (jt[~D]) not basic-block, a=~D pc=~D~%"
+                           target index a *vm-last-step-pc*))
+                 :panic)))))))
 
 ;; ── Memory access helpers ──
 

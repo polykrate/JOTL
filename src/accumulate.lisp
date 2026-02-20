@@ -362,6 +362,15 @@
   "Encode ALL accumulate items: transfers first, then work items.
    GP 12.24: i = i^T ⌢ i^U — transfers prepended before work items.
    Returns: list of encoded byte vectors."
+  (when *debug-pvm-trace*
+    (format *error-output* "~&[ENC-ITEMS] items=~D transfers=~D~%" (length items) (length transfers))
+    (dolist (u items)
+      (let* ((res (getf u :result))
+             (rk (work-exec-result-kind res))
+             (rd (when (getf res :ok) (getf res :ok)))
+             (ao (getf u :auth-output)))
+        (format *error-output* "~&  gas=~D rk=~D rd-len=~D ao-len=~D~%"
+                (or (getf u :gas) 0) rk (if rd (length rd) 0) (if ao (length ao) 0)))))
   (append (encode-transfer-items (or transfers nil))
           (encode-work-items (or items nil))))
 
@@ -490,13 +499,15 @@
                :lookup          (getf svc-data :lookup)
                :service-accounts cross-services
                :existing-services existing-services
-               :accumulate-items (encode-accumulate-items items svc-transfers))
+               :accumulate-items (encode-accumulate-items items svc-transfers)
+               :debug-trace *debug-pvm-trace*)
 
             ;; ── Debug: attach host-call trace ──
             (when (and *debug-pvm-trace* effects)
               (push (list :sid service-id :gas-limit gas-limit
                           :gas-used gas-used
-                          :outcome (getf effects :outcome))
+                          :outcome (getf effects :outcome)
+                          :host-call-log (getf effects :host-call-log))
                     *debug-pvm-traces*))
 
             (values effects gas-used)))
@@ -848,7 +859,7 @@
            ;; ── Handle ejected services ──
            (dolist (ejection (getf effects :ejected))
              (let ((target-id (car ejection))
-                   (ejector-id (cdr ejection)))
+                   (ejector-id (second ejection))) ; (list target ejector), not cons
                  (declare (ignorable ejector-id))
                (setf current-kvs
                      (remove-if (lambda (kv)
