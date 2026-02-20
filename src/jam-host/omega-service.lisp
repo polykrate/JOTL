@@ -36,6 +36,42 @@
                   +service-index-min+)))
     (error "check-service-id: entire ID space exhausted")))
 
+(defun raw-next-service-id (service-id entropy-0 header-hash)
+  "GP B.10: Hash-derived candidate for initial next-service-id.
+   i = E₄⁻¹(H(E(s, η'₀, H_T))) mod (2³² − S − 2⁸) + S
+   where E(s, η'₀, H_T) = LE32(s) ‖ η'₀[0..32] ‖ H_T[0..32]."
+  (let* ((preimage (make-array 68 :element-type '(unsigned-byte 8) :initial-element 0)))
+    ;; LE32(service_id)
+    (setf (aref preimage 0) (ldb (byte 8 0) service-id))
+    (setf (aref preimage 1) (ldb (byte 8 8) service-id))
+    (setf (aref preimage 2) (ldb (byte 8 16) service-id))
+    (setf (aref preimage 3) (ldb (byte 8 24) service-id))
+    ;; η'₀ (first 32 bytes of entropy)
+    (dotimes (i 32)
+      (when (< i (length entropy-0))
+        (setf (aref preimage (+ 4 i)) (aref entropy-0 i))))
+    ;; H_T (header hash, 32 bytes)
+    (dotimes (i 32)
+      (when (< i (length header-hash))
+        (setf (aref preimage (+ 36 i)) (aref header-hash i))))
+    ;; H(...) = blake2b-256
+    (let* ((digest (ironclad:make-digest :blake2/256))
+           (_ (ironclad:update-digest digest preimage))
+           (hash (ironclad:produce-digest digest))
+           ;; E₄⁻¹ = first 4 bytes as u32 LE
+           (raw (+ (aref hash 0)
+                   (ash (aref hash 1) 8)
+                   (ash (aref hash 2) 16)
+                   (ash (aref hash 3) 24))))
+      (declare (ignore _))
+      (+ (mod raw +service-id-modulus+) +service-index-min+))))
+
+(defun compute-next-service-id (service-id entropy-0 header-hash ctx)
+  "GP B.10 + B.14: Compute initial next-service-id for accumulation.
+   Combines hash-derived candidate with collision checking."
+  (let ((candidate (raw-next-service-id service-id entropy-0 header-hash)))
+    (check-service-id candidate ctx)))
+
 (defun advance-service-id (current ctx)
   "GP ΩN: Advance next_service_id after non-privileged creation.
    i* = check(S + (x_i − S + 42) mod (2³² − S − 2⁸))"

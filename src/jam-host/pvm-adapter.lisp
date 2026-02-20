@@ -386,15 +386,16 @@
     (dolist (sid (or existing-services nil))
       (setf (gethash sid (hctx-existing-services ctx)) t))
 
-    ;; ── Initialize next-service-id (GP B.14) ──
-    ;; i* = check(S + (s − S + 42) mod (2³² − S − 2⁸))
+    ;; ── Initialize next-service-id (GP B.10 + B.14) ──
+    ;; i = E₄⁻¹(H(LE32(s) ‖ η'₀ ‖ H_T)) mod M + S, then check for collisions.
     ;; Must be after existing-services population (check-service-id needs it).
-    (setf (hctx-next-service-id ctx)
-          (check-service-id
-           (+ +service-index-min+
-              (mod (+ (- service-id +service-index-min+) 42)
-                   +service-id-modulus+))
-           ctx))
+    (let ((entropy-0 (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))))
+      (setf (hctx-next-service-id ctx)
+            (compute-next-service-id
+             service-id
+             entropy-0
+             (or header-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
+             ctx)))
 
     ;; ── Parse entropy bytes into 4×32 array ──
     (let ((raw (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))))

@@ -57,6 +57,14 @@
    #:empower-state
    #:make-empower-state
 
+   ;; ── Service ID computation (B.10 + B.14) ────
+   #:raw-next-service-id
+   #:compute-next-service-id
+   #:check-service-id
+   #:advance-service-id
+   #:+service-index-min+
+   #:+service-id-modulus+
+
    ;; ── Helpers ───────────────────────────────────
    #:read-guest
    #:write-guest
