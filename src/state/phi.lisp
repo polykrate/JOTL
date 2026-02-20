@@ -4,7 +4,6 @@
 ;;;; C = (num-cores), Q = +auth-queue-size+ = 80.
 ;;;; Each core's queue is a fixed-size list of Q 32-byte hashes.
 ;;;;
-;;;; No :transition — modified by transition-accumulate via ΩA (assign).
 ;;;; GP (4.16): ϕ' comes from accumulate.
 ;;;; Merkle key: C(2).
 ;;;;
@@ -15,6 +14,7 @@
 ;;;;   :queues           → list of C queues, each a list of Q 32-byte hash vectors
 ;;;;   :queue-for-core c → queue of Q hashes for core c
 ;;;;   :head-for-core c  → head (first) hash from core c's queue
+;;;;   :accept-queues (per-core-queues) → ϕ' with new queues, or self if nil
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -33,6 +33,13 @@
     (when (and (< c (length queues))
                (nth c queues))
       (first (nth c queues))))
+
+  ;; ── Transition: accept new per-core queues from accumulate ──
+  ;; If per-core-queues is non-nil, replace; otherwise return self unchanged.
+  (:accept-queues (per-core-queues)
+    (if per-core-queues
+        (make-phi-state :queues per-core-queues)
+        #'self))
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; C × Q × hash32  (fixed-size, no compact prefix)

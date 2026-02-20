@@ -18,7 +18,7 @@
 ;;;;   :filter-offenders offenders → Φ(k) GP (6.14): replace offending validators with null keys
 ;;;;   :save           → V × 336 bytes (memoized)
 ;;;;   :decode            → reconstruct from bytes
-;;;;   (no :transition — modified by accumulate, wired in upsilon)
+;;;;   :accept-empower (validators) → ι' with new validators, or self if nil
 
 (in-package #:jotl)
 
@@ -54,6 +54,13 @@
               collect (if (member-hash ed offenders)
                          +null-validator-key+
                          v))))
+
+  ;; ── Transition: accept new validators from accumulate ────
+  ;; If validators is non-nil, replace; otherwise return self unchanged.
+  (:accept-empower (new-validators)
+    (if new-validators
+        (make-iota-state :validators new-validators)
+        #'self))
 
   ;; ── Codec ────────────────────────────────────────────────
   (:save :memo (encode-full-validator-sequence validators))

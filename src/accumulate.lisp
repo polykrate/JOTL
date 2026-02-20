@@ -849,15 +849,11 @@
                 :xi-prime      xi-prime
                 :delta-dagger  delta-dagger
                 :chi-prime     chi-prime
-                ;; GP (12.27): ι' and ϕ' come from accumulate state if updated
-                :iota-prime    (let ((new-vals (getf accum-state :iota-validators)))
-                                 (if new-vals
-                                     (make-iota-state :validators new-vals)
-                                     iota))
-                :phi-prime     (let ((new-qs (getf accum-state :phi-queues)))
-                                 (if new-qs
-                                     (make-phi-state :queues new-qs)
-                                     phi))
+                ;; GP (12.27): ι' and ϕ' — sovereign accept messages
+                :iota-prime    (funcall iota :accept-empower
+                                        (getf accum-state :iota-validators))
+                :phi-prime     (funcall phi :accept-queues
+                                        (getf accum-state :phi-queues))
                 :theta-prime   theta-prime
                 :commitments   sorted-commits   ;; sorted for β' accumulate-root
                 :service-stats service-stats))))))
