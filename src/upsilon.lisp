@@ -152,11 +152,11 @@
                  (xi     (funcall sigma :load :xi))
                  (chi    (funcall sigma :load :chi))
                  (phi    (funcall sigma :load :phi))
-                 (accum  (transition-accumulate
-                          r-star omega xi delta chi iota phi
-                          tau tau-prime
-                          :eta (funcall eta-prime :save)
-                          :header-hash (funcall h :hash)))
+                (accum  (transition-accumulate
+                         r-star omega xi delta chi iota phi
+                         tau tau-prime
+                         :eta eta-prime
+                         :header h))
                  ;; Destructure accumulation results
                  (omega-prime   (getf accum :omega-prime))
                  (xi-prime      (getf accum :xi-prime))

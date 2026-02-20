@@ -442,7 +442,7 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun transition-accumulate (r-star-input omega xi delta chi iota phi tau tau-prime
-                              &key eta header-hash)
+                              &key eta header)
   "GP §12: (ω', ξ', δ†, χ', ι', ϕ', θ', S) ◁ (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
 
    R-STAR-INPUT: list of work-reports (from ρ‡ :reported)
@@ -454,8 +454,8 @@
    PHI:       ϕ closure (authorization queue)
    TAU:       τ closure (pre-transition timeslot)
    TAU-PRIME: τ' closure (post-transition timeslot)
-   ETA:       η encoded bytes (128 bytes = 4×32 entropy)
-   HEADER-HASH: H_T block header hash — H(E(H)) (32 bytes)
+   ETA:       η' closure (post-transition entropy — bytes extracted at point of use)
+   HEADER:    H closure (block header — hash extracted at point of use)
 
    Storage is h27-keyed (GP Appendix D) — classified from trie on each call.
    No raw-storage cache needed; PVM hashes raw keys internally.
@@ -490,8 +490,8 @@
                     :iota             iota     ;; ι closure — sovereign
                     :phi              phi      ;; ϕ closure — sovereign
                     :timeslot         timeslot
-                    :entropy          eta
-                    :header-hash      header-hash
+                    :entropy          (when eta (funcall eta :save))
+                    :header-hash      (when header (funcall header :hash))
                     ;; GP (12.25): g = max(G_T, G_A·C + Σ_{x∈V(χ_Z)}(x))
                     :remaining-gas    (max (max-block-gas)
                                           (+ (* +accumulation-gas+ (num-cores))
