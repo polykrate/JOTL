@@ -15,11 +15,21 @@
 \#*\#
 .#*
 
-# Temporary test files (root only, not tests/ directory)
+# Temporary test/debug scripts
 /test-*.lisp
 /test-*.sh
 /test-*.c
 /test-ffi-raw
+/tmp-*.lisp
+tests/audit-*.lisp
+tests/capture-*.lisp
+tests/check-*.lisp
+tests/compare-*.lisp
+tests/decode-*.lisp
+tests/diagnose-*.lisp
+tests/dump-*.lisp
+tests/run-blocks.lisp
+tests/trace-*.lisp
 
 # Build artifacts
 *.o
