@@ -72,15 +72,6 @@
     (maphash (lambda (k v) (setf (gethash k ht) (nreverse v))) ht)
     ht))
 
-;;; GP (12.14): X ≡ (s, d, a, m, g) — deferred transfer
-;;; Deferred transfers come from prior accumulation's on-transfer outputs.
-
-(defun deferred-transfers-for-service (transfers service-id)
-  "Filter deferred transfers (X) for a specific destination service.
-   TRANSFERS: list of plists (:sender s :destination d :amount a :memo m :gas-limit g)
-   Returns: list of transfers where :destination = SERVICE-ID."
-  (remove-if-not (lambda (x) (= (getf x :destination) service-id)) transfers))
-
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; §12.2 PER-SERVICE PVM INVOCATION — accumulate-service
 ;;; ═══════════════════════════════════════════════════════════════
@@ -156,13 +147,6 @@
                 (or (getf u :gas) 0) rk (if rd (length rd) 0) (if ao (length ao) 0)))))
   (append (encode-transfer-items (or transfers nil))
           (encode-work-items (or items nil))))
-
-(defun collect-side-effects (ctx)
-  "Read all PVM side-effects after accumulate execution.
-   Returns a plist with :balance :gas-remaining :storage :transfers :ejected
-   :created :upgrades :empower :provided-preimages :lookup :yield-output.
-   CTX is now a jam-host:host-context (not a Rust pointer)."
-  (jam-host:collect-effects ctx))
 
 (defun accumulate-service (service-id items gas-limit state
                            &key (transfer-balance 0) (svc-transfers nil))
@@ -460,19 +444,6 @@
       state)))
 
 ;;; ═══════════════════════════════════════════════════════════════
-;;; §12.3 DELTA† CONSTRUCTION — apply PVM side-effects to trie
-;;; ═══════════════════════════════════════════════════════════════
-
-(defun build-delta-dagger (accum-state)
-  "Construct δ† from the delta closure in accum-state.
-   Delta's :absorb-effects already applied all updates during Δ* rounds.
-
-   ACCUM-STATE: the mutable accumulation state after Δ+
-
-   Returns: the delta-state closure (already up-to-date)."
-  (getf accum-state :delta))
-
-;;; ═══════════════════════════════════════════════════════════════
 ;;; transition-accumulate — GP (4.16) top-level entry
 ;;; ═══════════════════════════════════════════════════════════════
 
@@ -562,8 +533,8 @@
 
                ;; ── ω' already computed by :resolve-r-star above ──
 
-               ;; ── δ† (12.30-12.31): apply PVM side-effects back to trie ──
-               (delta-dagger (build-delta-dagger accum-state))
+               ;; ── δ† (12.30-12.31): δ already absorbed effects via :absorb-effects ──
+               (delta-dagger (getf accum-state :delta))
 
                ;; ── χ' (12.27): updated privilege fields ──
                (chi-prime
