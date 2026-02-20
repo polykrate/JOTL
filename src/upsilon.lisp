@@ -223,7 +223,5 @@
                :pi*     (funcall pi-prime :save)
                :omega   (funcall omega-prime :save)
                :xi      (funcall xi-prime :save)
-               ;; GP (12.26): θ' is ALWAYS fresh — empty → compact(0) = 0x00.
-               ;; θ :transition guarantees valid encoding even with nil commitments.
                :theta   (funcall theta-prime :save)
                :extra-kvs (funcall delta-prime :extra-kvs)))))))))
