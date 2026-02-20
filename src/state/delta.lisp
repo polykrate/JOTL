@@ -34,7 +34,7 @@
 ;;;;   :all-service-ids          → list of all service IDs in delta
 ;;;;   :service-data (sid)       → classified sub-keys for a service (GP D.1)
 ;;;;   :cross-service-accounts (caller-id) → cross-service alist for ΩJ
-;;;;   :absorb-effects (delta-results timeslot)  → δ' with PVM effects applied
+;;;;   :transition-dagger (&key delta-results timeslot) → δ† with PVM effects applied
 ;;;;   :save           → nil (delta doesn't encode to a single segment)
 ;;;;   :transition     → GP (4.18): delta' ◁ (EP, delta-dagger, tau')
 
@@ -690,10 +690,10 @@
   (:cross-service-accounts (caller-id)
    (build-cross-service-accounts caller-id raw-kvs))
 
-  ;; ── Transition: absorb PVM effects ─────────────────────────
-  ;; Takes a hash-table of (sid → effects) + timeslot, returns δ'
+  ;; ── Transition-dagger: absorb PVM effects (δ → δ†) ─────────
+  ;; Takes a hash-table of (sid → effects) + timeslot, returns δ†
   ;; with all storage/lookup/preimage/metadata updates applied.
-  (:absorb-effects (delta-results timeslot)
+  (:transition-dagger (&key delta-results timeslot)
     (make-delta-state
      :raw-kvs (absorb-delta-effects raw-kvs delta-results timeslot)))
 

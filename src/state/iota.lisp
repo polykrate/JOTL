@@ -18,7 +18,7 @@
 ;;;;   :filter-offenders offenders → Φ(k) GP (6.14): replace offending validators with null keys
 ;;;;   :save           → V × 336 bytes (memoized)
 ;;;;   :decode            → reconstruct from bytes
-;;;;   :accept-empower (validators) → ι' with new validators, or self if nil
+;;;;   :transition (&key new-validators) → ι' with new validators, or self if nil
 
 (in-package #:jotl)
 
@@ -57,7 +57,7 @@
 
   ;; ── Transition: accept new validators from accumulate ────
   ;; If validators is non-nil, replace; otherwise return self unchanged.
-  (:accept-empower (new-validators)
+  (:transition (&key new-validators)
     (if new-validators
         (make-iota-state :validators new-validators)
         #'self))

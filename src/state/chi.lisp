@@ -26,8 +26,10 @@
 ;;;;   :creation      → χ_R
 ;;;;   :authorizers   → χ_A (list of C service indices)
 ;;;;   :always-accum  → χ_Z (alist of (service-id . gas))
-;;;;   :resolve-privilege (delta-results)
-;;;;                      → (values chi' iota-validators phi-queues) GP 12.19-12.20
+;;;;   :emitted-validators → transient: new ι validators (or nil)
+;;;;   :emitted-queues     → transient: new ϕ queues (or nil)
+;;;;   :transition (&key delta-results phi-queues)
+;;;;                      → χ' (emitted data queryable) GP 12.19-12.20
 
 (in-package #:jotl)
 
@@ -111,7 +113,9 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (define-state-closure chi-state
-  ((raw nil))
+  ((raw nil)
+   (emitted-validators nil)    ;; transient — new ι validators from :transition
+   (emitted-queues nil))       ;; transient — new ϕ queues from :transition
 
   ;; ── Codec ──────────────────────────────────────────────────
   (:save raw)
@@ -135,8 +139,8 @@
   ;; ── Transition: GP 12.19-12.20 ─────────────────────────────
   ;; χ owns privilege resolution. Takes delta-results (hash-table sid→effects),
   ;; phi-queues (current authorization queues for ϕ mutation).
-  ;; Returns: (values chi' iota-validators phi-queues')
-  (:resolve-privilege (delta-results phi-queues)
+  ;; Returns: χ' (emitted-validators and emitted-queues accessible via queries)
+  (:transition (&key delta-results phi-queues)
     (let* ((fields (self :fields))
            (m-mgr  (getf fields :manager))
            (v-des  (getf fields :designate))
@@ -185,13 +189,12 @@
                      (let ((q-c (nth c (getf ac-empower :queues))))
                        (when q-c
                          (setf (nth c new-phi-queues) q-c)))))))
-      (values
-       (make-chi-state
-        :raw (encode-chi-fields
-              (list :manager     new-mgr
-                    :designate   new-des
-                    :creation    new-stk
-                    :authorizers new-auth
-                    :always-accum new-az)))
-       new-iota-validators
-       new-phi-queues))))
+      (make-chi-state
+       :raw (encode-chi-fields
+             (list :manager     new-mgr
+                   :designate   new-des
+                   :creation    new-stk
+                   :authorizers new-auth
+                   :always-accum new-az))
+       :emitted-validators new-iota-validators
+       :emitted-queues new-phi-queues))))

@@ -17,8 +17,10 @@
 ;;;;   :queues           → list of E lists of (:report r :deps (h1 h2 ...))
 ;;;;   :queue-at (idx)   → list of queue entries at slot idx
 ;;;;   :total-queued     → total number of queued items across all slots
-;;;;   :resolve-r-star (reports xi-flattened timeslot prev-timeslot)
-;;;;                      → (values omega' r-star accumulated-hashes) GP 12.4-12.12
+;;;;   :r-star            → transient: resolved R* (or nil)
+;;;;   :accumulated-hashes → transient: accumulated package hashes (or nil)
+;;;;   :transition (&key reports xi-flattened timeslot prev-timeslot)
+;;;;                      → ω' (r-star and hashes queryable) GP 12.4-12.12
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -215,7 +217,9 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (define-state-closure omega-state
-  ((queues nil))   ;; list of E elements, each a list of (:report r :deps (h1 h2 ...))
+  ((queues nil)
+   (r-star nil)                ;; transient — computed by :transition, not saved
+   (accumulated-hashes nil))   ;; transient — computed by :transition, not saved
 
   ;; ── Semantic queries ─────────────────────────────────────
   (:queue-at (idx)
@@ -227,13 +231,13 @@
 
   ;; ── Transition: GP 12.4-12.12 ────────────────────────────
   ;; ω owns queue editing, R* extraction, and omega' construction.
-  ;; Returns: (values omega' r-star accumulated-hashes)
-  (:resolve-r-star (reports xi-flattened timeslot prev-timeslot)
-    (multiple-value-bind (r-star new-queues accumulated-hashes)
+  ;; Returns: omega' (r-star and accumulated-hashes accessible via queries)
+  (:transition (&key reports xi-flattened timeslot prev-timeslot)
+    (multiple-value-bind (resolved-r-star new-queues resolved-hashes)
         (compute-r-star reports queues xi-flattened timeslot prev-timeslot)
-      (values (make-omega-state :queues new-queues)
-              r-star
-              accumulated-hashes)))
+      (make-omega-state :queues new-queues
+                        :r-star resolved-r-star
+                        :accumulated-hashes resolved-hashes)))
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, queue-entry*)

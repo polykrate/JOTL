@@ -17,7 +17,7 @@
 ;;;;   :entry-at (idx)   → list of hashes at slot idx
 ;;;;   :flattened        → ξ̃ = union of all hash sets (memoized)
 ;;;;   :contains? (h)    → T if hash h is in ξ̃
-;;;;   :advance (hashes) → ξ' with shift-left + new hashes at E-1 (GP 12.32-12.33)
+;;;;   :transition (&key accumulated-hashes) → ξ' with shift-left + new hashes at E-1 (GP 12.32-12.33)
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -47,7 +47,7 @@
   ;; ── Transition: GP 12.32-12.33 ──────────────────────────
   ;; ξ'_{E-1} = accumulated-hashes (P(R*_{...n}))
   ;; ∀i ∈ N_{E-1}: ξ'_i = ξ_{i+1}  (shift left)
-  (:advance (accumulated-hashes)
+  (:transition (&key accumulated-hashes)
     (let* ((e (epoch-duration))
            (old (if (and entries (listp entries) (= (length entries) e))
                     entries

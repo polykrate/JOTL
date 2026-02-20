@@ -8,13 +8,13 @@
 ;;;; Each state closure owns its own transition logic (sovereign).
 ;;;; The orchestrator only sends messages and coordinates data flow.
 ;;;;
-;;;; Architecture:
-;;;;   - ω :resolve-r-star  → R* computation (§12.1)
-;;;;   - ξ :advance          → shift register (§12.32-12.33)
-;;;;   - δ :absorb-effects   → PVM side-effect integration (§12.3)
-;;;;   - χ :resolve-privilege → privilege resolution (§12.20)
-;;;;   - ι :accept-empower   → validator update
-;;;;   - ϕ :accept-queues    → auth queue update
+;;;; Architecture (uniform :transition protocol):
+;;;;   - ω :transition       → ω' + R* queryable (§12.1)
+;;;;   - ξ :transition       → ξ' shift register (§12.32-12.33)
+;;;;   - δ :transition-dagger → δ† PVM side-effect integration (§12.3)
+;;;;   - χ :transition       → χ' privilege resolution + emitted data (§12.20)
+;;;;   - ι :transition       → ι' validator update
+;;;;   - ϕ :transition       → ϕ' auth queue update
 ;;;;   - transition-accumulate: top-level entry point called by upsilon Wave 3
 
 (in-package #:jotl)
@@ -352,23 +352,28 @@
             (setf (getf state :remaining-gas) remaining-gas)))))
 
     ;; ── Privilege updates (GP 12.19) — χ, ι, ϕ own their logic ──
-    ;; χ resolves privilege, returns updated closure + data for ι and ϕ.
-    (multiple-value-bind (chi-new iota-vals phi-qs)
-        (funcall (getf state :chi) :resolve-privilege
-                 delta-results (funcall (getf state :phi) :queues))
+    ;; χ transitions and emits side-data for ι and ϕ (queryable on χ').
+    (let ((chi-new (funcall (getf state :chi) :transition
+                            :delta-results delta-results
+                            :phi-queues (funcall (getf state :phi) :queues))))
       (setf (getf state :chi) chi-new)
-      (when iota-vals
-        (setf (getf state :iota)
-              (funcall (getf state :iota) :accept-empower iota-vals)))
-      (when phi-qs
-        (setf (getf state :phi)
-              (funcall (getf state :phi) :accept-queues phi-qs))))
+      (let ((iota-vals (funcall chi-new :emitted-validators))
+            (phi-qs    (funcall chi-new :emitted-queues)))
+        (when iota-vals
+          (setf (getf state :iota)
+                (funcall (getf state :iota) :transition
+                         :new-validators iota-vals)))
+        (when phi-qs
+          (setf (getf state :phi)
+                (funcall (getf state :phi) :transition
+                         :new-queues phi-qs)))))
 
-    ;; ── δ absorbs PVM effects (sovereign — GP 12.30-12.31) ──
+    ;; ── δ† absorbs PVM effects (sovereign — GP 12.30-12.31) ──
     ;; δ owns all storage/lookup/preimage/metadata merge logic.
     (setf (getf state :delta)
-          (funcall (getf state :delta) :absorb-effects
-                   delta-results (getf state :timeslot)))
+          (funcall (getf state :delta) :transition-dagger
+                   :delta-results delta-results
+                   :timeslot (getf state :timeslot)))
 
     (values state
             (nreverse new-transfers)
@@ -467,11 +472,13 @@
   (let* ((timeslot (funcall tau-prime :slot))
          (prev-timeslot (if tau (funcall tau :slot) (1- timeslot))))
 
-    ;; ── §12.1: ω resolves R* (sovereign — GP 12.4-12.12) ──
-    (multiple-value-bind (omega-prime r-star accumulated-hashes)
-        (funcall omega :resolve-r-star r-star-input
-                 (funcall xi :flattened) timeslot prev-timeslot)
-      (declare (ignorable accumulated-hashes))
+    ;; ── §12.1: ω transitions (sovereign — GP 12.4-12.12) ──
+    (let* ((omega-prime (funcall omega :transition
+                                 :reports r-star-input
+                                 :xi-flattened (funcall xi :flattened)
+                                 :timeslot timeslot
+                                 :prev-timeslot prev-timeslot))
+           (r-star (funcall omega-prime :r-star)))
 
 
       ;; ── §12.2 Execution ──
@@ -503,17 +510,18 @@
         (let* ((n (or (getf accum-state :n-accumulated) 0))
 
                ;; ── ξ' (12.32-12.33): shift register ──
-               ;; ξ owns its shift logic via :advance message
+               ;; ξ owns its shift logic via :transition
                (accumulated-n-hashes
                 (accum-package-hashes (subseq r-star 0 (min n (length r-star)))))
-               (xi-prime (funcall xi :advance accumulated-n-hashes))
+               (xi-prime (funcall xi :transition
+                                  :accumulated-hashes accumulated-n-hashes))
 
-               ;; ── ω' already computed by :resolve-r-star above ──
+               ;; ── ω' already computed by ω :transition above ──
 
-               ;; ── δ† (12.30-12.31): δ already absorbed effects via :absorb-effects ──
+               ;; ── δ† (12.30-12.31): δ already transitioned via :transition-dagger ──
                (delta-dagger (getf accum-state :delta))
 
-               ;; ── χ' (12.27): χ already resolved via :resolve-privilege in Δ* ──
+               ;; ── χ' (12.27): χ already transitioned in Δ* ──
                (chi-prime (getf accum-state :chi))
 
                ;; ── GP: B is a set of (s, o) pairs → sort by service-id ascending ──

@@ -14,7 +14,7 @@
 ;;;;   :queues           → list of C queues, each a list of Q 32-byte hash vectors
 ;;;;   :queue-for-core c → queue of Q hashes for core c
 ;;;;   :head-for-core c  → head (first) hash from core c's queue
-;;;;   :accept-queues (per-core-queues) → ϕ' with new queues, or self if nil
+;;;;   :transition (&key new-queues) → ϕ' with new queues, or self if nil
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -36,9 +36,9 @@
 
   ;; ── Transition: accept new per-core queues from accumulate ──
   ;; If per-core-queues is non-nil, replace; otherwise return self unchanged.
-  (:accept-queues (per-core-queues)
-    (if per-core-queues
-        (make-phi-state :queues per-core-queues)
+  (:transition (&key new-queues)
+    (if new-queues
+        (make-phi-state :queues new-queues)
         #'self))
 
   ;; ── Codec ────────────────────────────────────────────────
