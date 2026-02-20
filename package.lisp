@@ -253,7 +253,6 @@
    ;; State — δ Service Accounts (GP §9)
    ;; ═══════════════════════════════════════════
    #:load-delta-state
-   #:load-delta-from-extra-kvs
    
    ;; ═══════════════════════════════════════════
    ;; State — χ Privileged IDs (GP §9.4)

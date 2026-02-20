@@ -18,7 +18,7 @@
            (reported (funcall rho-dd :reported))
            (first-result (first (getf (first reported) :results)))
            (sid (getf first-result :service-id))
-           (svc-data (classify-service-sub-keys sid (funcall pre-sigma :extra-kvs)))
+           (svc-data (classify-service-sub-keys sid (funcall pre-sigma :delta-kvs)))
            (code-blob (getf svc-data :code-blob)))
 
       (let ((vm (jamvm:make-vm (coerce code-blob '(simple-array (unsigned-byte 8) (*))))))

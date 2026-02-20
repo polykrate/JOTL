@@ -132,7 +132,7 @@
           ;; ═══════════════════════════════════════════════════════════
           (let* (;; Load closures needed by Wave 3
                  (alpha (funcall sigma :load :alpha))
-                 (delta (load-delta-from-extra-kvs (funcall sigma :extra-kvs)))
+                 (delta (funcall sigma :load :delta))
 
                  ;; (4.14) ρ'  < (EG, ρ‡, κ, τ', ψ', α, δ, β†, λ, η)
                  (rho-prime (funcall rho-ddagger :transition
@@ -210,7 +210,7 @@
                :alpha   (funcall alpha-prime :save)
                :beta    (funcall beta-prime :save)
                :gamma   (funcall gamma-prime :save)
-               :delta   nil                              ;; δ uses extra-kvs
+               ;; no :delta segment — δ uses multi-key delta-kvs
                :eta     (funcall eta-prime :save)
                :iota    (funcall iota-prime :save)
                :kappa   (funcall kappa-prime :save)
@@ -224,4 +224,4 @@
                :omega   (funcall omega-prime :save)
                :xi      (funcall xi-prime :save)
                :theta   (funcall theta-prime :save)
-               :extra-kvs (funcall delta-prime :extra-kvs)))))))))
+               :delta-kvs (funcall delta-prime :save)))))))))

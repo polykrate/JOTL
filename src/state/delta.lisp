@@ -2,7 +2,7 @@
 ;;;;
 ;;;; δ[s] = service account for service index s.
 ;;;; Service accounts use Merkle key C(255, s), NOT a fixed segment C(n).
-;;;; They live in sigma's extra-kvs, not in a segment field.
+;;;; They live in sigma's delta-kvs (multi-key Merkle entries).
 ;;;;
 ;;;; §9.1 ServiceInfo binary layout (89 bytes):
 ;;;;   version:                U8   (1)
@@ -30,12 +30,11 @@
 ;;;; Messages:
 ;;;;   :accounts       → list of (:id sid :service plist)
 ;;;;   :account (sid)  → service plist for specific service, or NIL
-;;;;   :extra-kvs      → the underlying key-value pairs for Merkle
+;;;;   :save           → raw-kvs (multi-key Merkle pairs for σ)
 ;;;;   :all-service-ids          → list of all service IDs in delta
 ;;;;   :service-data (sid)       → classified sub-keys for a service (GP D.1)
 ;;;;   :cross-service-accounts (caller-id) → cross-service alist for ΩJ
 ;;;;   :transition-dagger (&key delta-results timeslot) → δ† with PVM effects applied
-;;;;   :save           → nil (delta doesn't encode to a single segment)
 ;;;;   :transition     → GP (4.18): delta' ◁ (EP, delta-dagger, tau')
 
 (in-package #:jotl)
@@ -260,8 +259,8 @@
             for off = consumed then (+ off 4)
             collect (decode-fixed-le (subseq val-bytes off (+ off 4)))))))
 
-(defun classify-service-sub-keys (service-id extra-kvs)
-  "Parse all sub-keys for SERVICE-ID from EXTRA-KVS into categories.
+(defun classify-service-sub-keys (service-id delta-kvs)
+  "Parse all sub-keys for SERVICE-ID from DELTA-KVS into categories.
    Uses GP D.1 discriminant formulas to classify each entry.
 
    Returns plist:
@@ -274,7 +273,7 @@
         (sub-entries nil)   ;; (h-27 . val-bytes)
         (code-hash nil))
     ;; -- Pass 0: Collect metadata + sub-keys for this service --
-    (dolist (kv extra-kvs)
+    (dolist (kv delta-kvs)
       (let ((key (car kv)) (val (cdr kv)))
         (cond
           ;; Metadata key C(255, s)
@@ -344,13 +343,13 @@
 ;;; PARSE SERVICE ACCOUNTS FROM EXTRA-KVS
 ;;; =====================================================================
 
-(defun parse-service-accounts (extra-kvs)
-  "Parse service accounts from sigma's extra-kvs.
+(defun parse-service-accounts (delta-kvs)
+  "Parse service accounts from delta's raw-kvs.
    Returns list of (:id sid :service plist) sorted by service ID.
    Only C(255,s) metadata keys are decoded; sub-keys (storage, preimages)
    are not decoded here."
   (let ((accounts nil))
-    (dolist (kv extra-kvs)
+    (dolist (kv delta-kvs)
       (let ((key (car kv))
             (val (cdr kv)))
         (when (service-metadata-key-p key)
@@ -660,11 +659,9 @@
   ((raw-kvs nil)
    (accounts-cache nil))
 
-  ;; delta doesn't encode to a single segment byte vector.
-  (:save nil)
-
-  ;; Access the underlying Merkle key-value pairs.
-  (:extra-kvs raw-kvs)
+  ;; δ's :save returns the multi-key Merkle pairs — σ stores them as delta-kvs.
+  ;; Unlike segment components (single byte vector), δ is a list of (key . bytes).
+  (:save raw-kvs)
 
   ;; Decoded accounts list -- lazy parse from raw-kvs.
   (:accounts
@@ -698,8 +695,8 @@
      :raw-kvs (absorb-delta-effects raw-kvs delta-results timeslot)))
 
   (:decode (bytes offset)
-    ;; delta is not decoded from segment bytes -- this is a fallback.
-    ;; Real loading happens via load-delta-from-extra-kvs.
+    ;; δ is not decoded from segment bytes — loaded via σ :load :delta.
+    ;; This fallback exists for macro completeness only.
     (values (make-delta-state :raw-kvs nil) (- (length bytes) offset)))
 
   ;; -- Transition: delta' < (EP, delta-dagger, tau') -- GP S4.18 + S9.2
@@ -710,7 +707,3 @@
           (make-delta-state
            :raw-kvs (integrate-preimages raw-kvs preimages timeslot))))))
 
-(defun load-delta-from-extra-kvs (extra-kvs)
-  "Build delta from sigma's extra-kvs (C(255,s) entries + sub-keys).
-   Returns: delta-state closure."
-  (make-delta-state :raw-kvs extra-kvs))

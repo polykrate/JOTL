@@ -1,6 +1,6 @@
 ;;;; state/sigma.lisp — σ Overall State (GP §4.1, §4.4)
 ;;;;
-;;;; σ = (α, β, γ, δ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ, θ)
+;;;; σ = (α, β, γ, η, ι, κ, λ, ρ, τ, ϕ, χ, ψ, π, ω, ξ, θ) + δ-kvs
 ;;;;
 ;;;; σ is a PURE BYTE STORE — fields are raw encoded bytes, not closures.
 ;;;; Υ(σ, B) → σ' is σ's own :transition message (delegates to transition-state
@@ -26,14 +26,15 @@
 ;;;;
 ;;;; Loading from keyvals (genesis.bin, trace pre/post states):
 ;;;;   load-state-from-keyvals maps 31-byte Merkle keys → segment fields
-;;;;   + collects non-segment keys (service accounts) into extra-kvs.
+;;;;   + collects non-segment keys (service accounts) into delta-kvs.
 ;;;;
 ;;;; Messages:
 ;;;;   :segment kw          → raw bytes for keyword (e.g. :tau), or NIL
 ;;;;   :load kw             → decoded closure for keyword (lazy decode from bytes)
+;;;;                           :delta special-cased: built from delta-kvs, not segment
 ;;;;   :merkle-kvs          → list of (C(n) . bytes) for the Merkle trie
 ;;;;   :state-root          → H(trie(:merkle-kvs))
-;;;;   :extra-kvs           → non-segment Merkle entries (service accounts)
+;;;;   :delta-kvs           → δ's multi-key Merkle entries (C(255,s) + sub-keys)
 ;;;;   :components          → list of non-nil segment keywords
 ;;;;   :transition (&key block) → σ' (delegates to transition-state in upsilon.lisp)
 
@@ -48,7 +49,7 @@
     (:psi    . 5)  (:eta    . 6)  (:iota   . 7)  (:kappa  . 8)
     (:lambda . 9)  (:rho    . 10) (:tau    . 11) (:chi    . 12)
     (:pi     . 13) (:omega  . 14) (:xi     . 15) (:theta  . 16))
-  "Maps segment keyword → C(n) index.  δ uses C(255,s) and is separate.")
+  "Maps segment keyword → C(n) index.  δ uses C(255,s) via delta-kvs.")
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; LOAD DISPATCH — σ knows which loader to call per keyword
@@ -78,7 +79,7 @@
     (:omega  (load-omega-state bytes 0))
     (:xi     (load-xi-state bytes 0))
     (:theta  (load-theta-state bytes 0))
-    ;; δ uses C(255,s) extra-kvs, not a fixed segment — see load-delta-from-extra-kvs.
+    ;; δ is loaded via :load special case (uses delta-kvs, not segment).
     ))
 
 ;;; ═══════════════════════════════════════════════════════════════
@@ -87,27 +88,28 @@
 ;;; All fields are raw byte vectors (or NIL for unimplemented components).
 ;;; No closures are stored — sigma is inert data.
 ;;;
-;;; extra-kvs holds non-segment Merkle entries (service accounts C(255,s),
-;;; or any future non-fixed-segment keys).  Each entry is (key-31b . bytes).
+;;; delta-kvs holds δ's multi-key Merkle entries (C(255,s) service metadata
+;;; + interleaved sub-keys for storage/lookup/preimages).
+;;; Each entry is (key-31b . bytes).
 
 (define-state-closure sigma-state
-  ;; ── 17 component byte fields ──
+  ;; ── 16 segment byte fields (C(1)..C(16)) ──
   ;; Each is (simple-array (unsigned-byte 8) (*)) or NIL.
-  ((alpha nil) (beta nil) (gamma nil) (delta nil)
+  ((alpha nil) (beta nil) (gamma nil)
    (eta nil) (iota nil) (kappa nil) (lambda* nil)
    (rho nil) (tau nil) (phi nil) (chi nil)
    (psi nil) (pi* nil) (omega nil) (xi nil) (theta nil)
-   ;; ── Non-segment Merkle entries (service accounts etc.) ──
-   (extra-kvs nil))
+   ;; ── δ's multi-key Merkle entries (C(255,s) + sub-keys) ──
+   (delta-kvs nil))
 
   ;; ── Segment access — raw bytes ─────────────────────────────
   ;; (funcall sigma :segment :tau) → raw bytes or NIL
+  ;; δ has no segment (uses delta-kvs) — :segment :delta returns NIL.
   (:segment (component-kw)
     (case component-kw
       (:alpha   alpha)
       (:beta    beta)
       (:gamma   gamma)
-      (:delta   delta)
       (:eta     eta)
       (:iota    iota)
       (:kappa   kappa)
@@ -125,12 +127,14 @@
 
   ;; ── Load — lazy decode from bytes ───────────────────────────
   ;; (funcall sigma :load :tau) → τ closure (or NIL if no bytes)
-  ;; σ fetches its bytes, dispatches to the right decoder, returns closure.
   ;; σ fetches raw bytes and dispatches to the right load-NAME loader.
+  ;; δ is special: built from delta-kvs (multi-key), not from a segment.
   (:load (component-kw)
-    (let ((bytes (self :segment component-kw)))
-      (when bytes
-        (sigma-decode-segment component-kw bytes))))
+    (if (eq component-kw :delta)
+        (when delta-kvs (make-delta-state :raw-kvs delta-kvs))
+        (let ((bytes (self :segment component-kw)))
+          (when bytes
+            (sigma-decode-segment component-kw bytes)))))
 
   ;; ── Merkle KV pairs (memoized) ──────────────────────────────
   ;; σ already has bytes — just pair each non-nil field with C(n).
@@ -149,8 +153,8 @@
                                       :initial-element 0)))
               (setf (aref key 0) cn-idx)
               (push (cons key bytes) kvs)))))
-      ;; Non-segment entries (service accounts C(255,s), etc.)
-      (dolist (kv extra-kvs)
+      ;; δ's multi-key entries (C(255,s) service metadata + sub-keys)
+      (dolist (kv delta-kvs)
         (push kv kvs))
       (nreverse kvs)))
 
@@ -159,7 +163,7 @@
   (:state-root :memo
     (compute-state-root (self :merkle-kvs)))
 
-  ;; extra-kvs is a field → message :extra-kvs auto-generated by macro
+  ;; delta-kvs is a field → message :delta-kvs auto-generated by macro
 
   ;; ── Active components (non-nil segment keywords) ───────────
   (:components
@@ -188,11 +192,11 @@
 
 (defun load-state-from-keyvals (keyvals)
   "Build σ from a list of (31-byte-key . raw-bytes) Merkle key-value pairs.
-   Segment keys C(1)..C(16) are mapped to their component fields.
-   Non-segment keys (service accounts C(255,s), etc.) go into extra-kvs.
+   Segment keys C(1)..C(16) are mapped to component byte fields.
+   Non-segment keys (δ's C(255,s) + sub-keys) go into delta-kvs.
    Returns: σ closure."
   (let ((segments (make-hash-table))
-        (extra '()))
+        (dkvs '()))
     ;; Classify keyvals
     (dolist (kv keyvals)
       (let* ((key (car kv))
@@ -200,7 +204,7 @@
              (cn (aref key 0)))
         (if (segment-key-p key)
             (setf (gethash cn segments) val)
-            (push (cons key val) extra))))
+            (push (cons key val) dkvs))))
     ;; Map C(n) → keyword → make-sigma-state argument
     (flet ((seg (cn)
              (gethash cn segments)))
@@ -221,4 +225,4 @@
        :omega    (seg 14)
        :xi       (seg 15)
        :theta    (seg 16)
-       :extra-kvs (nreverse extra)))))
+       :delta-kvs (nreverse dkvs)))))

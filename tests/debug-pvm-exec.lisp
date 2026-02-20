@@ -20,7 +20,7 @@
              (first-report (first reported))
              (first-result (first (getf first-report :results)))
              (sid (getf first-result :service-id))
-             (svc-data (classify-service-sub-keys sid (funcall pre-sigma :extra-kvs)))
+             (svc-data (classify-service-sub-keys sid (funcall pre-sigma :delta-kvs)))
              (code-blob (getf svc-data :code-blob))
              (metadata (getf svc-data :metadata))
              (vm (jamvm:make-vm (coerce code-blob
