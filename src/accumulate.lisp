@@ -351,29 +351,18 @@
             (decf remaining-gas gas-used)
             (setf (getf state :remaining-gas) remaining-gas)))))
 
-    ;; ── Privilege updates (GP 12.19) — χ owns this logic ──
-    ;; Build a temp χ closure from current state fields, call :resolve-privilege,
-    ;; then write results back into state plist for inter-round compatibility.
-    (let ((temp-chi (make-chi-state
-                     :raw (encode-chi-fields
-                           (list :manager     (getf state :chi-manager)
-                                 :designate   (getf state :chi-designate)
-                                 :creation    (getf state :chi-creation)
-                                 :authorizers (getf state :chi-authorizers)
-                                 :always-accum (getf state :chi-always-accum))))))
-      (multiple-value-bind (chi-new iota-vals phi-qs)
-          (funcall temp-chi :resolve-privilege delta-results (getf state :phi-queues))
-        ;; Write resolved chi fields back into state
-        (setf (getf state :chi-manager)      (funcall chi-new :manager))
-        (setf (getf state :chi-designate)    (funcall chi-new :designate))
-        (setf (getf state :chi-creation)     (funcall chi-new :creation))
-        (setf (getf state :chi-authorizers)  (funcall chi-new :authorizers))
-        (setf (getf state :chi-always-accum) (funcall chi-new :always-accum))
-        ;; Update iota/phi if changed
-        (when iota-vals
-          (setf (getf state :iota-validators) iota-vals))
-        (when phi-qs
-          (setf (getf state :phi-queues) phi-qs))))
+    ;; ── Privilege updates (GP 12.19) — χ, ι, ϕ own their logic ──
+    ;; χ resolves privilege, returns updated closure + data for ι and ϕ.
+    (multiple-value-bind (chi-new iota-vals phi-qs)
+        (funcall (getf state :chi) :resolve-privilege
+                 delta-results (funcall (getf state :phi) :queues))
+      (setf (getf state :chi) chi-new)
+      (when iota-vals
+        (setf (getf state :iota)
+              (funcall (getf state :iota) :accept-empower iota-vals)))
+      (when phi-qs
+        (setf (getf state :phi)
+              (funcall (getf state :phi) :accept-queues phi-qs))))
 
     ;; ── δ absorbs PVM effects (sovereign — GP 12.30-12.31) ──
     ;; δ owns all storage/lookup/preimage/metadata merge logic.
@@ -401,7 +390,7 @@
   (let ((all-commitments nil)
         (all-gas-usage nil)
         (pending-transfers (getf state :pending-transfers))
-        (free-accum (getf state :chi-always-accum)))
+        (free-accum (funcall (getf state :chi) :always-accum)))
 
     ;; ── GP 12.18: Δ+(g, t, r, e, f) ──
     ;; Process ALL reports in ONE Δ* call (not one-by-one).
@@ -476,8 +465,7 @@
      :theta-prime     — θ' (accumulation outputs for β')
      :service-stats   — S  (service statistics for π')"
   (let* ((timeslot (funcall tau-prime :slot))
-         (prev-timeslot (if tau (funcall tau :slot) (1- timeslot)))
-         (e (epoch-duration)))
+         (prev-timeslot (if tau (funcall tau :slot) (1- timeslot))))
 
     ;; ── §12.1: ω resolves R* (sovereign — GP 12.4-12.12) ──
     (multiple-value-bind (omega-prime r-star accumulated-hashes)
@@ -486,33 +474,22 @@
       (declare (ignorable accumulated-hashes))
 
 
-      ;; ── Decode χ (GP 9.9) for privilege fields ──
-      (let* ((chi-mgr  (funcall chi :manager))
-             (chi-des  (funcall chi :designate))
-             (chi-stk  (funcall chi :creation))
-             (chi-auth (funcall chi :authorizers))
-             (chi-az   (funcall chi :always-accum))
-
-             ;; ── §12.2 Execution ──
-             ;; Build mutable accumulation state S = (d, i, q, m, a, v, r, z, ...)
-             (accum-state
+      ;; ── §12.2 Execution ──
+      ;; Build mutable accumulation state S.
+      ;; Closures δ, χ, ι, ϕ travel inside — queried at point of use.
+      (let* ((accum-state
               (list :delta            delta    ;; δ closure — sovereign
+                    :chi              chi      ;; χ closure — sovereign
+                    :iota             iota     ;; ι closure — sovereign
+                    :phi              phi      ;; ϕ closure — sovereign
                     :timeslot         timeslot
                     :entropy          eta
                     :header-hash      header-hash
                     ;; GP (12.25): g = max(G_T, G_A·C + Σ_{x∈V(χ_Z)}(x))
                     :remaining-gas    (max (max-block-gas)
                                           (+ (* +accumulation-gas+ (num-cores))
-                                             (reduce #'+ (or chi-az '())
+                                             (reduce #'+ (or (funcall chi :always-accum) '())
                                                      :key #'cdr :initial-value 0)))
-                    ;; ── GP §12.16 S fields ──
-                    :chi-manager      chi-mgr    ;; m = χ_M
-                    :chi-designate    chi-des    ;; v = χ_V
-                    :chi-creation     chi-stk    ;; r = χ_R
-                    :chi-authorizers  chi-auth   ;; a = χ_A
-                    :chi-always-accum chi-az     ;; z = χ_Z
-                    :iota-validators  nil        ;; i = ι (set by Δ* if designate runs)
-                    :phi-queues       (funcall phi :queues) ;; q = ϕ (mutable copy for Δ*)
                     ;; ── Accumulators ──
                     :commitments      nil        ;; B: (sid . yield-hash)
                     :gas-usage        nil        ;; U: (sid . gas-used)
@@ -536,15 +513,8 @@
                ;; ── δ† (12.30-12.31): δ already absorbed effects via :absorb-effects ──
                (delta-dagger (getf accum-state :delta))
 
-               ;; ── χ' (12.27): updated privilege fields ──
-               (chi-prime
-                (make-chi-state
-                 :raw (encode-chi-fields
-                       (list :manager    (or (getf accum-state :chi-manager) chi-mgr)
-                             :designate  (or (getf accum-state :chi-designate) chi-des)
-                             :creation   (or (getf accum-state :chi-creation) chi-stk)
-                             :authorizers (or (getf accum-state :chi-authorizers) chi-auth)
-                             :always-accum (or (getf accum-state :chi-always-accum) chi-az)))))
+               ;; ── χ' (12.27): χ already resolved via :resolve-privilege in Δ* ──
+               (chi-prime (getf accum-state :chi))
 
                ;; ── GP: B is a set of (s, o) pairs → sort by service-id ascending ──
                ;; This sorted list is used for BOTH θ' encoding and β' accumulate-root.
@@ -576,11 +546,9 @@
                 :xi-prime      xi-prime
                 :delta-dagger  delta-dagger
                 :chi-prime     chi-prime
-                ;; GP (12.27): ι' and ϕ' — sovereign accept messages
-                :iota-prime    (funcall iota :accept-empower
-                                        (getf accum-state :iota-validators))
-                :phi-prime     (funcall phi :accept-queues
-                                        (getf accum-state :phi-queues))
+                ;; GP (12.27): ι' and ϕ' — already transitioned in Δ*
+                :iota-prime    (getf accum-state :iota)
+                :phi-prime     (getf accum-state :phi)
                 :theta-prime   theta-prime
                 :commitments   sorted-commits   ;; sorted for β' accumulate-root
                 :service-stats service-stats))))))
