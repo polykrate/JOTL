@@ -19,6 +19,7 @@
 ;;;;   :total-queued     → total number of queued items across all slots
 ;;;;   :r-star            → transient: resolved R* (or nil)
 ;;;;   :accumulated-hashes → transient: accumulated package hashes (or nil)
+;;;;   :package-hashes-for (n) → P(R*_{...n}): package hashes of first n reports
 ;;;;   :transition (&key reports xi-flattened timeslot prev-timeslot)
 ;;;;                      → ω' (r-star and hashes queryable) GP 12.4-12.12
 ;;;;   :save          → binary encoding (memoized)
@@ -228,6 +229,13 @@
 
   (:total-queued
     (loop for q in queues sum (length q)))
+
+  ;; ── Query: package hashes for the first N reports in R* ──
+  ;; GP 12.33: P(R*_{...n}) — used by ξ :transition
+  ;; Only meaningful on ω' (after :transition populated r-star).
+  (:package-hashes-for (n)
+    (when r-star
+      (accum-package-hashes (subseq r-star 0 (min n (length r-star))))))
 
   ;; ── Transition: GP 12.4-12.12 ────────────────────────────
   ;; ω owns queue editing, R* extraction, and omega' construction.

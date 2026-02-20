@@ -223,10 +223,7 @@
                :pi*     (funcall pi-prime :save)
                :omega   (funcall omega-prime :save)
                :xi      (funcall xi-prime :save)
-               ;; GP (12.26): θ' is ALWAYS fresh — empty sequence when no accumulation.
-               ;; θ = [(s, H(y)) | s ∈ s, y = yield(Δ(s))] — never carry forward old θ.
-               :theta   (if theta-prime
-                            (funcall theta-prime :save)
-                            (make-array 1 :element-type '(unsigned-byte 8)
-                                          :initial-element 0))
+               ;; GP (12.26): θ' is ALWAYS fresh — empty → compact(0) = 0x00.
+               ;; θ :transition guarantees valid encoding even with nil commitments.
+               :theta   (funcall theta-prime :save)
                :extra-kvs (funcall delta-prime :extra-kvs)))))))))

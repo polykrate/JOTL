@@ -510,11 +510,10 @@
         (let* ((n (or (getf accum-state :n-accumulated) 0))
 
                ;; ── ξ' (12.32-12.33): shift register ──
-               ;; ξ owns its shift logic via :transition
-               (accumulated-n-hashes
-                (accum-package-hashes (subseq r-star 0 (min n (length r-star)))))
+               ;; ξ owns its shift logic; ω' owns P(R*_{...n}) computation.
                (xi-prime (funcall xi :transition
-                                  :accumulated-hashes accumulated-n-hashes))
+                                  :accumulated-hashes
+                                  (funcall omega-prime :package-hashes-for n)))
 
                ;; ── ω' already computed by ω :transition above ──
 
@@ -530,22 +529,10 @@
                                      #'< :key #'car))
 
                ;; ── θ' (12.26): accumulation output log ──
-               ;; Encoding: compact(count) + count*(u32_le(service_id) + H32(yield_hash))
+               ;; θ owns its encoding — :transition returns θ' from commitments.
                (theta-prime
-                (when sorted-commits
-                  (make-theta-state
-                   :raw (apply #'concatenate '(vector (unsigned-byte 8))
-                               (encode-compact (length sorted-commits))
-                               (mapcar (lambda (c)
-                                         (let ((sid (car c))
-                                               (yh  (cdr c)))
-                                           (concatenate '(vector (unsigned-byte 8))
-                                                        (vector (ldb (byte 8  0) sid)
-                                                                (ldb (byte 8  8) sid)
-                                                                (ldb (byte 8 16) sid)
-                                                                (ldb (byte 8 24) sid))
-                                                        (coerce yh '(vector (unsigned-byte 8))))))
-                                       sorted-commits)))))
+                (funcall (make-theta-state) :transition
+                         :commitments sorted-commits))
 
                ;; ── S (12.28-12.29): service statistics for π' ──
                (service-stats (getf accum-state :gas-usage)))
