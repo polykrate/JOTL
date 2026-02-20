@@ -154,7 +154,11 @@
   (preimages          (make-hash-table :test 'equalp) :type hash-table)
   (empower            nil)
   (items-count        0 :type (unsigned-byte 32))
-  (footprint          0 :type (unsigned-byte 64)))
+  (footprint          0 :type (unsigned-byte 64))
+  (balance            0 :type integer)
+  (code-hash          nil)
+  (min-accum-gas      0 :type integer)
+  (min-memo-gas       0 :type integer))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; JamHostContext — master state during PVM execution

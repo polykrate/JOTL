@@ -386,6 +386,16 @@
     (dolist (sid (or existing-services nil))
       (setf (gethash sid (hctx-existing-services ctx)) t))
 
+    ;; ── Initialize next-service-id (GP B.14) ──
+    ;; i* = check(S + (s − S + 42) mod (2³² − S − 2⁸))
+    ;; Must be after existing-services population (check-service-id needs it).
+    (setf (hctx-next-service-id ctx)
+          (check-service-id
+           (+ +service-index-min+
+              (mod (+ (- service-id +service-index-min+) 42)
+                   +service-id-modulus+))
+           ctx))
+
     ;; ── Parse entropy bytes into 4×32 array ──
     (let ((raw (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))))
       (when (>= (length raw) 128)
@@ -573,7 +583,8 @@
 
       ;; 3. Encode accumulate arguments and invoke
       (let* ((item-count (length (or accumulate-items nil)))
-             (params (encode-accumulate-params timeslot service-id item-count)))
+             (params (encode-accumulate-params timeslot service-id item-count))
+             (initial-balance (hctx-balance ctx)))  ;; save for panic/OOG revert
 
         ;; argument-invoke: sets gas, PC, clears regs, allocates+writes args
         (multiple-value-bind (ok invoke-reason) (argument-invoke vm gas +pc-accumulate+ params)
@@ -631,8 +642,12 @@
                              (setf (hctx-preimages ctx) (ckpt-preimages cp))
                              (setf (hctx-empower ctx) (ckpt-empower cp))
                              (setf (hctx-items-count ctx) (ckpt-items-count cp))
-                             (setf (hctx-footprint ctx) (ckpt-footprint cp)))
-                           ;; No checkpoint → clear all side-effects
+                             (setf (hctx-footprint ctx) (ckpt-footprint cp))
+                             (setf (hctx-balance ctx) (ckpt-balance cp))
+                             (setf (hctx-code-hash ctx) (ckpt-code-hash cp))
+                             (setf (hctx-min-accum-gas ctx) (ckpt-min-accum-gas cp))
+                             (setf (hctx-min-memo-gas ctx) (ckpt-min-memo-gas cp)))
+                           ;; No checkpoint → revert to initial state
                            (progn
                              (setf (hctx-transfers ctx) nil)
                              (setf (hctx-ejected-services ctx) nil)
@@ -645,7 +660,8 @@
                              (setf (hctx-preimages ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-empower ctx) nil)
                              (setf (hctx-items-count ctx) 0)
-                             (setf (hctx-footprint ctx) 0))))))
+                             (setf (hctx-footprint ctx) 0)
+                             (setf (hctx-balance ctx) initial-balance))))))
 
                   ;; 7. Collect effects — always via collect-effects for normalized format
                   ;; (converts hash-tables → alists, uses correct key names)

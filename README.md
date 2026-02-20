@@ -15,30 +15,31 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
 | fuzzy_light | 5/6 | 188/200 | 0 |
-| fuzzy | 5/6 | 145/200 | 0 |
+| fuzzy | 5/6 | 147/200 | 0 |
 
-**933/1000 deterministic traces pass** — byte-exact state root match,
+**935/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 67 steps (12 fuzzy_light + 55 fuzzy)
+### Remaining failures — 65 steps (12 fuzzy_light + 53 fuzzy)
 
 | Category | Pattern | Count | Root cause | Status |
 |----------|---------|------:|------------|--------|
 | A1 | `pi` only | 13 | sbrk gas accounting | Blocked (PolkaVM) |
-| A2 | `pi + delta-kvs` | 22 | sbrk gas + storage | Blocked (PolkaVM) |
-| A3 | `delta-kvs` only | 18 | sbrk storage / balance diff | Blocked (PolkaVM) |
+| A2 | `pi + delta-kvs` | 8 | sbrk gas + storage | Blocked (PolkaVM) |
+| A3 | `delta-kvs` only | 42 | sbrk storage / balance diff | Investigating |
 | B | `beta + theta` (±kvs) | 2 | sbrk → wrong yield hash | Blocked (PolkaVM) |
 
-**All 67 remaining failures** are caused by PolkaVM interpreter's `sbrk`
+Most remaining failures trace back to PolkaVM interpreter's `sbrk`
 pre-allocating memory without page-level gas accounting (no `userfaultfd`).
-Blocked until PolkaVM compiler backend sandbox is compatible with SBCL,
-or `sbrk` is replaced by a host function (JIP in progress).
+delta-kvs–only failures under active investigation.
 
 ### Fixed bugs
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
 | **RA halt sentinel** | +42 steps | `argument-invoke` now sets RA to dynamic halt sentinel `Z_A*(|j|+1)` per GP spec, fixing outermost return |
+| **next-service-id init** | +2 steps | `hctx-next-service-id` defaulted to 0, causing ΩN to overwrite manager service. Now initialized via GP B.14 formula |
+| **Checkpoint balance revert** | correctness | Balance, code-hash, min-gas fields now saved/restored in checkpoint on panic/OOG rollback |
 | **Created services (list/cons)** | 0 errors | `collect-effects` used `cdr` on 2-element list; fixed to `second` — eliminated 32 TYPE-ERRORs |
 | **read-guest OOM cap** | 0 crashes | Safety cap (64 MB) on `read-guest` prevents heap exhaustion from adversarial lengths |
 | **Invalid block handling** | +8 blocks | Blocks with bad-code-hash guarantee → return pre-state unchanged (no-op) |

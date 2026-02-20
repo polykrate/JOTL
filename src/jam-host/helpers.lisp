@@ -202,7 +202,11 @@
          :preimages          (deep-copy-hash-table (hctx-preimages ctx))
          :empower            (hctx-empower ctx)  ; struct is treated as immutable snapshot
          :items-count        (hctx-items-count ctx)
-         :footprint          (hctx-footprint ctx))))
+         :footprint          (hctx-footprint ctx)
+         :balance            (hctx-balance ctx)
+         :code-hash          (copy-seq (hctx-code-hash ctx))
+         :min-accum-gas      (hctx-min-accum-gas ctx)
+         :min-memo-gas       (hctx-min-memo-gas ctx))))
 
 (defun checkpoint-collapse (ctx outcome gas-remaining)
   "GP B.13: Collapse dual context (x=current, y=checkpoint) given OUTCOME.
