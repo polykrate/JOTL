@@ -5,12 +5,16 @@
 ;;;;
 ;;;; This is a FUNCTION ORCHESTRATOR — same level as upsilon.lisp.
 ;;;; It takes state closures + R* as input, returns a plist of results.
-;;;; State closures (ω, ξ, χ, ϕ, etc.) are codec-only, no :transition.
-;;;; All the logic lives here.
+;;;; Each state closure owns its own transition logic (sovereign).
+;;;; The orchestrator only sends messages and coordinates data flow.
 ;;;;
 ;;;; Architecture:
-;;;;   - Standalone functions: D, E, Q, P (§12.1)
-;;;;   - R* computation: partitioning, queue editing, priority ordering
+;;;;   - ω :resolve-r-star  → R* computation (§12.1)
+;;;;   - ξ :advance          → shift register (§12.32-12.33)
+;;;;   - δ :absorb-effects   → PVM side-effect integration (§12.3)
+;;;;   - χ :resolve-privilege → privilege resolution (§12.20)
+;;;;   - ι :accept-empower   → validator update
+;;;;   - ϕ :accept-queues    → auth queue update
 ;;;;   - transition-accumulate: top-level entry point called by upsilon Wave 3
 
 (in-package #:jotl)
@@ -20,227 +24,6 @@
   "When T, accumulate-service attaches a host-call log to effects.")
 (defvar *debug-pvm-traces* nil
   "When *debug-pvm-trace* is T, collects (sid gas-limit gas-used host-call-log) for each PVM run.")
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; §12.1 STANDALONE FUNCTIONS — D, E, Q, P
-;;; ═══════════════════════════════════════════════════════════════
-
-;;; ── D(r) — Dependency set (GP 12.6) ────────────────────────
-;;; D(r) = {K(s) : s ∈ r.segment-root-lookup} ∪ r.context.prerequisites
-;;;
-;;; The dependency set of a work-report includes:
-;;; 1. Each work-package hash referenced in the segment-root-lookup
-;;; 2. Each hash listed in the refine-context prerequisites
-
-(defun accum-deps (report)
-  "GP §12.6: D(r) — Compute the dependency set of a work-report.
-   Returns: list of 32-byte hash vectors (the union of segment-root-lookup
-   work-package hashes and context prerequisites)."
-  (let ((deps '()))
-    ;; Add K(s) from segment-root-lookup items — these are work-package hashes
-    (dolist (item (getf report :segment-root-lookup))
-      (let ((h (getf item :work-package-hash)))
-        (unless (member h deps :test #'equalp)
-          (push h deps))))
-    ;; Add prerequisites from the refine context
-    (let ((ctx (getf report :context)))
-      (when ctx
-        (dolist (h (getf ctx :prerequisites))
-          (unless (member h deps :test #'equalp)
-            (push h deps)))))
-    (nreverse deps)))
-
-;;; ── P(R) — Package hashes (GP 12.9) ────────────────────────
-;;; P(R) = {r.s.h : r ∈ R}
-;;;
-;;; Extract the set of work-package hashes from a list of work-reports.
-
-(defun vector< (a b)
-  "Lexicographic comparison of byte vectors (for sorting hashes).
-   Returns T if A < B in lexicographic order."
-  (loop for i from 0 below (min (length a) (length b))
-        for ai = (aref a i)
-        for bi = (aref b i)
-        when (< ai bi) return t
-        when (> ai bi) return nil
-        finally (return (< (length a) (length b)))))
-
-(defun accum-package-hashes (reports)
-  "GP §12.9: P(R) — Extract the set of package hashes from work-reports.
-   Returns: list of 32-byte hash vectors, sorted lexicographically.
-   
-   GP 12.9 defines P as returning a set {(r_p)_h | r ∈ r}, but for use in
-   ξ' (accumulation history) we need a deterministic ordering. We sort
-   lexicographically by hash bytes."
-  (sort (mapcar (lambda (r) (getf (getf r :package-spec) :hash)) reports)
-        #'vector<))
-
-;;; ── E(q, s) — Edit queue (GP 12.7) ─────────────────────────
-;;; E(q, s) removes from q:
-;;;   1. Any entry whose work-report package hash ∈ s (already accumulated)
-;;;   2. From remaining entries, removes any deps that are in s (now satisfied)
-;;; Returns: edited queue (list of (:report r :deps (h1 h2 ...)))
-
-(defun accum-edit (queue hash-set)
-  "GP §12.7: E(q, s) — Edit a queue by removing completed entries
-   and satisfied dependencies.
-   QUEUE:    list of (:report r :deps (h1 h2 ...))
-   HASH-SET: list of 32-byte hash vectors (accumulated package hashes)
-   Returns: edited queue."
-  ;; Step 1: Remove entries whose report's package hash is in hash-set
-  (let ((filtered (remove-if (lambda (entry)
-                               (let ((pkg-hash (getf (getf (getf entry :report)
-                                                           :package-spec) :hash)))
-                                 (member pkg-hash hash-set :test #'equalp)))
-                             queue)))
-    ;; Step 2: For remaining entries, remove satisfied deps
-    (mapcar (lambda (entry)
-              (list :report (getf entry :report)
-                    :deps (remove-if (lambda (d)
-                                       (member d hash-set :test #'equalp))
-                                     (getf entry :deps))))
-            filtered)))
-
-;;; ── Q(q) — Priority queue ordering (GP 12.8) ───────────────
-;;; Q(q) recursively extracts entries with empty dependency sets,
-;;; then re-edits the queue to account for newly resolved deps.
-;;; Returns: ordered list of work-reports (not queue entries).
-;;;
-;;; Algorithm:
-;;;   1. Extract all entries with empty deps → ready set
-;;;   2. If none ready, return nil (remaining entries stay queued for later)
-;;;   3. Compute package hashes of the ready set
-;;;   4. E(remaining, ready-hashes) to resolve further deps
-;;;   5. Recurse on edited remaining queue
-;;;   6. Return ready-reports ++ recursion result
-
-(defun accum-priority-queue (queue)
-  "GP §12.8: Q(q) — Priority-ordered extraction of work-reports
-   from a dependency queue. Returns: ordered list of work-reports."
-  (if (null queue)
-      nil
-      (let* ((ready    (remove-if-not (lambda (e)
-                                        (null (getf e :deps)))
-                                      queue))
-             (pending  (remove-if (lambda (e)
-                                    (null (getf e :deps)))
-                                  queue)))
-        (if (null ready)
-            ;; No entries have empty deps — nothing more to extract
-            nil
-            (let* ((ready-reports (mapcar (lambda (e) (getf e :report)) ready))
-                   (ready-hashes (accum-package-hashes ready-reports))
-                   (edited       (accum-edit pending ready-hashes)))
-              (append ready-reports
-                      (accum-priority-queue edited)))))))
-
-;;; ═══════════════════════════════════════════════════════════════
-;;; §12.1 R* COMPUTATION — partitioning, queue editing, ordering
-;;; ═══════════════════════════════════════════════════════════════
-
-;;; GP 12.4-12.12:
-;;;   m = H_T mod E   (slot within epoch)
-;;;   Partition R into R! (zero deps after edit) and R^Q (deferred)
-;;;   q = edit(concat(omega[m:], omega[:m], R^Q), P(R!))
-;;;   R* = R! ++ Q(q)
-;;;   omega' = updated omega with new queues
-
-(defun compute-r-star (reports omega-queues xi-flattened timeslot
-                       &optional (prev-timeslot (1- timeslot)))
-  "Compute R* from new reports and existing omega queues.
-   GP §12.4-12.12.
-
-   REPORTS:        list of new work-reports from ρ‡ :reported
-   OMEGA-QUEUES:   list of E lists of queue entries (from ω)
-   XI-FLATTENED:   ξ̃ — set of already-accumulated package hashes
-   TIMESLOT:       τ' (post-transition timeslot) for computing m
-   PREV-TIMESLOT:  τ  (previous timeslot, for clearing stale queue slots)
-
-   Returns: (values r-star updated-omega-queues accumulated-hashes)"
-  (let* ((e (epoch-duration))
-         (m (mod timeslot e))
-         ;; ── Step 0: Identify stale slots and prepare cleared queues for ω' ──
-         ;; Stale range: (τ+1..τ'] mod E. These are cleared for ω' output
-         ;; but their entries are still available for Q() to resolve chains.
-         (stale-gap (min e (- timeslot prev-timeslot)))
-         (cleared-queues (let ((q (copy-list omega-queues)))
-                           (loop for k from 1 to stale-gap do
-                               (let ((idx (mod (+ prev-timeslot k) e)))
-                               (setf (nth idx q) nil)))
-                           q))
-         ;; ── Step 1: Compute RAW deps for each new report ──
-         ;; GP §12.6: D(r) = K(r_s) ∪ r_x_p  (raw, NOT filtered by ξ̃)
-         ;; ξ̃ filtering happens during queue editing (Step 4), not here.
-         ;; This ensures reports with ξ̃-resolved deps go through Q() ordering
-         ;; rather than directly into R!, preserving the correct R* order.
-         (new-entries
-          (mapcar (lambda (r)
-                    (list :report r :deps (accum-deps r)))
-                  (or reports '())))
-         ;; ── Step 2: Partition: R! = truly zero deps, R^Q = any deps ──
-         ;; Only reports with NO dependencies at all go into R! (immediate).
-         ;; Reports whose deps happen to be in ξ̃ go into R^Q and are
-         ;; resolved through the queue editing process (Q()).
-         (r-immediate (remove-if-not (lambda (entry) (null (getf entry :deps)))
-                                     new-entries))
-         (r-deferred  (remove-if     (lambda (entry) (null (getf entry :deps)))
-                                     new-entries))
-         ;; ── R! as work-reports ──
-         (r-bang (mapcar (lambda (entry) (getf entry :report)) r-immediate))
-         ;; ── P(R!) — package hashes of immediate reports ──
-         (p-r-bang (accum-package-hashes r-bang)))
-
-    ;; ── Step 3: Edit ORIGINAL omega slots with ξ̃, then P(R!) ──
-    ;; Use original (uncleared) queues for Q() so chains through stale
-    ;; slots can be resolved.  GP 12.11: q = E(ω[m:]⌢ω[:m]⌢R^Q, P(R!))
-    (let ((q-slots (make-array e :initial-element nil))   ;; for Q() computation
-          (w-slots (make-array e :initial-element nil)))  ;; for ω' output
-      ;; Build q-slots from ORIGINAL omega (for R* computation)
-      (loop for i from 0 below e do
-          (setf (aref q-slots i)
-              (accum-edit
-               (accum-edit (or (nth i omega-queues) nil) xi-flattened)
-               p-r-bang)))
-      ;; Build w-slots from CLEARED omega (for ω' output)
-      (loop for i from 0 below e do
-          (setf (aref w-slots i)
-              (accum-edit
-               (accum-edit (or (nth i cleared-queues) nil) xi-flattened)
-               p-r-bang)))
-
-      ;; ── Step 4: Add R^Q to slot m ──
-      ;; Edit deferred entries with BOTH ξ̃ (already accumulated) AND P(R!)
-      ;; (immediate reports). This resolves dependencies that are either
-      ;; already accumulated or just became available from R!.
-      (let ((r-deferred-edited (accum-edit
-                                (accum-edit r-deferred xi-flattened)
-                                p-r-bang)))
-        (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
-        (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
-
-      ;; ── Step 5: Q() — extract ready entries across ALL q-slots ──
-      (let* ((all-queued (loop for i from 0 below e
-                               nconc (copy-list (aref q-slots i))))
-             (ordered-resolved (accum-priority-queue all-queued))
-             ;; ── R* = R! ++ Q(q) ──
-             (r-star (append r-bang ordered-resolved))
-             (accumulated-hashes (accum-package-hashes r-star))
-             ;; Hashes of Q()-extracted entries
-             (resolved-hashes (accum-package-hashes ordered-resolved))
-             (all-done-hashes (append p-r-bang resolved-hashes)))
-
-        ;; ── Step 6: Build ω' from w-slots (cleared) ──
-        ;; Remove extracted entries from w-slots (which already has stale cleared).
-        (let ((new-omega-queues (make-list e :initial-element nil)))
-          (loop for i from 0 below e do
-            (setf (nth i new-omega-queues)
-                  (remove-if (lambda (entry)
-                               (let ((pkg-hash (getf (getf (getf entry :report)
-                                                           :package-spec)
-                                                     :hash)))
-                                 (member pkg-hash all-done-hashes :test #'equalp)))
-                             (aref w-slots i))))
-          (values r-star new-omega-queues accumulated-hashes))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; §12.2 DATA EXTRACTION — U (operand tuples), X (deferred transfers)
@@ -1029,16 +812,12 @@
      :service-stats   — S  (service statistics for π')"
   (let* ((timeslot (funcall tau-prime :slot))
          (prev-timeslot (if tau (funcall tau :slot) (1- timeslot)))
-         (omega-queues (funcall omega :queues))
-         (xi-flattened (funcall xi :flattened))
-         (e (epoch-duration))
-         (m (mod timeslot e)))  ;; epoch-relative slot index (used in refine)
-    (declare (ignorable m))
+         (e (epoch-duration)))
 
-    ;; ── §12.1: Compute R* via queue editing and priority ordering ──
-    (multiple-value-bind (r-star new-omega-queues accumulated-hashes)
-        (compute-r-star r-star-input omega-queues xi-flattened timeslot
-                        prev-timeslot)
+    ;; ── §12.1: ω resolves R* (sovereign — GP 12.4-12.12) ──
+    (multiple-value-bind (omega-prime r-star accumulated-hashes)
+        (funcall omega :resolve-r-star r-star-input
+                 (funcall xi :flattened) timeslot prev-timeslot)
       (declare (ignorable accumulated-hashes))
 
 
@@ -1088,10 +867,7 @@
                 (accum-package-hashes (subseq r-star 0 (min n (length r-star)))))
                (xi-prime (funcall xi :advance accumulated-n-hashes))
 
-               ;; ── ω' (12.34): update omega ──
-               ;; compute-r-star handles: stale gap clearing, ξ̃ editing,
-               ;; R^Q insertion at slot m, and Q()-resolved entry removal.
-               (omega-prime (make-omega-state :queues new-omega-queues))
+               ;; ── ω' already computed by :resolve-r-star above ──
 
                ;; ── δ† (12.30-12.31): apply PVM side-effects back to trie ──
                (delta-dagger (build-delta-dagger accum-state))

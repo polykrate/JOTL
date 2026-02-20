@@ -3,7 +3,6 @@
 ;;;; ω ∈ [[(R, {H ∪ {}})]]_E  — E-length sequence of queues.
 ;;;; Each queue entry: (work-report, set-of-unfulfilled-dependency-hashes).
 ;;;;
-;;;; No :transition — modified by transition-accumulate (accumulate.lisp).
 ;;;; Merkle key: C(14).
 ;;;;
 ;;;; Codec layout: E × (compact-len, (work-report-bytes, compact-len, hash32*)*)
@@ -18,6 +17,8 @@
 ;;;;   :queues           → list of E lists of (:report r :deps (h1 h2 ...))
 ;;;;   :queue-at (idx)   → list of queue entries at slot idx
 ;;;;   :total-queued     → total number of queued items across all slots
+;;;;   :resolve-r-star (reports xi-flattened timeslot prev-timeslot)
+;;;;                      → (values omega' r-star accumulated-hashes) GP 12.4-12.12
 ;;;;   :save          → binary encoding (memoized)
 ;;;;   :decode           → reconstruct from bytes
 
@@ -52,6 +53,164 @@
                                 (lambda (h) h))))   ;; hash is already 32 bytes
 
 ;;; ═══════════════════════════════════════════════════════════════
+;;; QUEUE-EDITING FUNCTIONS — D, P, E, Q  (GP §12.1)
+;;; ═══════════════════════════════════════════════════════════════
+
+;;; ── D(r) — Dependency set (GP 12.6) ────────────────────────
+;;; D(r) = {K(s) : s ∈ r.segment-root-lookup} ∪ r.context.prerequisites
+
+(defun accum-deps (report)
+  "GP §12.6: D(r) — Compute the dependency set of a work-report.
+   Returns: list of 32-byte hash vectors (the union of segment-root-lookup
+   work-package hashes and context prerequisites)."
+  (let ((deps '()))
+    ;; Add K(s) from segment-root-lookup items — these are work-package hashes
+    (dolist (item (getf report :segment-root-lookup))
+      (let ((h (getf item :work-package-hash)))
+        (unless (member h deps :test #'equalp)
+          (push h deps))))
+    ;; Add prerequisites from the refine context
+    (let ((ctx (getf report :context)))
+      (when ctx
+        (dolist (h (getf ctx :prerequisites))
+          (unless (member h deps :test #'equalp)
+            (push h deps)))))
+    (nreverse deps)))
+
+;;; ── P(R) — Package hashes (GP 12.9) ────────────────────────
+;;; P(R) = {r.s.h : r ∈ R}
+
+(defun vector< (a b)
+  "Lexicographic comparison of byte vectors (for sorting hashes).
+   Returns T if A < B in lexicographic order."
+  (loop for i from 0 below (min (length a) (length b))
+        for ai = (aref a i)
+        for bi = (aref b i)
+        when (< ai bi) return t
+        when (> ai bi) return nil
+        finally (return (< (length a) (length b)))))
+
+(defun accum-package-hashes (reports)
+  "GP §12.9: P(R) — Extract the set of package hashes from work-reports.
+   Returns: list of 32-byte hash vectors, sorted lexicographically."
+  (sort (mapcar (lambda (r) (getf (getf r :package-spec) :hash)) reports)
+        #'vector<))
+
+;;; ── E(q, s) — Edit queue (GP 12.7) ─────────────────────────
+
+(defun accum-edit (queue hash-set)
+  "GP §12.7: E(q, s) — Edit a queue by removing completed entries
+   and satisfied dependencies.
+   QUEUE:    list of (:report r :deps (h1 h2 ...))
+   HASH-SET: list of 32-byte hash vectors (accumulated package hashes)
+   Returns: edited queue."
+  (let ((filtered (remove-if (lambda (entry)
+                               (let ((pkg-hash (getf (getf (getf entry :report)
+                                                           :package-spec) :hash)))
+                                 (member pkg-hash hash-set :test #'equalp)))
+                             queue)))
+    (mapcar (lambda (entry)
+              (list :report (getf entry :report)
+                    :deps (remove-if (lambda (d)
+                                       (member d hash-set :test #'equalp))
+                                     (getf entry :deps))))
+            filtered)))
+
+;;; ── Q(q) — Priority queue ordering (GP 12.8) ───────────────
+
+(defun accum-priority-queue (queue)
+  "GP §12.8: Q(q) — Priority-ordered extraction of work-reports
+   from a dependency queue. Returns: ordered list of work-reports."
+  (if (null queue)
+      nil
+      (let* ((ready    (remove-if-not (lambda (e)
+                                        (null (getf e :deps)))
+                                      queue))
+             (pending  (remove-if (lambda (e)
+                                    (null (getf e :deps)))
+                                  queue)))
+        (if (null ready)
+            nil
+            (let* ((ready-reports (mapcar (lambda (e) (getf e :report)) ready))
+                   (ready-hashes (accum-package-hashes ready-reports))
+                   (edited       (accum-edit pending ready-hashes)))
+              (append ready-reports
+                      (accum-priority-queue edited)))))))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; R* COMPUTATION — partitioning, queue editing, ordering (GP 12.4-12.12)
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun compute-r-star (reports omega-queues xi-flattened timeslot
+                       &optional (prev-timeslot (1- timeslot)))
+  "Compute R* from new reports and existing omega queues.
+   GP §12.4-12.12.
+
+   REPORTS:        list of new work-reports from ρ‡ :reported
+   OMEGA-QUEUES:   list of E lists of queue entries (from ω)
+   XI-FLATTENED:   ξ̃ — set of already-accumulated package hashes
+   TIMESLOT:       τ' (post-transition timeslot) for computing m
+   PREV-TIMESLOT:  τ  (previous timeslot, for clearing stale queue slots)
+
+   Returns: (values r-star updated-omega-queues accumulated-hashes)"
+  (let* ((e (epoch-duration))
+         (m (mod timeslot e))
+         (stale-gap (min e (- timeslot prev-timeslot)))
+         (cleared-queues (let ((q (copy-list omega-queues)))
+                           (loop for k from 1 to stale-gap do
+                               (let ((idx (mod (+ prev-timeslot k) e)))
+                               (setf (nth idx q) nil)))
+                           q))
+         (new-entries
+          (mapcar (lambda (r)
+                    (list :report r :deps (accum-deps r)))
+                  (or reports '())))
+         (r-immediate (remove-if-not (lambda (entry) (null (getf entry :deps)))
+                                     new-entries))
+         (r-deferred  (remove-if     (lambda (entry) (null (getf entry :deps)))
+                                     new-entries))
+         (r-bang (mapcar (lambda (entry) (getf entry :report)) r-immediate))
+         (p-r-bang (accum-package-hashes r-bang)))
+
+    (let ((q-slots (make-array e :initial-element nil))
+          (w-slots (make-array e :initial-element nil)))
+      (loop for i from 0 below e do
+          (setf (aref q-slots i)
+              (accum-edit
+               (accum-edit (or (nth i omega-queues) nil) xi-flattened)
+               p-r-bang)))
+      (loop for i from 0 below e do
+          (setf (aref w-slots i)
+              (accum-edit
+               (accum-edit (or (nth i cleared-queues) nil) xi-flattened)
+               p-r-bang)))
+
+      (let ((r-deferred-edited (accum-edit
+                                (accum-edit r-deferred xi-flattened)
+                                p-r-bang)))
+        (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
+        (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
+
+      (let* ((all-queued (loop for i from 0 below e
+                               nconc (copy-list (aref q-slots i))))
+             (ordered-resolved (accum-priority-queue all-queued))
+             (r-star (append r-bang ordered-resolved))
+             (accumulated-hashes (accum-package-hashes r-star))
+             (resolved-hashes (accum-package-hashes ordered-resolved))
+             (all-done-hashes (append p-r-bang resolved-hashes)))
+
+        (let ((new-omega-queues (make-list e :initial-element nil)))
+          (loop for i from 0 below e do
+            (setf (nth i new-omega-queues)
+                  (remove-if (lambda (entry)
+                               (let ((pkg-hash (getf (getf (getf entry :report)
+                                                           :package-spec)
+                                                     :hash)))
+                                 (member pkg-hash all-done-hashes :test #'equalp)))
+                             (aref w-slots i))))
+          (values r-star new-omega-queues accumulated-hashes))))))
+
+;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — ω
 ;;; ═══════════════════════════════════════════════════════════════
 
@@ -65,6 +224,16 @@
 
   (:total-queued
     (loop for q in queues sum (length q)))
+
+  ;; ── Transition: GP 12.4-12.12 ────────────────────────────
+  ;; ω owns queue editing, R* extraction, and omega' construction.
+  ;; Returns: (values omega' r-star accumulated-hashes)
+  (:resolve-r-star (reports xi-flattened timeslot prev-timeslot)
+    (multiple-value-bind (r-star new-queues accumulated-hashes)
+        (compute-r-star reports queues xi-flattened timeslot prev-timeslot)
+      (values (make-omega-state :queues new-queues)
+              r-star
+              accumulated-hashes)))
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, queue-entry*)
