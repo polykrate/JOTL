@@ -20,6 +20,11 @@
          (out-len     (reg vm +a3+)))
 
     ;; Resolve service account
+    ;; GP B.5: a = d[s] if φ₇ = 2⁶⁴−1 (NONE), else d[φ₇]
+    ;; When φ₇ = own service ID, d[φ₇] should return the ORIGINAL
+    ;; directory entry.  But since we don't store self in service-accounts
+    ;; (it lives in hctx-* fields), we also treat own-id as self.
+    ;; TODO: separate original-state vs mutated-state for strict GP compliance.
     (let* ((is-self (or (= service-raw +hc-none+)
                         (= service-raw (u64 (hctx-service-id ctx)))))
            (account (if is-self

@@ -84,20 +84,38 @@
 
         ;; Hash key → h27
         (let* ((h27 (storage-hash-key key))
-               ;; Old length
+               ;; Old length — GP: l = |s_s[k]| or NONE
                (old-val (gethash h27 (hctx-storage ctx)))
                (old-len (if old-val (u64 (length old-val)) +hc-none+))
                (key-sz (length key)))
 
-          ;; FULL check: a_t > a_b
-          (let ((a-t (compute-threshold (hctx-items-count ctx)
-                                        (hctx-footprint ctx)
-                                        (hctx-threshold ctx))))
-            (when (> a-t (hctx-balance ctx))
-              (set-reg vm +a0+ +hc-full+)
-              (return-from omega-write-storage :continue)))
+          ;; GP ΩW: compute hypothetical post-mutation items/footprint
+          ;; for the FULL check.  a_t must be checked on the NEW state a,
+          ;; not the old state s.
+          (let ((post-items (hctx-items-count ctx))
+                (post-foot  (hctx-footprint ctx)))
+            (cond
+              ;; Delete — remove key entry
+              ((null new-value)
+               (when old-val
+                 (decf post-items)
+                 (decf post-foot (+ 34 key-sz (length old-val)))))
+              ;; Insert (new key)
+              ((null old-val)
+               (incf post-items)
+               (incf post-foot (+ 34 key-sz (length new-value))))
+              ;; Update (existing key, new value)
+              (t
+               (incf post-foot (- (length new-value) (length old-val)))))
 
-          ;; Apply mutation + incremental items/footprint tracking
+            ;; FULL check: a_t > a_b on POST-mutation state
+            (let ((a-t (compute-threshold post-items post-foot
+                                          (hctx-threshold ctx))))
+              (when (> a-t (hctx-balance ctx))
+                (set-reg vm +a0+ +hc-full+)
+                (return-from omega-write-storage :continue))))
+
+          ;; FULL check passed — apply actual mutation
           (cond
             ;; Delete
             ((null new-value)
