@@ -479,10 +479,16 @@
                       :queues      (coerce (emp-queues emp) 'list)
                       :validators  (coerce (emp-validators emp) 'list)))))
 
+      ;; NOTE: transfer-plists is NOT nreversed, because hctx-transfers
+      ;; is built with Lisp `push` (LIFO prepend), and the `dolist + push`
+      ;; pattern in the loop above naturally reverses it back to chronological
+      ;; (FIFO) order — matching the Rust Vec::push (append) behavior.
+      ;; The `nreverse` would undo that correction, producing LIFO order
+      ;; which causes value swaps in deferred transfer processing.
       (list :balance          (hctx-balance ctx)
             :gas-remaining    0  ; filled by caller
             :storage          (nreverse storage-alist)
-            :transfers        (nreverse transfer-plists)
+            :transfers        transfer-plists
             :ejected          ejected-alist
             :created          created-alist
             :upgrades         upgrade-alist
