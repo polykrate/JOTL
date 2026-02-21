@@ -7,7 +7,7 @@
 ;;;;     Ψ(p, ι', ϱ', φ', μ')    if ε = ►  (continue)
 ;;;;     (∞, ι, ϱ', φ, μ)         if ϱ' < 0  (out of gas)
 ;;;;     (ε, 0, ϱ', φ', μ')       if ε ∈ {ϡ, ■}  (panic/halt → PC=0)
-;;;;     (ε, ι, ϱ', φ', μ)        otherwise  (host call/page fault)
+;;;;     (ε, ι, ϱ', φ, μ)         otherwise  (host call/page fault)
 ;;;;
 ;;;; (A.4) Ψ₁: single-step.
 ;;;;   Decodes instruction at ι, charges gas, executes mutation.
@@ -38,14 +38,16 @@
 ;;;
 ;;; (A.8) Memory-access exceptional execution state:
 ;;;   if x = {}                   → (ε, ι', ϱ', φ', μ')   — normal
-;;;   if min(x) mod 2³² < 2¹⁶    → (♯, ι, ϱ, φ, μ)       — PANIC
-;;;   otherwise                   → (∃×page, ι, ϱ, φ, μ)  — PAGE FAULT
+;;;   if min(x) mod 2³² < 2¹⁶    → (♯, ι, ϱ', φ, μ)      — PANIC
+;;;   otherwise                   → (∃×page, ι, ϱ', φ, μ)  — PAGE FAULT
 ;;;   where page = Z_P⌊min(x) mod 2³² / Z_P⌋
 ;;;
-;;; The entire instruction is atomic: on fault, state is UNCHANGED.
-;;; We achieve this by saving registers before execution and restoring
-;;; them on fault. Memory writes are already atomic (mem-write checks
-;;; all pages before writing any byte).
+;;; NOTE: A.1 case 4 uses ϱ' (primed) = gas AFTER charging (ϱ − ϱ_Δ).
+;;; Gas is ALWAYS charged per attempt (A.1 blue text), even on fault.
+;;; Only (ι, φ, μ) are restored to originals; gas stays deducted.
+;;; We achieve this by saving/restoring registers and PC on fault,
+;;; but leaving gas untouched. Memory writes are already atomic
+;;; (mem-write checks all pages before writing any byte).
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun vm-step (vm)

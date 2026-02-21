@@ -94,11 +94,9 @@
     (set-reg vm +a0+ args-addr)
     (set-reg vm +a1+ args-len)
 
-    ;; 5. Set RA to halt sentinel: Z_A · (|j| + 1)
+    ;; 5. Set RA to halt sentinel: 2³² − 2¹⁶ (GP A.18)
     ;; When the outermost function returns via jump_ind(RA),
     ;; djump(halt_sentinel) triggers a clean halt (■).
-    ;; This matches polkaVM's prepare_call_untyped behavior.
-    (let ((halt-sentinel (* +z-a+ (1+ (length (pvm-jump-table vm))))))
-      (set-reg vm +ra+ halt-sentinel))
+    (set-reg vm +ra+ +djump-halt-sentinel+)
 
     (values t total-pages)))

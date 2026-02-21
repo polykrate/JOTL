@@ -74,19 +74,21 @@
 
 (defvar *djump-debug* nil "When T, log djump panics to *error-output*.")
 
+(defconstant +djump-halt-sentinel+ (- (expt 2 32) (expt 2 16))
+  "GP A.18: djump halt sentinel = 2³² − 2¹⁶ = 0xFFFF0000.")
+
 (defun do-djump (vm a)
   "GP A.18: djump(a). Dynamic jump using jump table j.
-   Halt sentinel = Z_A · (|j| + 1), computed dynamically per-program.
+   Halt sentinel = 2³² − 2¹⁶ (fixed constant per GP A.18).
    Returns :halt | :panic | (:branch . target)."
   (let* ((jt (pvm-jump-table vm))
-         (jt-len (length jt))
-         (halt-value (* +z-a+ (1+ jt-len))))   ; Z_A · (|j| + 1)
+         (jt-len (length jt)))
     (cond
-      ;; ■ Halt: a = Z_A · (|j| + 1)
-      ((= a halt-value)
+      ;; ■ Halt: a = 2³² − 2¹⁶
+      ((= a +djump-halt-sentinel+)
        (when *djump-debug*
-         (format *error-output* "~&[DJUMP] HALT: a=~D halt-val=~D pc=~D~%"
-                 a halt-value *vm-last-step-pc*))
+         (format *error-output* "~&[DJUMP] HALT: a=~D (0x~X) pc=~D~%"
+                 a a *vm-last-step-pc*))
        :halt)
       ;; ϡ Panic: a = 0
       ((zerop a)
