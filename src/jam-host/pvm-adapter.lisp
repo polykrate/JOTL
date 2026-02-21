@@ -497,15 +497,23 @@
             :final-min-accum-gas (hctx-min-accum-gas ctx)
             :final-min-memo-gas  (hctx-min-memo-gas ctx)
             ;; created-full: build from created-services with metadata
+            ;; hctx-created-services entries are (sid code-hash code-length).
+            ;; The service-account in hctx-service-accounts has the real balance,
+            ;; min-accum-gas, min-memo-gas, threshold, items, and footprint set by ΩN.
             :created-full     (mapcar (lambda (cs)
                                         (if (consp cs)
-                                            (list :id (car cs)
-                                                  :code-hash (second cs) ; (list id hash) → second, not cdr
-                                                  :balance 0
-                                                  :min-accum-gas 0
-                                                  :min-memo-gas 0
-                                                  :deposit-offset 0
-                                                  :parent-service (hctx-service-id ctx))
+                                            (let* ((sid (car cs))
+                                                   (sa (gethash sid (hctx-service-accounts ctx))))
+                                              (list :id sid
+                                                    :code-hash (second cs)
+                                                    :code-length (or (third cs) 0)
+                                                    :balance (if sa (sa-balance sa) 0)
+                                                    :min-accum-gas (if sa (sa-min-accum-gas sa) 0)
+                                                    :min-memo-gas (if sa (sa-min-memo-gas sa) 0)
+                                                    :deposit-offset (if sa (sa-threshold sa) 0)
+                                                    :items-count (if sa (sa-items-count sa) 0)
+                                                    :footprint (if sa (sa-footprint sa) 0)
+                                                    :parent-service (hctx-service-id ctx)))
                                             cs))
                                       created-alist)))))
 

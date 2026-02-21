@@ -174,9 +174,20 @@
          (cross-services (funcall delta :cross-service-accounts service-id))
          (existing-services (funcall delta :all-service-ids)))
 
-    ;; No code blob found → skip PVM execution
+    ;; No code blob found → skip PVM execution.
+    ;; GP B.9: Even without code, deferred transfer balance must be credited.
+    ;; The balance becomes d[s]_b + Σ r_a.
+    ;; last-accumulation-slot is NOT updated (service never actually ran).
     (unless code-blob
-      (return-from accumulate-service (values nil 0)))
+      (if (plusp transfer-balance)
+          ;; Credit balance from deferred transfers without running PVM
+          (return-from accumulate-service
+            (values (list :balance (+ (or (getf metadata :balance) 0)
+                                      transfer-balance)
+                          :no-code t     ;; Flag: don't update last-accumulation-slot
+                          :outcome 0)    ;; No PVM = implicit halt
+                   0))
+          (return-from accumulate-service (values nil 0))))
 
     ;; ── Create PVM instance + Configure + Run + Collect ──
     ;; Now uses Lisp JamVM instead of Rust FFI

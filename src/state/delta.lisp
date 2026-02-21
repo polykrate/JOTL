@@ -473,28 +473,32 @@
   (let ((current-kvs (copy-list raw-kvs)))
     (maphash
      (lambda (sid effects)
-       ;; Always update last-accumulation-slot, even if effects=nil
+       ;; Update metadata entry for this service.
+       ;; If :no-code flag is set, only update balance (service never ran PVM).
+       ;; Otherwise, also update last-accumulation-slot and PVM-final fields.
        (let ((meta-entry (find-if (lambda (kv)
                                     (and (service-metadata-key-p (car kv))
                                          (= (service-id-from-metadata-key (car kv)) sid)))
                                   current-kvs)))
          (when meta-entry
            (let ((info (load-service-info (cdr meta-entry))))
-             (setf (getf info :last-accumulation-slot) timeslot)
-             ;; Update balance if provided by PVM
+             ;; Update balance if provided (always, even no-code)
              (when (and effects (getf effects :balance))
                (setf (getf info :balance) (getf effects :balance)))
-             ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
-             (when (and effects (getf effects :final-code-hash))
-               (setf (getf info :code-hash) (getf effects :final-code-hash)))
-             (when (and effects (getf effects :final-min-accum-gas))
-               (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
-             (when (and effects (getf effects :final-min-memo-gas))
-               (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas)))
+             ;; Skip last-accumulation-slot + PVM fields if no code ran
+             (unless (getf effects :no-code)
+               (setf (getf info :last-accumulation-slot) timeslot)
+               ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
+               (when (and effects (getf effects :final-code-hash))
+                 (setf (getf info :code-hash) (getf effects :final-code-hash)))
+               (when (and effects (getf effects :final-min-accum-gas))
+                 (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
+               (when (and effects (getf effects :final-min-memo-gas))
+                 (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas))))
              (setf (cdr meta-entry) (encode-service-info info)))))
 
-       ;; Apply side-effects if present
-       (when effects
+       ;; Apply side-effects if present (skip for :no-code services)
+       (when (and effects (not (getf effects :no-code)))
          ;; ── Check PVM outcome for storage/lookup decisions ──
          (let* ((outcome (or (getf effects :outcome) 0))
                 (update-storage-p
@@ -589,9 +593,10 @@
                )) ;; close initial-classified + update-storage-p
 
            ;; ── Add provided preimages (always, even on panic) ──
+           ;; hctx-provided-preimages entries are (list sid data), not (cons sid data).
            (dolist (pp (getf effects :provided-preimages))
-             (let* ((pp-sid  (car pp))
-                    (pp-data (cdr pp))
+             (let* ((pp-sid  (first pp))
+                    (pp-data (second pp))
                     (pp-hash (jam-host:blake2b-256 pp-data))
                     (h-27    (preimage-trie-h pp-hash))
                     (trie-key (interleave-sub-key pp-sid h-27)))
@@ -612,17 +617,20 @@
                                 current-kvs))))
 
            ;; ── Handle created services (ΩN) ──
+           ;; GP B.10: New service gets a lookup entry {((c,l)↦[])} and
+           ;; items/bytes computed per ΩS footprint rules (items=2, bytes=81+l).
            (dolist (cs (getf effects :created-full))
              (let* ((new-sid      (getf cs :id))
                     (meta-key     (make-service-metadata-key new-sid))
+                    (code-hash    (getf cs :code-hash))
                     (info (list :version 0
-                                :code-hash (getf cs :code-hash)
+                                :code-hash code-hash
                                 :balance (or (getf cs :balance) 0)
                                 :min-accum-gas (or (getf cs :min-accum-gas) 0)
                                 :min-memo-gas (or (getf cs :min-memo-gas) 0)
-                                :bytes 0
+                                :bytes (or (getf cs :footprint) 0)
                                 :deposit-offset (or (getf cs :deposit-offset) 0)
-                                :items 0
+                                :items (or (getf cs :items-count) 0)
                                 :creation-slot timeslot
                                 :last-accumulation-slot 0
                                 :parent-service (or (getf cs :parent-service) sid))))
@@ -633,7 +641,17 @@
                                        (= (service-id-from-metadata-key (car kv)) new-sid)))
                                 current-kvs))
                ;; Add the new metadata entry
-               (push (cons meta-key (encode-service-info info)) current-kvs)))
+               (push (cons meta-key (encode-service-info info)) current-kvs)
+
+               ;; GP B.10: Create lookup entry {((c,l)↦[])} for the code hash.
+               ;; The lookup trie key is interleave(new-sid, H(E4(l).hash)[0:27]).
+               ;; The value is encode-lookup-value([]) = compact(0) = 0x00.
+               (when (and code-hash (plusp (or (getf cs :code-length) 0)))
+                 (let* ((code-len (getf cs :code-length))
+                        (h-27    (lookup-trie-h code-hash code-len))
+                        (trie-key (interleave-sub-key new-sid h-27)))
+                   (push (cons trie-key (encode-lookup-value nil))
+                         current-kvs)))))
 
            ;; ── Update items/bytes from PVM-tracked values ──
            (when (and update-storage-p

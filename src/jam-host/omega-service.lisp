@@ -159,20 +159,26 @@
               (set-reg vm +a0+ +hc-huh+)
               (return-from omega-new-service :continue))))
 
-        ;; ── Compute a_t for new service, deduct from caller ──
-        (let ((a-t (compute-threshold (hctx-items-count ctx)
-                                      (hctx-footprint ctx)
-                                      (hctx-threshold ctx))))
+        ;; ── GP B.10 ΩN: Compute a_t using the NEW service's footprint ──
+        ;; The new service starts with a lookup entry {((c,l) ↦ [])}.
+        ;; Per ΩS footprint rules: items += 2, bytes += (81 + l).
+        ;; a_t = max(0, B_S + B_I * new_items + B_L * new_bytes - f)
+        (let* ((new-items 2)                  ; 1 lookup entry + 1 preimage slot
+               (new-bytes (+ 81 l))           ; 81 overhead + code length
+               (a-t (compute-threshold new-items new-bytes f)))
           ;; s_b = (x_s)_b − a_t
           (when (< (hctx-balance ctx) a-t)
             (set-reg vm +a0+ +hc-cash+)
             (return-from omega-new-service :continue))
 
           (let ((s-b (- (hctx-balance ctx) a-t)))
-            ;; s_b < (x_s)_t → CASH
-            (when (< s-b a-t)
-              (set-reg vm +a0+ +hc-cash+)
-              (return-from omega-new-service :continue))
+            ;; s_b < (x_s)_t → CASH  (caller can't go below own threshold)
+            (let ((caller-threshold (compute-threshold (hctx-items-count ctx)
+                                                       (hctx-footprint ctx)
+                                                       (hctx-threshold ctx))))
+              (when (< s-b caller-threshold)
+                (set-reg vm +a0+ +hc-cash+)
+                (return-from omega-new-service :continue)))
 
             ;; ── Build new service account ──
             (let ((new-acct (make-service-account
@@ -181,6 +187,8 @@
                              :min-accum-gas g
                              :min-memo-gas m
                              :threshold f
+                             :items-count new-items
+                             :footprint new-bytes
                              :recent-count (hctx-timeslot ctx))))
 
               ;; ── Determine creation path ──
@@ -198,7 +206,7 @@
                         (return-from omega-new-service :continue))
 
                       ;; Create at privileged index
-                      (push (list i-tilde c) (hctx-created-services ctx))
+                      (push (list i-tilde c l) (hctx-created-services ctx))
                       (setf (gethash i-tilde (hctx-service-accounts ctx)) new-acct)
                       (setf (hctx-balance ctx) s-b)
                       (set-reg vm +a0+ (u64 i-tilde))
@@ -206,7 +214,7 @@
 
                     ;; ── Non-privileged path ──
                     (let ((new-sid (hctx-next-service-id ctx)))
-                      (push (list new-sid c) (hctx-created-services ctx))
+                      (push (list new-sid c l) (hctx-created-services ctx))
                       (setf (gethash new-sid (hctx-service-accounts ctx)) new-acct)
                       (setf (hctx-balance ctx) s-b)
 
