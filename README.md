@@ -14,29 +14,26 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | storage_light | 100/100 | 100/100 | 0 |
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
-| fuzzy_light | 5/6 | 188/200 | 0 |
-| fuzzy | 5/6 | 147/200 | 0 |
+| fuzzy_light | 200/200 | 200/200 | 0 |
+| fuzzy | 7/8 | 163/200 | 0 |
 
-**935/1000 deterministic traces pass** — byte-exact state root match,
+**963/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 65 steps (12 fuzzy_light + 53 fuzzy)
+### Remaining failures — 37 steps (fuzzy only)
 
 | Category | Pattern | Count | Root cause | Status |
 |----------|---------|------:|------------|--------|
-| A1 | `pi` only | 13 | sbrk gas accounting | Blocked (PolkaVM) |
-| A2 | `pi + delta-kvs` | 8 | sbrk gas + storage | Blocked (PolkaVM) |
-| A3 | `delta-kvs` only | 42 | sbrk storage / balance diff | Investigating |
-| B | `beta + theta` (±kvs) | 2 | sbrk → wrong yield hash | Blocked (PolkaVM) |
-
-Most remaining failures trace back to PolkaVM interpreter's `sbrk`
-pre-allocating memory without page-level gas accounting (no `userfaultfd`).
-delta-kvs–only failures under active investigation.
+| A1 | `pi` + `delta-kvs` | ~5 | PVM gas or execution path diff after page-fault handling | Investigating |
+| A2 | `delta-kvs` only | ~31 | storage key/value diff after accumulate | Investigating |
+| B  | `beta + theta + delta-kvs` | 1 | block 68: wrong β/θ + cascading δ diff | Investigating |
 
 ### Fixed bugs
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
+| **Page fault handling** | +6 steps | `vm-run` now handles page faults: allocates faulting page as R/W and retries instruction. Gas stays charged per GP: "some gas is always charged whenever execution is attempted" |
+| **OOB PC trap decode** | correctness | `decode-instruction` returns trap (opcode 0, gas=1) for OOB PC instead of NIL → gas always charged on trap |
 | **RA halt sentinel** | +42 steps | `argument-invoke` now sets RA to dynamic halt sentinel `Z_A*(|j|+1)` per GP spec, fixing outermost return |
 | **next-service-id init** | +2 steps | `hctx-next-service-id` defaulted to 0, causing ΩN to overwrite manager service. Now initialized via GP B.14 formula |
 | **Checkpoint balance revert** | correctness | Balance, code-hash, min-gas fields now saved/restored in checkpoint on panic/OOG rollback |
@@ -73,11 +70,12 @@ no mutation.
 `accumulate.lisp` orchestrates §12 (R*, PVM execution, privilege resolution).
 `import-block` is the boundary — pure below, observation above.
 
-Crypto (Blake2b, Bandersnatch, Ed25519) and PVM (PolkaVM + host calls)
-are Rust via CFFI. PVM instruction tracing (`*vm-trace-stream*`) available
-for step-level debugging.
+Crypto (Blake2b, Bandersnatch, Ed25519) is Rust via CFFI.
+PVM (GP Appendix A) is pure Common Lisp (`src/jamvm/`), with host calls
+(GP Appendix B) in `src/jam-host/`. Instruction tracing (`*vm-trace-stream*`)
+available for step-level debugging.
 
-~10K lines Lisp · ~9K lines Rust
+~12K lines Lisp · ~3K lines Rust
 
 ## Run
 

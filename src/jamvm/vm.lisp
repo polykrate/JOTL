@@ -98,11 +98,11 @@
           (return-from vm-step :oog)))
 
       ;; ── 3. Save registers for fault rollback (A.8) ──
-      ;; On memory fault, we must return the ORIGINAL (ι,ϱ,φ,μ).
-      ;; Gas was already deducted above, so we save ϱ' (post-deduction)
-      ;; and restore to the pre-deduction ϱ on fault.
-      (let ((saved-regs (copy-seq (pvm-regs vm)))
-            (saved-gas  (+ (pvm-gas vm) (opi-gas-cost info))))  ; ϱ before deduction
+      ;; On memory fault, restore the ORIGINAL (ι, φ, μ) — PC, regs, memory.
+      ;; Gas (ϱ) stays deducted per GP: "some gas is always charged
+      ;; whenever execution is attempted, even if no instruction is
+      ;; effectively executed and machine state is unchanged."
+      (let ((saved-regs (copy-seq (pvm-regs vm))))
 
         ;; ── 4. Execute instruction ──
         (let ((result (dispatch-instruction (opi-name info) vm args)))
@@ -136,14 +136,14 @@
                    (pvm-pc vm) pc)          ; PC stays at ecalli
              :host-call)
 
-            ;; ∃ Page fault (A.8) — ROLLBACK STATE
+            ;; ∃ Page fault (A.8) — ROLLBACK (ι, φ), KEEP ϱ' charged
             ((and (consp result) (eq (car result) :fault))
              (let* ((fault-addr (logand (cdr result) +u32-max+)))
 
-               ;; Rollback: restore (ι, ϱ, φ) to pre-instruction values
+               ;; Rollback: restore (ι, φ) to pre-instruction values
+               ;; Gas (ϱ') stays deducted — GP: gas always charged on attempt
                (replace (pvm-regs vm) saved-regs)
-               (setf (pvm-gas vm) saved-gas
-                     (pvm-pc  vm) pc)
+               (setf (pvm-pc  vm) pc)
 
                (cond
                  ;; (A.8) min(x) mod 2³² < 2¹⁶ → ♯ panic
@@ -230,7 +230,11 @@
 
    If *host-call-handler* is set, ecalli instructions invoke it.
    If the handler returns T, execution continues.
-   If it returns NIL, the VM yields with :host-call."
+   If it returns NIL, the VM yields with :host-call.
+
+   Page faults (addr ≥ 2¹⁶) are handled automatically:
+   allocate the faulting page as read-write, charge +gas-per-page+,
+   and retry the instruction (PC was already restored by vm-step)."
   ;; Clear any previous exit state
   (setf (pvm-status vm) nil)
 
@@ -263,11 +267,25 @@
                ;; No handler — yield
                (return (values :host-call (pvm-exit-arg vm)))))
 
+          ;; ── Page fault (A.8): allocate page and retry ──
+          ;; vm-step already rolled back (ι, φ) but KEPT gas charged.
+          ;; We allocate the faulting page as read-write, then loop
+          ;; to retry the instruction at the same PC.
+          ;; No additional gas charge for page allocation — the GP
+          ;; only charges the instruction's ϱ_Δ per attempt.
+          (:page-fault
+           (let* ((page-addr (pvm-exit-arg vm))
+                  (pidx      (page-index page-addr)))
+             ;; 1. Allocate page as read-write
+             (ensure-page (pvm-memory vm) pidx)
+             (setf (page-access (pvm-memory vm) pidx) :read-write)
+             ;; 2. Clear exit state and continue — instruction will retry
+             (setf (pvm-status vm) nil)))
+
           ;; Terminal states
           (:halt       (return (values :halt 0)))
           (:panic      (return (values :panic 0)))
           (:oog        (return (values :oog 0)))
-          (:page-fault (return (values :page-fault (pvm-exit-arg vm))))
 
           ;; Catch-all
           (t (return (values :panic 0))))))))

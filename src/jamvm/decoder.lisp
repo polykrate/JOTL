@@ -116,18 +116,21 @@
 (defun decode-instruction (vm pc)
   "Decode the instruction at PC in VM's code.
    Uses pvm-opcode (A.19) for effective opcode.
-   Returns (values opcode-info skip-dist arg-plist) or NIL for trap."
+   Returns (values opcode-info skip-dist arg-plist) or NIL for trap.
+   GP A.19: when pc >= |c|, effective opcode is 0 (trap, gas cost 1)."
   (let* ((code (pvm-code vm))
          (len  (length code)))
-    ;; Out of bounds → trap
+    ;; Out of bounds → trap (opcode 0, gas cost 1)
     (when (>= pc len)
-      (return-from decode-instruction nil))
+      (let ((trap-info (lookup-opcode 0)))
+        (return-from decode-instruction (values trap-info 0 nil))))
     ;; A.19: effective opcode (0 if invalid)
     (let* ((effective (pvm-opcode vm pc))
            (info (lookup-opcode effective)))
-      ;; Unknown/invalid opcode → trap
+      ;; Unknown/invalid opcode → trap (opcode 0, gas cost 1)
       (unless info
-        (return-from decode-instruction nil))
+        (let ((trap-info (lookup-opcode 0)))
+          (return-from decode-instruction (values trap-info 0 nil))))
       ;; A.20: ℓ = skip(ι)
       (let ((skip (skip-distance vm pc)))
         (values info skip
