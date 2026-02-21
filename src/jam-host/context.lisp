@@ -30,9 +30,9 @@
   (min-memo-gas    0 :type (unsigned-byte 64))   ; a_m
   (items-count     0 :type (unsigned-byte 32))   ; a_i
   (footprint       0 :type (unsigned-byte 64))   ; a_o
-  (recent-count    0 :type (unsigned-byte 32))   ; a_r
-  (accum-gas-limit 0 :type (unsigned-byte 32))   ; a_a
-  (preimage-pages  0 :type (unsigned-byte 32)))  ; a_p
+  (creation-slot    0 :type (unsigned-byte 32))   ; a_r — creation timeslot
+  (last-accum-slot  0 :type (unsigned-byte 32))   ; a_a — last accumulation timeslot
+  (parent-service   0 :type (unsigned-byte 32)))  ; a_p — parent service ID
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; compute-threshold — GP §9.3 eq (9.8)
@@ -85,9 +85,9 @@
                             (logand (ash af (* -8 i)) #xFF)))
       (incf off 8))
     ;; E_4(a_r, a_a, a_p) — 3 × 4 = 12 bytes
-    (dolist (val (list (sa-recent-count sa)
-                       (sa-accum-gas-limit sa)
-                       (sa-preimage-pages sa)))
+    (dolist (val (list (sa-creation-slot sa)
+                       (sa-last-accum-slot sa)
+                       (sa-parent-service sa)))
       (dotimes (i 4) (setf (aref buf (+ off i))
                             (logand (ash val (* -8 i)) #xFF)))
       (incf off 4))
@@ -190,9 +190,9 @@
   (min-memo-gas    0 :type (unsigned-byte 64))   ; a_m
   (items-count     0 :type (unsigned-byte 32))   ; a_i
   (footprint       0 :type (unsigned-byte 64))   ; a_o
-  (recent-count    0 :type (unsigned-byte 32))   ; a_r
-  (accum-gas-limit 0 :type (unsigned-byte 32))   ; a_a
-  (preimage-pages  0 :type (unsigned-byte 32))   ; a_p
+  (creation-slot    0 :type (unsigned-byte 32))   ; a_r — creation timeslot
+  (last-accum-slot  0 :type (unsigned-byte 32))   ; a_a — last accumulation timeslot
+  (parent-service   0 :type (unsigned-byte 32))   ; a_p — parent service ID
 
   ;; ── Storage (ΩR / ΩW) — keyed by h27 hash ──────────
   (storage         (make-hash-table :test 'equalp) :type hash-table)
@@ -322,6 +322,6 @@
    :min-memo-gas   (hctx-min-memo-gas ctx)
    :items-count    (hctx-items-count ctx)
    :footprint      (hctx-footprint ctx)
-   :recent-count   (hctx-recent-count ctx)
-   :accum-gas-limit (hctx-accum-gas-limit ctx)
-   :preimage-pages (hctx-preimage-pages ctx)))
+   :creation-slot   (hctx-creation-slot ctx)
+   :last-accum-slot (hctx-last-accum-slot ctx)
+   :parent-service  (hctx-parent-service ctx)))

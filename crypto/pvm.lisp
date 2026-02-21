@@ -286,9 +286,9 @@
                             (min-memo-gas 0)
                             (items-count 0)
                             (footprint 0)
-                            (recent-count 0)
-                            (accum-gas-limit 0)
-                            (preimage-pages 0)
+                            (creation-slot 0)
+                            (last-accum-slot 0)
+                            (parent-service 0)
                             (gas 0)
                             (storage nil)
                             (preimages nil)
@@ -326,9 +326,9 @@
     (write-u64-le buf min-memo-gas)
     (write-u32-le buf items-count)
     (write-u64-le buf footprint)
-    (write-u32-le buf recent-count)
-    (write-u32-le buf accum-gas-limit)
-    (write-u32-le buf preimage-pages)
+    (write-u32-le buf creation-slot)
+    (write-u32-le buf last-accum-slot)
+    (write-u32-le buf parent-service)
     (write-i64-le buf gas)
 
     ;; Own storage: seq[(blob, blob)]
@@ -396,8 +396,8 @@
 (defun encode-service-account-into (buf acct)
   "Encode a service account plist into BUF.
    ACCT is a plist with keys: :code-hash :balance :threshold :min-accum-gas
-   :min-memo-gas :items-count :footprint :recent-count
-   :accum-gas-limit :preimage-pages :storage :preimages :lookup"
+   :min-memo-gas :items-count :footprint :creation-slot
+   :last-accum-slot :parent-service :storage :preimages :lookup"
   ;; code_hash: [u8;32]
   (write-bytes buf (ensure-octets (getf acct :code-hash
                                     (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))))
@@ -411,9 +411,9 @@
   ;; u64
   (write-u64-le buf (getf acct :footprint 0))
   ;; u32 fields
-  (write-u32-le buf (getf acct :recent-count 0))
-  (write-u32-le buf (getf acct :accum-gas-limit 0))
-  (write-u32-le buf (getf acct :preimage-pages 0))
+  (write-u32-le buf (getf acct :creation-slot 0))
+  (write-u32-le buf (getf acct :last-accum-slot 0))
+  (write-u32-le buf (getf acct :parent-service 0))
   ;; storage: seq[(blob, blob)]
   (let ((storage (getf acct :storage nil)))
     (write-compact buf (length storage))

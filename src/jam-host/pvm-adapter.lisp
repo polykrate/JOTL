@@ -293,9 +293,9 @@
                                 (min-memo-gas 0)
                                 (items-count 0)
                                 (footprint 0)
-                                (recent-count 0)
-                                (accum-gas-limit 0)
-                                (preimage-pages 0)
+                                (creation-slot 0)
+                                (last-accum-slot 0)
+                                (parent-service 0)
                                 (storage nil)
                                 (preimages nil)
                                 (lookup nil)
@@ -328,9 +328,9 @@
               :min-memo-gas min-memo-gas
               :items-count items-count
               :footprint footprint
-              :recent-count recent-count
-              :accum-gas-limit accum-gas-limit
-              :preimage-pages preimage-pages
+              :creation-slot creation-slot
+              :last-accum-slot last-accum-slot
+              :parent-service parent-service
               :header-hash (coerce (%ensure-hash32 header-hash) '(simple-array (unsigned-byte 8) (32)))
               :entropy-raw (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))
               :accumulate-items accumulate-items
@@ -369,9 +369,9 @@
                   :min-memo-gas   (or (getf acct :min-memo-gas) 0)
                   :items-count    (or (getf acct :items-count) 0)
                   :footprint      (or (getf acct :footprint) 0)
-                  :recent-count   (or (getf acct :recent-count) 0)
-                  :accum-gas-limit(or (getf acct :accum-gas-limit) 0)
-                  :preimage-pages (or (getf acct :preimage-pages) 0))))
+                  :creation-slot   (or (getf acct :creation-slot) 0)
+                  :last-accum-slot (or (getf acct :last-accum-slot) 0)
+                  :parent-service  (or (getf acct :parent-service) 0))))
         ;; Populate sub-account storage/preimages/lookup
         (dolist (s (getf acct :storage))
           (setf (gethash (car s) (sa-storage sa)) (cdr s)))
@@ -543,9 +543,9 @@
                                   (min-memo-gas 0)
                                   (items-count 0)
                                   (footprint 0)
-                                  (recent-count 0)
-                                  (accum-gas-limit 0)
-                                  (preimage-pages 0)
+                                  (creation-slot 0)
+                                  (last-accum-slot 0)
+                                  (parent-service 0)
                                   (storage nil)
                                   (preimages nil)
                                   (lookup nil)
@@ -582,9 +582,9 @@
                 :min-memo-gas min-memo-gas
                 :items-count items-count
                 :footprint footprint
-                :recent-count recent-count
-                :accum-gas-limit accum-gas-limit
-                :preimage-pages preimage-pages
+                :creation-slot creation-slot
+                :last-accum-slot last-accum-slot
+                :parent-service parent-service
                 :storage storage
                 :preimages preimages
                 :lookup lookup

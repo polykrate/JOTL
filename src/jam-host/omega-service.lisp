@@ -189,7 +189,7 @@
                              :threshold f
                              :items-count new-items
                              :footprint new-bytes
-                             :recent-count (hctx-timeslot ctx))))
+                             :creation-slot (hctx-timeslot ctx))))
 
               ;; ── Determine creation path ──
               (let ((is-staker (and (hctx-empower ctx)

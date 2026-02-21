@@ -230,9 +230,9 @@
                :min-memo-gas    min-memo-gas
                :items-count     items-count
                :footprint       total-bytes
-               :recent-count    creation-ts
-               :accum-gas-limit last-accum
-               :preimage-pages  parent-svc
+               :creation-slot    creation-ts
+               :last-accum-slot  last-accum
+               :parent-service   parent-svc
                :storage         h27-storage
                :preimages       (getf svc-data :preimages)
                :lookup          (getf svc-data :lookup)

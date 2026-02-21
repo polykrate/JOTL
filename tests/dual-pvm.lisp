@@ -105,7 +105,7 @@
                              (code-hash (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
                              (threshold 0) (min-accum-gas 0) (min-memo-gas 0)
                              (items-count 0) (footprint 0)
-                             (recent-count 0) (accum-gas-limit 0) (preimage-pages 0)
+                             (creation-slot 0) (last-accum-slot 0) (parent-service 0)
                              (gas 0)
                              (storage nil) (preimages nil) (lookup nil)
                              (service-accounts nil) (existing-services nil)
@@ -142,9 +142,9 @@
     ;; u64: footprint
     (jam-host::%buf-u64-le buf footprint)
     ;; u32: recent_count, accum_gas_limit, preimage_pages
-    (jam-host::%buf-u32-le buf recent-count)
-    (jam-host::%buf-u32-le buf accum-gas-limit)
-    (jam-host::%buf-u32-le buf preimage-pages)
+    (jam-host::%buf-u32-le buf creation-slot)
+    (jam-host::%buf-u32-le buf last-accum-slot)
+    (jam-host::%buf-u32-le buf parent-service)
     ;; i64: gas
     (jam-host::%buf-u64-le buf (logand gas #xFFFFFFFFFFFFFFFF))  ;; i64 as u64
     ;; seq[(blob, blob)]: own storage
@@ -182,9 +182,9 @@
         (jam-host::%buf-u64-le buf (or (getf acct :min-memo-gas) 0))
         (jam-host::%buf-u32-le buf (or (getf acct :items-count) 0))
         (jam-host::%buf-u64-le buf (or (getf acct :footprint) 0))
-        (jam-host::%buf-u32-le buf (or (getf acct :recent-count) 0))
-        (jam-host::%buf-u32-le buf (or (getf acct :accum-gas-limit) 0))
-        (jam-host::%buf-u32-le buf (or (getf acct :preimage-pages) 0))
+        (jam-host::%buf-u32-le buf (or (getf acct :creation-slot) 0))
+        (jam-host::%buf-u32-le buf (or (getf acct :last-accum-slot) 0))
+        (jam-host::%buf-u32-le buf (or (getf acct :parent-service) 0))
         ;; sub-storage
         (let ((sub-storage (or (getf acct :storage) nil)))
           (jam-host::%buf-compact buf (length sub-storage))
@@ -311,9 +311,9 @@
                         :min-memo-gas (or (getf metadata :min-memo-gas) 0)
                         :items-count (or (getf metadata :items) 0)
                         :footprint (or (getf metadata :bytes) 0)
-                        :recent-count (or (getf metadata :creation-slot) 0)
-                        :accum-gas-limit (or (getf metadata :last-accumulation-slot) 0)
-                        :preimage-pages (or (getf metadata :parent-service) 0)
+                        :creation-slot (or (getf metadata :creation-slot) 0)
+                        :last-accum-slot (or (getf metadata :last-accumulation-slot) 0)
+                        :parent-service (or (getf metadata :parent-service) 0)
                         :storage h27-storage
                         :preimages (getf svc-data :preimages)
                         :lookup (getf svc-data :lookup)
@@ -359,9 +359,9 @@
                              :min-memo-gas (getf params :min-memo-gas)
                              :items-count (getf params :items-count)
                              :footprint (getf params :footprint)
-                             :recent-count (getf params :recent-count)
-                             :accum-gas-limit (getf params :accum-gas-limit)
-                             :preimage-pages (getf params :preimage-pages)
+                             :creation-slot (getf params :creation-slot)
+                             :last-accum-slot (getf params :last-accum-slot)
+                             :parent-service (getf params :parent-service)
                              :gas gas
                              :storage (getf params :storage)
                              :preimages (getf params :preimages)
@@ -482,9 +482,9 @@
                  :min-memo-gas (getf params :min-memo-gas)
                  :items-count (getf params :items-count)
                  :footprint (getf params :footprint)
-                 :recent-count (getf params :recent-count)
-                 :accum-gas-limit (getf params :accum-gas-limit)
-                 :preimage-pages (getf params :preimage-pages)
+                 :creation-slot (getf params :creation-slot)
+                 :last-accum-slot (getf params :last-accum-slot)
+                 :parent-service (getf params :parent-service)
                  :storage (getf params :storage)
                  :preimages (getf params :preimages)
                  :lookup (getf params :lookup)
