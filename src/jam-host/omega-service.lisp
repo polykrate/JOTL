@@ -79,7 +79,9 @@
   "GP B.10: Hash-derived candidate for initial next-service-id.
    i = E₄⁻¹(H(E(s, η'₀, H_T))) mod (2³² − S − 2⁸) + S
    where E(s, η'₀, H_T) = compact(s) ⌢ η'₀[0..32] ⌢ compact(H_T).
-   s and H_T use JAM compact encoding (GP C.5), NOT fixed LE32."
+   H_T = timeslot (GP C.23: E₄(H_T) in header serialization).
+   OPEN QUESTION: should H_T use E₄ instead of compact here?
+   s and H_T currently use JAM compact encoding (GP C.5)."
   (let* ((enc-s  (encode-compact-u32 service-id))
          (enc-ts (encode-compact-u32 timeslot))
          (eta-len (min 32 (length entropy-0)))
@@ -93,7 +95,7 @@
     (dotimes (i eta-len)
       (setf (aref preimage (+ pos i)) (aref entropy-0 i)))
     (incf pos eta-len)
-    ;; compact(timeslot)
+    ;; compact(H_T) — timeslot
     (replace preimage enc-ts :start1 pos)
     ;; H(...) = blake2b-256
     (let* ((digest (ironclad:make-digest :blake2/256))

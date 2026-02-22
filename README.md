@@ -15,18 +15,28 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
 | fuzzy_light | 200/200 | 200/200 | 0 |
-| fuzzy | 7/8 | 163/200 | 0 |
+| fuzzy | 22/23 | 164/200 | 0 |
 
-**963/1000 deterministic traces pass** — byte-exact state root match,
+**964/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 37 steps (fuzzy only)
+### Remaining failures — 36 steps (fuzzy only)
+
+All 36 failures are in `fuzzy` (random service profile, max 6 work items).
+`fuzzy_light` (empty service profile, max 1 work item) passes 200/200.
 
 | Category | Pattern | Count | Root cause | Status |
 |----------|---------|------:|------------|--------|
-| A1 | `pi` + `delta-kvs` | ~5 | PVM gas or execution path diff after page-fault handling | Investigating |
-| A2 | `delta-kvs` only | ~31 | storage key/value diff after accumulate | Investigating |
-| B  | `beta + theta + delta-kvs` | 1 | block 68: wrong β/θ + cascading δ diff | Investigating |
+| A | `delta-kvs` u64 on key `#(5)` | ~31 | Systematic u64 computation bug, always on raw storage key 5 | Investigating |
+| B | `pi` + `delta-kvs` | ~4 | Gas diff + cascading storage diff | Investigating |
+| C | `beta + theta + delta-kvs` | 1 | block 68: wrong β/θ + cascading δ diff | Investigating |
+
+**Key observations:**
+- All 33 storage diffs are on h27=`d745b7fec1` (raw key `#(5)`), always 8-byte u64 values
+- Values are NOT swapped between services — they are genuinely different (verified via cross-SID swap diagnostic)
+- fuzzy has "random service profile + max 6 work items/report" vs fuzzy_light "empty profile + max 1 item" → bug triggered by multiple work items or complex profiles
+- `H_T` in `raw-next-service-id` (GP B.10) was tested as header-hash (32 bytes) → REGRESSION, confirming `H_T` IS the timeslot with compact encoding
+- Root cause likely in ΩY kind=14 encoding (multi-item accumulate data) or PVM arithmetic on accumulated values
 
 ### Fixed bugs
 

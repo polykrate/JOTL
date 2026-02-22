@@ -164,13 +164,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; AccumulateParams encoding — GP B.9
 ;;;
-;;; AccumulateParams { slot: u32, service_id: u32, item_count: u32 }
-;;; JAM tuple encoding: E_4(slot) + E_4(service_id) + E_4(item_count) = 12 bytes
+;;; AccumulateParams { slot: N_T, service_id: N_S, item_count: N }
+;;; JAM tuple encoding: E(t, s, |i|) = compact(slot) ⌢ compact(service_id) ⌢ compact(item_count)
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun encode-accumulate-params (slot service-id item-count)
   "Encode AccumulateParams with JAM compact fields.
-   All three fields have #[codec(compact)] in the Rust struct."
+   GP B.9: E(t, s, |i|) where E is the general JAM codec."
   (let ((buf (%make-buf 16)))
     (%buf-compact buf slot)
     (%buf-compact buf service-id)
@@ -387,7 +387,8 @@
       (setf (gethash sid (hctx-existing-services ctx)) t))
 
     ;; ── Initialize next-service-id (GP B.10 + B.14) ──
-    ;; i = E₄⁻¹(H(compact(s) ⌢ η'₀ ⌢ compact(H_T))) mod M + S, then check.
+    ;; i = E₄⁻¹(H(E(s, η'₀, H_T))) mod M + S, then check.
+    ;; H_T = timeslot (GP C.23). Currently compact-encoded.
     ;; Must be after existing-services population (check-service-id needs it).
     (let ((entropy-0 (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))))
       (setf (hctx-next-service-id ctx)
