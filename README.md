@@ -15,83 +15,21 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
 | fuzzy_light | 200/200 | 200/200 | 0 |
-| fuzzy | 22/23 | 164/200 | 0 |
+| fuzzy | 22/23 | 173/200 | 0 |
 
-**964/1000 deterministic traces pass** — byte-exact state root match,
+**973/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 36 steps (fuzzy only)
+### Remaining failures — 27 steps (fuzzy only)
 
-All 36 failures are in `fuzzy` (random service profile, max 6 work items).
+All 27 failures are in `fuzzy` (random service profile, max 6 work items).
 `fuzzy_light` (empty service profile, max 1 work item) passes 200/200.
-
-| Category | Pattern | Blocks | Count | Status |
-|----------|---------|--------|------:|--------|
-| A | `delta-kvs` only | 45,48,74,78,110,122,123,126,127,131,145,152,156,164,168,170,173,174,175,185,188 | 21 | Investigating |
-| B | `pi` + `delta-kvs` | 23,30,56,77,90,103,105,111,119,191,196 | 11 | Investigating |
-| C | `beta` + `theta` ± `pi` ± `delta-kvs` | 68,82,102,179 | 4 | **Deep dive** |
-
-#### Category A — `delta-kvs` storage divergence
-
-Only 2 delta-KVs differ per block, both on raw storage key `#(5)` (u64 values).
-Root cause: guest Blake2b hash loop reads a buffer that has been reused by
-a prior host call, producing a different hash. The divergence traces back to
-an **earlier host call returning different data** than expected.
-
-#### Category B — `pi` gas divergence + `delta-kvs`
-
-Gas field (`pi`) is slightly off, causing cascading storage differences.
-Likely the same root cause as Category A (incorrect host call → different
-execution path → different gas consumption).
-
-#### Category C — `beta` + `theta` yield hash divergence
-
-4 blocks produce wrong yield hashes (θ), which cascade into wrong β
-(recent block history contains MMR of θ). Block 82 is the cleanest case
-(β+θ only, no δ or π divergence).
-
-**Investigation status (Block 82 deep dive):**
-
-| Verified correct | Details |
-|-----------------|---------|
-| PVM instructions | 64-bit XOR, rotate, shift, memory load/store all match GP spec |
-| `write-guest` / `read-guest` | Cross-page writes correct, byte-level access validated |
-| Protocol params (ΩY kind=0) | 134 bytes, encoding matches Rust reference |
-| Entropy (ΩY kind=1) | 128 bytes, passed correctly from state |
-| Accumulate items (ΩY kind=14) | Encoding verified, blob sizes match |
-| Service info (ΩI, HC5) | 96-byte encoding correct; Rust uses mutated state for self-lookup |
-| Storage read/write (ΩR/ΩW) | Correct h27 hashing, proper footprint tracking |
-| Yield (HC25) | Correctly stores 32-byte hash from guest memory |
-| Checkpoint (HC17) | Snapshot/rollback works correctly |
-| AccumulateParams encoding | JAM compact `(slot, sid, item_count)` verified |
-| `encode-accumulate-items-list` | WorkItemRecord structure matches codec test vectors |
-| θ assembly from commitments | Correctly built from yield outputs |
-
-| Large blob encoding | SID 516569628 has 11325-byte result data → 11462-byte WorkItemRecord. Compact prefix correct, total fetch = 11463 bytes |
-| JAM compact codec | Verified for all value sizes (1/2/4/8-byte modes), matches GP C.5 |
-| `encode-accumulate-params` | compact(slot) + compact(sid) + compact(item_count) correct |
-
-**Remaining hypotheses:**
-- PVM instruction bug on a specific opcode/data pattern (rare enough to pass most tests)
-- Host call returning subtly wrong data that cascades through guest logic
-- Instruction decoder edge case for specific immediate/skip values
-
-**Next step:** Step-trace PVM execution for block 82 SID 516569628 and compare
-register snapshots with reference, or generate a reference host-call trace and diff.
-
-**Host call ID mapping (verified against `defomega`):**
-```
- 0:ΩG(gas)     1:ΩY(fetch)   2:ΩL(lookup)   3:ΩR(read)     4:ΩW(write)    5:ΩI(info)
- 6:ΩH(hist)    7:ΩE(export)  8:ΩM(make)     9:ΩP(peek)    10:ΩO(poke)    11:ΩZ(pages)
-12:ΩK(invoke) 13:expunge    14:ΩB(bless)   15:ΩA(assign)  16:ΩD(designate) 17:ΩC(checkpoint)
-18:ΩN(new)    19:upgrade    20:transfer    21:eject       22-26:preimage   99:ΩX(abort)
-100:ext_log
-```
 
 ### Fixed bugs
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
+| **Page fault → panic** | +9 steps | `vm-run` page faults now panic instead of auto-allocating pages. GP A.7 pre-maps all valid memory regions (ro_data, rw_data, stack) at init; heap grows only via `sbrk`. Access to unmapped pages is invalid. The old code silently allocated zero-filled pages, letting the guest read/write outside valid regions. All 13 observed faults were at `0x10000` (ro_data start) when ro_data was empty — matching the Go reference which returns OOB for empty regions. |
 | **Page fault handling** | +6 steps | `vm-run` now handles page faults: allocates faulting page as R/W and retries instruction. Gas stays charged per GP: "some gas is always charged whenever execution is attempted" |
 | **OOB PC trap decode** | correctness | `decode-instruction` returns trap (opcode 0, gas=1) for OOB PC instead of NIL → gas always charged on trap |
 | **RA halt sentinel** | +42 steps | `argument-invoke` now sets RA to dynamic halt sentinel `Z_A*(|j|+1)` per GP spec, fixing outermost return |
@@ -133,14 +71,19 @@ no mutation.
 Crypto (Blake2b, Bandersnatch, Ed25519) is Rust via CFFI.
 
 PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
-(GP Appendix B) in `src/jam-host/`. The Rust code in `crypto/jam-crypto/src/pvm/`
-is an early prototype (draft) and **does NOT handle all edge cases** — it is
-superseded by the Lisp PVM implementation. The ASN schema in
-`tests/jamtestvectors/` is the authoritative reference for data types.
+(GP Appendix B) in `src/jam-host/`. The early Rust PVM prototype has been
+archived in `archive/pvm-rust/` — it was a draft that did not handle all
+edge cases and is fully superseded by the Lisp PVM.
 
-Instruction tracing (`*vm-trace-stream*`) available for step-level debugging.
+Memory model follows GP A.7: all valid regions (ro_data, rw_data+padding,
+stack) are pre-mapped at init. Heap extends via `sbrk` only. Page faults
+on unmapped memory → panic, matching the Go reference implementation's
+region-based bounds checking (see `tests/jamtestvectors/traces/README.md`).
 
-~12K lines Lisp · ~3K lines Rust
+Instruction tracing (`*vm-trace-stream*`) and page-fault counting
+(`*vm-page-fault-count*`) available for step-level debugging.
+
+~12K lines Lisp · ~1K lines Rust (crypto only)
 
 ## Run
 
@@ -159,11 +102,14 @@ src/
 ├── upsilon.lisp        Υ(σ,B)→σ'  4-wave graph
 ├── accumulate.lisp     §12  R*, PVM orchestration
 ├── import.lisp         Block import, chain logging
+├── jamvm/              PVM interpreter (GP Appendix A)
+├── jam-host/           Host calls (GP Appendix B)
 ├── lib/                Codecs, constants, Merkle trie, MMR
 ├── bloc/               Header, extrinsics, work reports
 └── state/              17 components (one file each)
 
-crypto/jam-crypto/      Rust: crypto primitives + PolkaVM host calls
+crypto/jam-crypto/      Rust: Blake2b, Bandersnatch, Ed25519, erasure coding
+archive/pvm-rust/       Deprecated Rust PVM prototype (archived)
 tests/conformance.lisp  Trace runner (colored diff on 800+ blocks)
 ```
 

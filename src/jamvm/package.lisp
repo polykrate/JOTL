@@ -61,6 +61,7 @@
    #:*vm-last-step-pc*        ; PC before last vm-step (for panic diagnosis)
    #:*vm-opcode-counts*       ; 256-vector of opcode execution counts
    #:*vm-trap-log*            ; list of (PC raw-opcode bitmask-bit) for traps
+   #:*vm-page-fault-count*    ; counter for page faults caught during vm-run
    #:*vm-trace-stream*        ; stream for instruction trace logging
    #:*vm-step-counter*        ; step counter for tracing
    #:vm-run-host              ; run with host-call callback f

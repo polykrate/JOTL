@@ -226,6 +226,11 @@
 (defvar *vm-step-counter* 0
   "Current step number, incremented by vm-step when tracing is active.")
 
+(defvar *vm-page-fault-count* 0
+  "Counter for page faults encountered during vm-run.
+   Incremented each time a page fault is caught and converted to panic.
+   Reset to 0 at the start of each vm-run call.")
+
 (defun vm-run (vm)
   "Ψ: Run VM until halt/trap/oog/ecalli/fault.
    Returns (values status exit-arg).
@@ -239,6 +244,7 @@
    and retry the instruction (PC was already restored by vm-step)."
   ;; Clear any previous exit state
   (setf (pvm-status vm) nil)
+  (setf *vm-page-fault-count* 0)
 
   (let ((steps 0))
     (loop
@@ -269,20 +275,22 @@
                ;; No handler — yield
                (return (values :host-call (pvm-exit-arg vm)))))
 
-          ;; ── Page fault (A.8): allocate page and retry ──
-          ;; vm-step already rolled back (ι, φ) but KEPT gas charged.
-          ;; We allocate the faulting page as read-write, then loop
-          ;; to retry the instruction at the same PC.
-          ;; No additional gas charge for page allocation — the GP
-          ;; only charges the instruction's ϱ_Δ per attempt.
+          ;; ── Page fault (A.8): propagate as panic ──
+          ;; PolkaVM treats segfaults as traps (panics). All valid memory
+          ;; is pre-mapped at init (ro_data, rw_data, stack) or via sbrk
+          ;; (heap). Any access to unmapped pages is invalid → panic.
+          ;; The old code auto-allocated pages on fault, which was wrong:
+          ;; it allowed the guest to access memory outside valid regions,
+          ;; causing execution to diverge from the reference PVM.
           (:page-fault
-           (let* ((page-addr (pvm-exit-arg vm))
-                  (pidx      (page-index page-addr)))
-             ;; 1. Allocate page as read-write
-             (ensure-page (pvm-memory vm) pidx)
-             (setf (page-access (pvm-memory vm) pidx) :read-write)
-             ;; 2. Clear exit state and continue — instruction will retry
-             (setf (pvm-status vm) nil)))
+           (incf *vm-page-fault-count*)
+           (format *error-output*
+                   "~&[PAGE-FAULT] addr=~8,'0X page=~D pc=~D gas=~D → panic~%"
+                   (pvm-exit-arg vm)
+                   (page-index (pvm-exit-arg vm))
+                   (pvm-pc vm)
+                   (pvm-gas vm))
+           (return (values :panic 0)))
 
           ;; Terminal states
           (:halt       (return (values :halt 0)))
