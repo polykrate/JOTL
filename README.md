@@ -36,7 +36,9 @@ All 36 failures are in `fuzzy` (random service profile, max 6 work items).
 - Values are NOT swapped between services — they are genuinely different (verified via cross-SID swap diagnostic)
 - fuzzy has "random service profile + max 6 work items/report" vs fuzzy_light "empty profile + max 1 item" → bug triggered by multiple work items or complex profiles
 - `H_T` in `raw-next-service-id` (GP B.10) was tested as header-hash (32 bytes) → REGRESSION, confirming `H_T` IS the timeslot with compact encoding
-- Root cause likely in ΩY kind=14 encoding (multi-item accumulate data) or PVM arithmetic on accumulated values
+- AccumulateItem encoding verified correct against `jam-types` v0.1.26 Rust source (WorkItemRecord, TransferRecord, AccumulateParams)
+- S(w) encoding missing 10 bytes (E₂(w_e,|w_i|,|w_x|) + E₄(|w_y|)) but only affects refine context (kinds 11-13), not accumulate
+- Root cause: PVM computation bug exercised by "random service profile" code path — not encoding
 
 ### Fixed bugs
 
