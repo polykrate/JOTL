@@ -3,12 +3,13 @@
 ;;;; (A.2) deblob: p → (c, k, j) ∪ ∇
 ;;;;   Parse program blob to extract code, bitmask, and jump table.
 ;;;;
-;;;; (A.7) Standard program initialization:
+;;;; (A.7/A.42) Standard program initialization:
 ;;;;   Set up the memory layout from the JAM program blob fields:
-;;;;     - ro_data  → mapped read-only at address 0
+;;;;     - ro_data  → mapped read-only at Z_Z = 0x10000
 ;;;;     - rw_data  → mapped read-write after ro_data (page-aligned)
-;;;;     - stack    → mapped read-write at top of address space
+;;;;     - stack    → mapped read-write, top at 2³²−2Z_Z−Z_I = 0xFEFE0000
 ;;;;     - heap     → starts after rw_data + padding
+;;;;     - args     → placed by argument-invoke at 2³²−Z_Z−Z_I = 0xFEFF0000
 ;;;;
 ;;;; Uses jam-program-blob-common format:
 ;;;;   ProgramBlob { metadata, ro_data, rw_data, code_blob,
@@ -197,11 +198,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; (A.7) Standard Program Initialization
 ;;;
-;;; Memory layout:
-;;;   Address 0:                      ro_data (read-only)
-;;;   Page-aligned after ro_data:     rw_data (read-write)
-;;;   After rw_data + padding pages:  heap base
-;;;   Top of address space - stack:   stack (read-write)
+;;; Memory layout (GP A.42):
+;;;   [0, Z_Z)                     → inaccessible (guard)
+;;;   [Z_Z, Z_Z+|o|)              → ro_data (read-only)
+;;;   [2Z_Z+Z(|o|), ...]          → rw_data (read-write)
+;;;   After rw_data + padding      → heap base
+;;;   [stack_top-P(s), stack_top)  → stack (read-write), stack_top = 2³²−2Z_Z−Z_I
+;;;   [2³²−Z_Z−Z_I, ...]          → args (read-only, set by argument-invoke)
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun align-up (value alignment)
@@ -218,10 +221,9 @@
       (return-from standard-prog-init nil))
 
     (let* ((mem (make-memory))
-           ;; ── Constants matching polkavm-common/abi.rs ──
-           (vm-max-page #x10000)                    ; VM_MAX_PAGE_SIZE = 64KB
-           (addr-space-bottom vm-max-page)           ; VM_ADDRESS_SPACE_BOTTOM = 0x10000
-           (addr-space-top (- +max-address+ vm-max-page)) ; VM_ADDRESS_SPACE_TOP = 0xFFFF0000
+           ;; ── Constants matching GP A.39/A.42/A.43 ──
+           (vm-max-page +z-z+)                       ; Z_Z = 2¹⁶ = 64KB
+           (addr-space-bottom vm-max-page)            ; Z_Z = 0x10000
 
            ;; ── RO region: starts at VM_ADDRESS_SPACE_BOTTOM ──
            (ro-data (blob-ro-data blob))
@@ -244,10 +246,10 @@
            ;; After rw_data_address_space + guard:
            ;; heap_slack = rw_addr_space - rw_data_size (rest of the aligned space)
 
-           ;; ── Stack: at top of address space ──
+           ;; ── Stack: GP A.43 φ₁ = 2³²−2Z_Z−Z_I ──
            (stack-size (blob-stack-size blob))
            (stack-aligned (align-up stack-size +page-size+))
-           (stack-addr-high addr-space-top)           ; 0xFFFF0000
+           (stack-addr-high (- +max-address+ (* 2 +z-z+) +z-i+)) ; 0xFEFE0000
            (stack-addr-low (- stack-addr-high stack-aligned))
 
            ;; ── Compute actual heap range ──

@@ -27,18 +27,53 @@ All 36 failures are in `fuzzy` (random service profile, max 6 work items).
 
 | Category | Pattern | Count | Root cause | Status |
 |----------|---------|------:|------------|--------|
-| A | `delta-kvs` u64 on key `#(5)` | ~31 | Systematic u64 computation bug, always on raw storage key 5 | Investigating |
+| A | `delta-kvs` u64 on key `#(5)` | ~31 | Guest Blake2b hash loop reads wrong data → wrong u64 at key 5 | **Narrowed** |
 | B | `pi` + `delta-kvs` | ~4 | Gas diff + cascading storage diff | Investigating |
 | C | `beta + theta + delta-kvs` | 1 | block 68: wrong β/θ + cascading δ diff | Investigating |
 
-**Key observations:**
-- All 33 storage diffs are on h27=`d745b7fec1` (raw key `#(5)`), always 8-byte u64 values
-- Values are NOT swapped between services — they are genuinely different (verified via cross-SID swap diagnostic)
-- fuzzy has "random service profile + max 6 work items/report" vs fuzzy_light "empty profile + max 1 item" → bug triggered by multiple work items or complex profiles
-- `H_T` in `raw-next-service-id` (GP B.10) was tested as header-hash (32 bytes) → REGRESSION, confirming `H_T` IS the timeslot with compact encoding
-- AccumulateItem encoding verified correct against `jam-types` v0.1.26 Rust source (WorkItemRecord, TransferRecord, AccumulateParams)
-- S(w) encoding missing 10 bytes (E₂(w_e,|w_i|,|w_x|) + E₄(|w_y|)) but only affects refine context (kinds 11-13), not accumulate
-- Root cause: PVM computation bug exercised by "random service profile" code path — not encoding
+#### Category A deep dive — Block 23 reference
+
+Only **2 delta-KVs differ** (out of 58 total), both on raw storage key `#(5)`:
+
+| h27 key | Expected | Got |
+|---------|----------|-----|
+| `17D710...` | `24AED661DE8D80F6` | `CDF76F2989A9B8FF` |
+| `68D7B1...` | `C4E2386B810E0ED5` | `44E3DDA088EFB288` |
+
+**Mechanism (understood):**
+1. Guest receives ΩY kind=14 data at buffer 0x328E0 (RW data section, NOT heap)
+2. Guest processes data, then **reuses same buffer** for ΩR (read storage) etc.
+3. Blake2b hash loop later reads 8 bytes from 0x328E0+2, but buffer now has different data
+4. Hash written to key `#(5)` via ΩW is computed from whatever is at 0x328E0 at that time
+5. This is **normal guest behavior** — the buffer is intentionally reused
+6. The divergence comes from an **earlier host call returning different data** than expected, cascading into different buffer contents at hash time
+
+**Verified correct (ruled out):**
+- PVM instructions: `load-ind-u8`, `xor`, `move_reg`(100), `sbrk`(101), `count_set_bits`(102–103), `leading_zero_bits`(104–105) — all match GP spec
+- `sbrk` heap init: heap-base=0x33000, page-aligned, starts on inaccessible page
+- ΩY fetch kind=14: correctly writes 172 bytes of accumulate items to guest memory
+- AccumulateItem encoding (WorkItemRecord, TransferRecord, AccumulateParams) verified against codec test vectors
+- Service info encoding (ΩI, host call 5) produces correct 96-byte records
+- Host call context gating (`context-allows-p`) correct for accumulate context
+- JAM compact integer encoding matches GP C.5
+
+**Next step — find the divergent host call:**
+- Host call sequence for SID=3953987607 block 23: 4×ΩY, 1×ΩI, 4×ext_log, 4×ΩR, 2×ΩW, 2×ΩC, 1×ΩY(entropy) = 18 calls total
+- Need to compare each host call's output with expected values
+- Best approach: step-trace PVM execution and compare register snapshots, or generate a reference host-call trace and diff
+
+**Host call ID mapping (verified against `defomega`):**
+```
+ 0:ΩG(gas)     1:ΩY(fetch)   2:ΩL(lookup)   3:ΩR(read)     4:ΩW(write)    5:ΩI(info)
+ 6:ΩH(hist)    7:ΩE(export)  8:ΩM(make)     9:ΩP(peek)    10:ΩO(poke)    11:ΩZ(pages)
+12:ΩK(invoke) 13:expunge    14:ΩB(bless)   15:ΩA(assign)  16:ΩD(designate) 17:ΩC(checkpoint)
+18:ΩN(new)    19:upgrade    20:transfer    21:eject       22-26:preimage   99:ΩX(abort)
+100:ext_log
+```
+
+**Diagnostic tools:**
+- `tests/diag-opcode-diff.lisp` — PVM register ring buffer around ΩW key(5) writes
+- `tests/diag-decode-loop.lisp` — decode loop diagnostic
 
 ### Fixed bugs
 
