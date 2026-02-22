@@ -25,42 +25,59 @@ both chain and step modes. 0 silent errors.
 All 36 failures are in `fuzzy` (random service profile, max 6 work items).
 `fuzzy_light` (empty service profile, max 1 work item) passes 200/200.
 
-| Category | Pattern | Count | Root cause | Status |
-|----------|---------|------:|------------|--------|
-| A | `delta-kvs` u64 on key `#(5)` | ~31 | Guest Blake2b hash loop reads wrong data → wrong u64 at key 5 | **Narrowed** |
-| B | `pi` + `delta-kvs` | ~4 | Gas diff + cascading storage diff | Investigating |
-| C | `beta + theta + delta-kvs` | 1 | block 68: wrong β/θ + cascading δ diff | Investigating |
+| Category | Pattern | Blocks | Count | Status |
+|----------|---------|--------|------:|--------|
+| A | `delta-kvs` only | 45,48,74,78,110,122,123,126,127,131,145,152,156,164,168,170,173,174,175,185,188 | 21 | Investigating |
+| B | `pi` + `delta-kvs` | 23,30,56,77,90,103,105,111,119,191,196 | 11 | Investigating |
+| C | `beta` + `theta` ± `pi` ± `delta-kvs` | 68,82,102,179 | 4 | **Deep dive** |
 
-#### Category A deep dive — Block 23 reference
+#### Category A — `delta-kvs` storage divergence
 
-Only **2 delta-KVs differ** (out of 58 total), both on raw storage key `#(5)`:
+Only 2 delta-KVs differ per block, both on raw storage key `#(5)` (u64 values).
+Root cause: guest Blake2b hash loop reads a buffer that has been reused by
+a prior host call, producing a different hash. The divergence traces back to
+an **earlier host call returning different data** than expected.
 
-| h27 key | Expected | Got |
-|---------|----------|-----|
-| `17D710...` | `24AED661DE8D80F6` | `CDF76F2989A9B8FF` |
-| `68D7B1...` | `C4E2386B810E0ED5` | `44E3DDA088EFB288` |
+#### Category B — `pi` gas divergence + `delta-kvs`
 
-**Mechanism (understood):**
-1. Guest receives ΩY kind=14 data at buffer 0x328E0 (RW data section, NOT heap)
-2. Guest processes data, then **reuses same buffer** for ΩR (read storage) etc.
-3. Blake2b hash loop later reads 8 bytes from 0x328E0+2, but buffer now has different data
-4. Hash written to key `#(5)` via ΩW is computed from whatever is at 0x328E0 at that time
-5. This is **normal guest behavior** — the buffer is intentionally reused
-6. The divergence comes from an **earlier host call returning different data** than expected, cascading into different buffer contents at hash time
+Gas field (`pi`) is slightly off, causing cascading storage differences.
+Likely the same root cause as Category A (incorrect host call → different
+execution path → different gas consumption).
 
-**Verified correct (ruled out):**
-- PVM instructions: `load-ind-u8`, `xor`, `move_reg`(100), `sbrk`(101), `count_set_bits`(102–103), `leading_zero_bits`(104–105) — all match GP spec
-- `sbrk` heap init: heap-base=0x33000, page-aligned, starts on inaccessible page
-- ΩY fetch kind=14: correctly writes 172 bytes of accumulate items to guest memory
-- AccumulateItem encoding (WorkItemRecord, TransferRecord, AccumulateParams) verified against codec test vectors
-- Service info encoding (ΩI, host call 5) produces correct 96-byte records
-- Host call context gating (`context-allows-p`) correct for accumulate context
-- JAM compact integer encoding matches GP C.5
+#### Category C — `beta` + `theta` yield hash divergence
 
-**Next step — find the divergent host call:**
-- Host call sequence for SID=3953987607 block 23: 4×ΩY, 1×ΩI, 4×ext_log, 4×ΩR, 2×ΩW, 2×ΩC, 1×ΩY(entropy) = 18 calls total
-- Need to compare each host call's output with expected values
-- Best approach: step-trace PVM execution and compare register snapshots, or generate a reference host-call trace and diff
+4 blocks produce wrong yield hashes (θ), which cascade into wrong β
+(recent block history contains MMR of θ). Block 82 is the cleanest case
+(β+θ only, no δ or π divergence).
+
+**Investigation status (Block 82 deep dive):**
+
+| Verified correct | Details |
+|-----------------|---------|
+| PVM instructions | 64-bit XOR, rotate, shift, memory load/store all match GP spec |
+| `write-guest` / `read-guest` | Cross-page writes correct, byte-level access validated |
+| Protocol params (ΩY kind=0) | 134 bytes, encoding matches Rust reference |
+| Entropy (ΩY kind=1) | 128 bytes, passed correctly from state |
+| Accumulate items (ΩY kind=14) | Encoding verified, blob sizes match |
+| Service info (ΩI, HC5) | 96-byte encoding correct; Rust uses mutated state for self-lookup |
+| Storage read/write (ΩR/ΩW) | Correct h27 hashing, proper footprint tracking |
+| Yield (HC25) | Correctly stores 32-byte hash from guest memory |
+| Checkpoint (HC17) | Snapshot/rollback works correctly |
+| AccumulateParams encoding | JAM compact `(slot, sid, item_count)` verified |
+| `encode-accumulate-items-list` | WorkItemRecord structure matches codec test vectors |
+| θ assembly from commitments | Correctly built from yield outputs |
+
+| Large blob encoding | SID 516569628 has 11325-byte result data → 11462-byte WorkItemRecord. Compact prefix correct, total fetch = 11463 bytes |
+| JAM compact codec | Verified for all value sizes (1/2/4/8-byte modes), matches GP C.5 |
+| `encode-accumulate-params` | compact(slot) + compact(sid) + compact(item_count) correct |
+
+**Remaining hypotheses:**
+- PVM instruction bug on a specific opcode/data pattern (rare enough to pass most tests)
+- Host call returning subtly wrong data that cascades through guest logic
+- Instruction decoder edge case for specific immediate/skip values
+
+**Next step:** Step-trace PVM execution for block 82 SID 516569628 and compare
+register snapshots with reference, or generate a reference host-call trace and diff.
 
 **Host call ID mapping (verified against `defomega`):**
 ```
@@ -70,10 +87,6 @@ Only **2 delta-KVs differ** (out of 58 total), both on raw storage key `#(5)`:
 18:ΩN(new)    19:upgrade    20:transfer    21:eject       22-26:preimage   99:ΩX(abort)
 100:ext_log
 ```
-
-**Diagnostic tools:**
-- `tests/diag-opcode-diff.lisp` — PVM register ring buffer around ΩW key(5) writes
-- `tests/diag-decode-loop.lisp` — decode loop diagnostic
 
 ### Fixed bugs
 
@@ -118,9 +131,14 @@ no mutation.
 `import-block` is the boundary — pure below, observation above.
 
 Crypto (Blake2b, Bandersnatch, Ed25519) is Rust via CFFI.
-PVM (GP Appendix A) is pure Common Lisp (`src/jamvm/`), with host calls
-(GP Appendix B) in `src/jam-host/`. Instruction tracing (`*vm-trace-stream*`)
-available for step-level debugging.
+
+PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
+(GP Appendix B) in `src/jam-host/`. The Rust code in `crypto/jam-crypto/src/pvm/`
+is an early prototype (draft) and **does NOT handle all edge cases** — it is
+superseded by the Lisp PVM implementation. The ASN schema in
+`tests/jamtestvectors/` is the authoritative reference for data types.
+
+Instruction tracing (`*vm-trace-stream*`) available for step-level debugging.
 
 ~12K lines Lisp · ~3K lines Rust
 

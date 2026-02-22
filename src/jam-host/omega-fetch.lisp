@@ -82,19 +82,32 @@
     ;; ── Shared across all contexts ──────────────────────
     (#.+fetch-protocol-params+
      (let ((pp (hctx-protocol-params ctx)))
+       (when (and pp (plusp (length pp))
+                  (hctx-debug-trace ctx))
+         (format *error-output*
+                 "~&[FETCH-0-PP] sid=~D len=~D bytes: ~{~2,'0X~}~%"
+                 (hctx-service-id ctx) (length pp) (coerce pp 'list)))
        (when (plusp (length pp)) pp)))
 
     (#.+fetch-entropy+
-     (let ((raw (hctx-entropy-raw ctx)))
-       (if (plusp (length raw))
-           raw
-           ;; Flatten 4×32 entropy array
-           (let* ((ent (hctx-entropy ctx))
-                  (flat (make-array 128 :element-type '(unsigned-byte 8))))
-             (dotimes (i 4 flat)
-               (dotimes (j 32)
-                 (setf (aref flat (+ (* i 32) j))
-                       (aref ent i j))))))))
+     (let ((result
+             (let ((raw (hctx-entropy-raw ctx)))
+               (if (plusp (length raw))
+                   raw
+                   ;; Flatten 4×32 entropy array
+                   (let* ((ent (hctx-entropy ctx))
+                          (flat (make-array 128 :element-type '(unsigned-byte 8))))
+                     (dotimes (i 4 flat)
+                       (dotimes (j 32)
+                         (setf (aref flat (+ (* i 32) j))
+                               (aref ent i j)))))))))
+       (when (and result (hctx-debug-trace ctx))
+         (format *error-output*
+                 "~&[FETCH-1-ENTROPY] sid=~D len=~D first-32: ~{~2,'0X~}~%"
+                 (hctx-service-id ctx)
+                 (length result)
+                 (coerce (subseq result 0 (min 32 (length result))) 'list)))
+       result))
 
     ;; ── Refine context (B.6) ────────────────────────────
     (#.+fetch-auth-trace+
@@ -163,7 +176,15 @@
          (wi-payload (nth a items)))))
 
     (#.+fetch-accumulate-items+
-     (encode-accumulate-items-list (hctx-accumulate-items ctx)))
+     (let ((encoded (encode-accumulate-items-list (hctx-accumulate-items ctx))))
+       (when (hctx-debug-trace ctx)
+         (format *error-output*
+                 "~&[FETCH-14] sid=~D items=~D total-len=~D first-32: ~{~2,'0X~}~%"
+                 (hctx-service-id ctx)
+                 (length (hctx-accumulate-items ctx))
+                 (length encoded)
+                 (coerce (subseq encoded 0 (min 32 (length encoded))) 'list)))
+       encoded))
 
     (#.+fetch-any-accum-item+
      (nth a (hctx-accumulate-items ctx)))

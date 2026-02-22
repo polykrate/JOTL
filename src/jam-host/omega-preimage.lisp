@@ -301,6 +301,10 @@
   (let ((o (u32 (reg vm +a0+))))
     (let ((hash-bytes (read-guest vm o 32)))
       (unless hash-bytes (return-from omega-yield-hash :fault))
+      (when (hctx-debug-trace ctx)
+        (format *error-output*
+                "~&[HC25-YIELD] sid=~D addr=~D hash=~{~2,'0X~}~%"
+                (hctx-service-id ctx) o (coerce hash-bytes 'list)))
       (setf (hctx-yield-output ctx) hash-bytes)
       (set-reg vm +a0+ +hc-ok+)
       :continue)))

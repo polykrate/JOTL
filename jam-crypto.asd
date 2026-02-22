@@ -1,8 +1,9 @@
 ;;;; crypto.asd - JAM Cryptography System (FFI to Rust)
 ;;;; Gray Paper Appendices A, E, F, G, H
+;;;; Pure crypto only — PVM is now in Lisp (src/jamvm/ + src/jam-host/)
 
 (asdf:defsystem #:jam-crypto
-  :description "JAM Cryptography FFI to Rust (Blake2b, Ed25519, Bandersnatch, PVM)"
+  :description "JAM Cryptography FFI to Rust (Blake2b, Ed25519, Bandersnatch, Erasure)"
   :author "Polycrate"
   :license "GPL-3.0"
   :version "1.0.0"
@@ -14,8 +15,7 @@
                 ((:file "package")
                  (:file "utils")              ; Utility functions
                  (:file "crypto")             ; Crypto FFI (Blake2b, Ed25519, Bandersnatch, Erasure)
-                 (:file "primitives")         ; Types, Y function, constants
-                 (:file "pvm"))))             ; Clean JAM-codec PVM bindings
+                 (:file "primitives"))))      ; Types, Y function, constants
   
   :perform (asdf:load-op :after (o c)
              (declare (ignore o c))

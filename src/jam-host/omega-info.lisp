@@ -21,10 +21,8 @@
 
     ;; Resolve service account
     ;; GP B.5: a = d[s] if φ₇ = 2⁶⁴−1 (NONE), else d[φ₇]
-    ;; When φ₇ = own service ID, d[φ₇] should return the ORIGINAL
-    ;; directory entry.  But since we don't store self in service-accounts
-    ;; (it lives in hctx-* fields), we also treat own-id as self.
-    ;; TODO: separate original-state vs mutated-state for strict GP compliance.
+    ;; Rust reference: self_account_info() returns CURRENT (mutated) state
+    ;; — items_count and footprint reflect ΩW mutations during execution.
     (let* ((is-self (or (= service-raw +hc-none+)
                         (= service-raw (u64 (hctx-service-id ctx)))))
            (account (if is-self
@@ -43,6 +41,12 @@
                 (data-len (length v))
                 (f (min offset data-len))
                 (l (min out-len (- data-len f))))
+           (when (hctx-debug-trace ctx)
+             (format *error-output*
+                     "~&[HC5-INFO] sid=~D target=~A self?=~A data(~D): ~{~2,'0X~}~%"
+                     (hctx-service-id ctx)
+                     (if is-self "self" service-raw)
+                     is-self data-len (coerce v 'list)))
            (when (plusp l)
              (unless (write-guest vm out-ptr (subseq v f (+ f l)))
                (return-from omega-info :fault)))

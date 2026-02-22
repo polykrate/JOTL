@@ -143,8 +143,13 @@
              (rk (work-exec-result-kind res))
              (rd (when (getf res :ok) (getf res :ok)))
              (ao (getf u :auth-output)))
-        (format *error-output* "~&  gas=~D rk=~D rd-len=~D ao-len=~D~%"
-                (or (getf u :gas) 0) rk (if rd (length rd) 0) (if ao (length ao) 0)))))
+        (format *error-output* "~&  gas=~D rk=~D rd-len=~D ao-len=~D payload-hash-len=~D~%"
+                (or (getf u :gas) 0) rk (if rd (length rd) 0) (if ao (length ao) 0)
+                (if (getf u :payload-hash) (length (getf u :payload-hash)) 0))))
+    ;; Also show actual encoded blob sizes
+    (let ((blobs (append (encode-transfer-items (or transfers nil))
+                         (encode-work-items (or items nil)))))
+      (format *error-output* "~&  encoded-blob-sizes: ~{~D~^ ~}~%" (mapcar #'length blobs))))
   (append (encode-transfer-items (or transfers nil))
           (encode-work-items (or items nil))))
 
@@ -213,7 +218,12 @@
                       "~&[PVM-DBG] sid=~D items=~D transfers=~D encoded-blobs=~D blob-sizes=~{~D~^ ~}~%"
                       service-id (length items) (length svc-transfers)
                       (length enc-items)
-                      (mapcar #'length enc-items))))
+                      (mapcar #'length enc-items))
+              (format *error-output*
+                      "~&[PVM-DBG] sid=~D last-accum-slot=~D (old=~D timeslot=~D) balance=~D~%"
+                      service-id last-accum
+                      (or (getf metadata :last-accumulation-slot) 0)
+                      timeslot balance)))
 
           ;; ── Run PVM accumulate via Lisp JamVM ──
           (multiple-value-bind (effects gas-used)
@@ -335,6 +345,12 @@
 
 
           ;; Store Δ(s) result (even if nil, to mark service as processed)
+          (when *debug-pvm-trace*
+            (format *error-output*
+                    "~&[ACCUM] sid=~D gas-used=~D outcome=~A yield?=~A~%"
+                    sid gas-used
+                    (when effects (getf effects :outcome))
+                    (and effects (getf effects :yield-output) t)))
           (setf (gethash sid delta-results) effects)
 
           ;; u: gas usage — (sid n-items gas-used)g
@@ -344,7 +360,18 @@
             (push (list sid (length (or items '())) gas-used) gas-usage))
 
           ;; b: commitments (yield output)
+          (when *debug-pvm-trace*
+            ;; Log host call sequence for yielding services
+            (when (and effects (getf effects :host-call-log))
+              (format *error-output* "~&[HOST-CALLS] sid=~D calls:~%" sid)
+              (dolist (entry (getf effects :host-call-log))
+                (format *error-output* "~&  ~A~%" entry))))
           (when (and effects (getf effects :yield-output))
+            (when *debug-pvm-trace*
+              (format *error-output*
+                      "~&[YIELD] sid=~D outcome=~D hash=~A~%"
+                      sid (getf effects :outcome)
+                      (bytes-to-hex-string (getf effects :yield-output))))
             (push (cons sid (getf effects :yield-output)) commitments))
 
           ;; t': new deferred transfers from this service

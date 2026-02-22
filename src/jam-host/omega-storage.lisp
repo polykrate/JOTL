@@ -43,6 +43,10 @@
 
           (cond
             ((null value)
+             (when (hctx-debug-trace ctx)
+               (format *error-output*
+                       "~&[HC3-READ] sid=~D key(~D)=~{~2,'0X~} → NONE~%"
+                       (hctx-service-id ctx) (length key) (coerce key 'list)))
              (set-reg vm +a0+ +hc-none+)
              :continue)
 
@@ -50,6 +54,16 @@
              (let* ((data-len (length value))
                     (f (min offset data-len))
                     (l (min out-len (- data-len f))))
+               (when (hctx-debug-trace ctx)
+                 (let ((val-hash (let ((d (ironclad:make-digest :blake2/256)))
+                                   (ironclad:update-digest d value)
+                                   (ironclad:produce-digest d))))
+                   (format *error-output*
+                           "~&[HC3-READ] sid=~D key(~D)=~{~2,'0X~} val-len=~D read=~D first-8: ~{~2,'0X~} blake2=~{~2,'0X~}~%"
+                           (hctx-service-id ctx) (length key) (coerce key 'list)
+                           data-len l
+                           (coerce (subseq value f (min (+ f 8) (+ f l))) 'list)
+                           (coerce (subseq val-hash 0 16) 'list))))
                (when (plusp l)
                  (unless (write-guest vm out-ptr (subseq value f (+ f l)))
                    (return-from omega-read-storage :fault)))
@@ -114,6 +128,20 @@
               (when (> a-t (hctx-balance ctx))
                 (set-reg vm +a0+ +hc-full+)
                 (return-from omega-write-storage :continue))))
+
+          ;; ── Debug trace ΩW ──────────────────────────────
+          (when (hctx-debug-trace ctx)
+            (let ((val-hash (when new-value
+                              (let ((d (ironclad:make-digest :blake2/256)))
+                                (ironclad:update-digest d new-value)
+                                (ironclad:produce-digest d)))))
+              (format *error-output*
+                      "~&[HC4-WRITE] sid=~D key(~D)=~{~2,'0X~} old-len=~A new-len=~A first-8: ~{~2,'0X~} blake2=~{~2,'0X~}~%"
+                      (hctx-service-id ctx) key-sz (coerce key 'list)
+                      (if old-val (length old-val) "NIL")
+                      (if new-value (length new-value) "DEL")
+                      (if new-value (coerce (subseq new-value 0 (min 8 (length new-value))) 'list) nil)
+                      (if val-hash (coerce (subseq val-hash 0 (min 16 (length val-hash))) 'list) nil))))
 
           ;; FULL check passed — apply actual mutation
           (cond

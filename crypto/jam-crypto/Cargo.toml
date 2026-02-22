@@ -2,7 +2,7 @@
 name = "jam-crypto"
 version = "0.1.0"
 edition = "2021"
-description = "Crypto FFI for JAM Lisp client"
+description = "Crypto FFI for JAM Lisp client (pure crypto only — PVM is in Lisp)"
 
 [lib]
 crate-type = ["cdylib"]
@@ -40,31 +40,11 @@ serde_json = "1.0.145"
 reed-solomon-novelpoly = "2.0"
 reed-solomon-simd = "3.1.0"
 
-# PolkaVM - RISC-V virtual machine for JAM PVM (GP Section 14)
-# 0.29 required by jam-program-blob-common 0.1. Test vectors generated
-# with 0.29-era gas model. polkavm 0.31 compiles (see git log) but
-# changes instruction gas, causing 98→43 step regression.
-polkavm = "0.29"
-
 # Logging
 log = "0.4"
 
-# Hex encoding (used by trace_pvm binary)
+# Hex encoding
 hex = "0.4"
-
-# JAM PVM Common - for parsing JAM blob format (used by test vectors)
-# NOTE: polkajam repo is private, so we use crates.io versions
-# Test vectors may use dev versions - compatibility issues possible
-jam-pvm-common = { version = "0.1", default-features = false }
-jam-pvm-builder = "0.1"
-jam-program-blob-common = { version = "0.1", features = ["polkavm"] }
-jam-types = "0.1"
-parity-scale-codec = "3"
-jam-codec = "0.1"
-
-[[bin]]
-name = "trace_pvm"
-path = "src/bin/trace_pvm.rs"
 
 [dev-dependencies]
 hex = "0.4"

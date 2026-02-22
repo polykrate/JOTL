@@ -620,18 +620,31 @@
                            ;; Check yield: if A0 ≠ 0, A1 = 32, read hash
                            (let ((a0 (reg vm +a0+))
                                  (a1 (reg vm +a1+)))
+                             (when debug-trace
+                               (format *error-output*
+                                       "~&[YIELD-DETECT] sid=~D exit=:halt A0=~D A1=~D prior-yield?=~A~%"
+                                       service-id a0 a1 (and (hctx-yield-output ctx) t)))
                              (if (and (not (hctx-yield-output ctx))
                                       (/= a0 0)
                                       (= a1 32))
                                  ;; Yield via return value
                                  (let ((hash-bytes (read-guest vm (u32 a0) 32)))
+                                   (when debug-trace
+                                     (format *error-output*
+                                             "~&[YIELD-DETECT] yield-via-halt addr=~D hash=~{~2,'0X~}~%"
+                                             a0 (coerce hash-bytes 'list)))
                                    (if hash-bytes
                                        (progn
                                          (setf (hctx-yield-output ctx) hash-bytes)
                                          :halt-with-yield)
                                        :halt))
                                  (if (hctx-yield-output ctx)
-                                     :halt-with-yield
+                                     (progn
+                                       (when debug-trace
+                                         (format *error-output*
+                                                 "~&[YIELD-DETECT] yield-via-hostcall hash=~{~2,'0X~}~%"
+                                                 (coerce (hctx-yield-output ctx) 'list)))
+                                       :halt-with-yield)
                                      :halt))))
                           (:panic :panic)
                           (:oog   :oog)

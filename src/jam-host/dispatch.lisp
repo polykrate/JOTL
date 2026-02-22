@@ -82,6 +82,12 @@
 
           ;; ── Debug trace BEFORE+AFTER dispatch ──────────
           (when (hctx-debug-trace ctx)
+            (format *error-output*
+                    "~&[HC] sid=~D id=~D a0=~D→~D a1=~D→~D a2=~D a3=~D a4=~D a5=~D result=~A~%"
+                    (hctx-service-id ctx) id
+                    pre-a0 (reg vm +a0+) pre-a1 (reg vm +a1+)
+                    pre-a2 pre-a3 pre-a4 pre-a5
+                    result)
             (push (list :id id :gas-before gas :gas-after (- gas cost)
                         :a0-before pre-a0 :a1-before pre-a1
                         :a2-before pre-a2 :a3-before pre-a3
