@@ -30,8 +30,9 @@
 ;;; GP B.15: ϱ' = ϱ − g (g = 10 for all host calls)
 ;;; GP B.16: if ϱ < g → (∞, φ, μ, s) — OOG, no mutations
 ;;;
-;;; Context gating: if host call not allowed in invocation context,
-;;; charge gas but leave registers untouched (GP B.2/B.6).
+;;; Context gating (GP B.2/B.6/B.8/B.11):
+;;; If host call not allowed in the current invocation context,
+;;; charge gas and set φ'₇ = WHAT, then continue (▸).
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun host-dispatch (vm ctx id)
@@ -49,12 +50,16 @@
     ;; ── B.15: ϱ' = ϱ − g ──────────────────────────────
     (decf (pvm-gas vm) cost)
 
-    ;; ── Context gating ─────────────────────────────────
+    ;; ── Context gating (GP B.2/B.6/B.8/B.11) ──────────
+    ;; For any host call not listed in the current context,
+    ;; the GP defines: φ'₇ = WHAT, ϱ' = ϱ − 10, continue (▸).
     (unless (context-allows-p ctx id)
-      ;; Blocked: charge gas, don't touch registers, continue
+      (set-reg vm +a0+ +hc-what+)
       (when (hctx-debug-trace ctx)
-        (push (list id gas (- gas cost) (reg vm +a0+)
-                    (hash-table-count (hctx-storage ctx)))
+        (push (list :id id :gas-before gas :gas-after (- gas cost)
+                    :a0-before (reg vm +a0+) :a0-after +hc-what+
+                    :storage-cnt (hash-table-count (hctx-storage ctx))
+                    :result :context-gated)
               (hctx-host-call-log ctx)))
       (return-from host-dispatch :continue))
 
