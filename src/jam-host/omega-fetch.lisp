@@ -181,11 +181,16 @@
      (let ((encoded (encode-accumulate-items-list (hctx-accumulate-items ctx))))
        (when (hctx-debug-trace ctx)
          (format *error-output*
-                 "~&[FETCH-14] sid=~D items=~D total-len=~D first-32: ~{~2,'0X~}~%"
+                 "~&[FETCH-14] sid=~D items=~D total-len=~D~%"
                  (hctx-service-id ctx)
                  (length (hctx-accumulate-items ctx))
-                 (length encoded)
-                 (coerce (subseq encoded 0 (min 32 (length encoded))) 'list)))
+                 (length encoded))
+         ;; Dump full payload in hex
+         (format *error-output* "[FETCH-14-FULL] ~{~2,'0X~}~%" (coerce encoded 'list))
+         ;; Dump each item separately
+         (loop for item in (hctx-accumulate-items ctx) for i from 0 do
+           (format *error-output* "[FETCH-14-ITEM-~D] len=~D hex=~{~2,'0X~}~%"
+                   i (length item) (coerce item 'list))))
        encoded))
 
     (#.+fetch-any-accum-item+
