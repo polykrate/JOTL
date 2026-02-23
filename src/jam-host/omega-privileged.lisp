@@ -21,11 +21,16 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 14 omega-bless (vm ctx)
-  "ΩB: Set privileged empower state."
-  (let* ((m     (u32 (reg vm +a0+)))     ; manager service
+  "ΩB: Set privileged empower state.
+   GP: (m, v, r) must all be in N³_S — i.e. valid u32 service IDs (< 2³²).
+   If any raw register value ≥ 2³², return WHO."
+  (let* ((m-raw (reg vm +a0+))           ; raw 64-bit register values
+         (v-raw (reg vm +a2+))
+         (r-raw (reg vm +a3+))
+         (m     (u32 m-raw))             ; truncated for use after checks
          (a-ptr (u32 (reg vm +a1+)))     ; pointer to auth agents array
-         (v     (u32 (reg vm +a2+)))     ; validator service
-         (r     (u32 (reg vm +a3+)))     ; staking service
+         (v     (u32 v-raw))             ; validator service
+         (r     (u32 r-raw))             ; staking service
          (o     (u32 (reg vm +a4+)))     ; pointer to gas map entries
          (n     (u32 (reg vm +a5+)))     ; number of gas map entries
          (c     (hctx-core-count ctx)))  ; C = core count
@@ -63,6 +68,14 @@
                                                       (* 8 j))))))))
                   (setf (gethash sid gas-map) gas))))
 
+            ;; ── GP: (m, v, r) ∉ N³_S → WHO ──
+            ;; Raw register values must be valid u32 (< 2³²).
+            (when (or (>= m-raw (expt 2 32))
+                      (>= v-raw (expt 2 32))
+                      (>= r-raw (expt 2 32)))
+              (set-reg vm +a0+ +hc-who+)
+              (return-from omega-bless :continue))
+
             ;; ── Preserve existing q and l from prior ΩB ──
             (let ((prev-queues (if (hctx-empower ctx)
                                    (emp-queues (hctx-empower ctx))
@@ -95,10 +108,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 15 omega-assign (vm ctx)
-  "ΩA: Assign authorization queue to a core."
-  (let* ((c-idx (u32 (reg vm +a0+)))     ; core index
-         (o     (u32 (reg vm +a1+)))     ; memory offset for Q hashes
-         (a     (u32 (reg vm +a2+)))     ; new auth agent service ID
+  "ΩA: Assign authorization queue to a core.
+   GP: c, a are raw 64-bit register values; c ≥ C → CORE; a ∉ N_S → WHO."
+  (let* ((c-raw  (reg vm +a0+))          ; raw 64-bit core index
+         (o      (u32 (reg vm +a1+)))    ; memory offset for Q hashes
+         (a-raw  (reg vm +a2+))          ; raw 64-bit auth agent service ID
+         (c-idx  (u32 c-raw))            ; truncated for array access
+         (a      (u32 a-raw))            ; truncated for lookup
          (q-count (hctx-auth-queue-len ctx)))  ; Q
 
     ;; ── Read q: Q authorization hashes (32 bytes each) ──
@@ -113,8 +129,8 @@
             (replace hash q-raw :start2 start :end2 (+ start 32))
             (setf (aref q i) hash)))
 
-        ;; ── c ≥ C → CORE ──
-        (when (>= c-idx (hctx-core-count ctx))
+        ;; ── c ≥ C → CORE (use raw 64-bit value for comparison) ──
+        (when (>= c-raw (hctx-core-count ctx))
           (set-reg vm +a0+ +hc-core+)
           (return-from omega-assign :continue))
 
@@ -127,8 +143,9 @@
             (set-reg vm +a0+ +hc-huh+)
             (return-from omega-assign :continue))
 
-          ;; ── a ∉ N_S → WHO ──
-          (unless (gethash a (hctx-existing-services ctx))
+          ;; ── a ∉ N_S → WHO (raw value must be valid u32 AND exist) ──
+          (when (or (>= a-raw (expt 2 32))
+                    (not (gethash a (hctx-existing-services ctx))))
             (set-reg vm +a0+ +hc-who+)
             (return-from omega-assign :continue))
 
