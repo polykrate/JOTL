@@ -646,9 +646,10 @@
                                                  (coerce (hctx-yield-output ctx) 'list)))
                                        :halt-with-yield)
                                      :halt))))
-                          (:panic :panic)
-                          (:oog   :oog)
-                          (t      :panic)))
+                          (:panic      :panic)
+                          (:page-fault :panic)   ; outer PVM: all valid memory pre-mapped
+                          (:oog        :oog)
+                          (t           :panic)))
                       (gas-remaining (pvm-gas vm)))
 
                   ;; 6. Apply checkpoint collapse (GP B.13) directly to ctx
