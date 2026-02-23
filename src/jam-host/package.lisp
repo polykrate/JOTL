@@ -8,7 +8,7 @@
   (:documentation
    "JAM Host-Call Layer — Pure Common Lisp Ω implementations (GP Appendix B).
 
-    Ported from crypto/jam-crypto/src/pvm/{context.rs, host_calls.rs}.
+    Implements GP Appendix B — all host calls (Ω₀–Ω₂₅) and context.
     Uses JamVM (GP Appendix A) for PVM execution; no polkavm dependency.
 
     Key entry points:

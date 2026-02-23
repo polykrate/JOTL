@@ -5,7 +5,7 @@
 ;;;; 20 — ΩT  Transfer
 ;;;; 21 — ΩJ  Eject-service
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.14–B.16 (service lifecycle).
 
 (in-package #:jam-host)
 

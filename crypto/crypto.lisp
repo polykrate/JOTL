@@ -14,15 +14,9 @@
 ;;; ==========================================================================
 
 (cffi:define-foreign-library libjamcrypto
-  (:unix (:or "/home/polycrate/Projets/JOTL/crypto/jam-crypto/target/release/libjam_crypto.so"
-              "crypto/jam-crypto/target/release/libjam_crypto.so"
-              "src/crypto/jam-crypto/target/release/libjam_crypto.so"
-              "ffi/jam-crypto/target/release/libjam_crypto.so"
+  (:unix (:or "crypto/jam-crypto/target/release/libjam_crypto.so"
               "libjam_crypto.so"))
-  (:darwin (:or "/home/polycrate/Projets/JOTL/crypto/jam-crypto/target/release/libjam_crypto.dylib"
-                "crypto/jam-crypto/target/release/libjam_crypto.dylib"
-                "src/crypto/jam-crypto/target/release/libjam_crypto.dylib"
-                "ffi/jam-crypto/target/release/libjam_crypto.dylib"
+  (:darwin (:or "crypto/jam-crypto/target/release/libjam_crypto.dylib"
                 "libjam_crypto.dylib"))
   (t (:default "libjam_crypto"))) 
 

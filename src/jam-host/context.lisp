@@ -1,6 +1,6 @@
 ;;;; context.lisp — JamHostContext & ServiceAccount (GP Appendix B)
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/context.rs.
+;;;; Host context structures for GP Appendix B.
 ;;;; Pure Common Lisp structs with hash-table-based maps.
 
 (in-package #:jam-host)
@@ -163,7 +163,7 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; JamHostContext — master state during PVM execution
 ;;;
-;;; Ported from JamHostContext in context.rs (lines 316-491).
+;;; Host execution context — GP Appendix B.
 ;;; All fields use CL hash tables instead of Rust HashMap.
 ;;; ═══════════════════════════════════════════════════════════════════
 

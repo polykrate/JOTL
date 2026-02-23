@@ -1,6 +1,6 @@
 ;;;; constants.lisp — GP B.1 Host-Call Result Constants & Protocol Constants
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/context.rs lines 119-158.
+;;;; GP Appendix B — host call IDs, return codes, and fetch kinds.
 ;;;; These u64 sentinel values live near 2^64 and cannot collide with
 ;;;; valid lengths or indices.
 

@@ -1,6 +1,6 @@
 ;;;; omega-gas.lisp — Ω₀ (ΩG) Gas-remaining + ext_log
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs lines 244-253.
+;;;; Implements GP Appendix B.1 (gas remaining query).
 ;;;; The simplest host calls: query gas, and log (extension).
 
 (in-package #:jam-host)

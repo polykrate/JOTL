@@ -5,7 +5,7 @@
 ;;;; 16 — ΩD  Designate-validators
 ;;;; 17 — ΩC  Checkpoint
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.7–B.13 (privileged host calls).
 
 (in-package #:jam-host)
 

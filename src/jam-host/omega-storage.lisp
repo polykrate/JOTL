@@ -1,6 +1,6 @@
 ;;;; omega-storage.lisp — Ω₃ (ΩR) Read-storage + Ω₄ (ΩW) Write-storage
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.3–B.4 (storage read/write).
 ;;;; Uses blake2b via ironclad for storage key hashing (GP Appendix D).
 
 (in-package #:jam-host)

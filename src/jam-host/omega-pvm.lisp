@@ -1,6 +1,6 @@
 ;;;; omega-pvm.lisp — Ω₈-₁₃ Inner PVM operations
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.17–B.19 (PVM spawning and invocation).
 ;;;; Uses JamVM natively — no polkavm dependency.
 ;;;; Inner PVM machines are JamVM `pvm` structs stored in a hash table.
 

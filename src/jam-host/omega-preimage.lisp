@@ -1,7 +1,7 @@
 ;;;; omega-preimage.lisp — Ω₂ (ΩL), Ω₆ (ΩH), Ω₂₂ (ΩQ), Ω₂₃ (ΩS), Ω₂₄ (ΩF), Ω₂₅/₂₆
 ;;;;
 ;;;; Preimage lookup, historical lookup, query, solicit, forget, yield, provide.
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.6 (preimage lookup and yield).
 
 (in-package #:jam-host)
 

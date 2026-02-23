@@ -1,6 +1,6 @@
 ;;;; omega-fetch.lisp — Ω₁ (ΩY) Fetch data
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs lines 255-441.
+;;;; Implements GP Appendix B.2 (data fetch host call).
 ;;;; Fetches context-dependent data into guest memory.
 
 (in-package #:jam-host)

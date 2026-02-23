@@ -1,6 +1,6 @@
 ;;;; dispatch.lisp — Host-call dispatch table (GP B.15–B.16)
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs dispatch().
+;;;; Implements GP Appendix B — host call dispatch and gas accounting.
 ;;;; Maps ecalli index → Ω function, handles gas gating and context gating.
 
 (in-package #:jam-host)

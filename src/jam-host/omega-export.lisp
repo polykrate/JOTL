@@ -1,6 +1,6 @@
 ;;;; omega-export.lisp — Ω₇ (ΩE) Export segment
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs lines 941-994.
+;;;; Implements GP Appendix B.20 (segment export).
 
 (in-package #:jam-host)
 

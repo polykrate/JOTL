@@ -16,6 +16,7 @@
 .#*
 
 # Temporary test/debug scripts
+/tmp/
 /test-*.lisp
 /test-*.sh
 /test-*.c

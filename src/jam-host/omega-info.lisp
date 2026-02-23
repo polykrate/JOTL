@@ -1,6 +1,6 @@
 ;;;; omega-info.lisp — Ω₅ (ΩI) Information-on-service
 ;;;;
-;;;; Ported from crypto/jam-crypto/src/pvm/host_calls.rs.
+;;;; Implements GP Appendix B.5 (service info lookup).
 ;;;; Returns a 96-byte encoded service account info record.
 
 (in-package #:jam-host)
