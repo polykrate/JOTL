@@ -15,20 +15,21 @@ Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ
 | preimages | 100/100 | 100/100 | 0 |
 | preimages_light | 100/100 | 100/100 | 0 |
 | fuzzy_light | 200/200 | 200/200 | 0 |
-| fuzzy | 22/23 | 173/200 | 0 |
+| fuzzy | 22/23 | 189/200 | 0 |
 
-**973/1000 deterministic traces pass** — byte-exact state root match,
+**989/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining failures — 27 steps (fuzzy only)
+### Remaining failures — 11 steps (fuzzy only)
 
-All 27 failures are in `fuzzy` (random service profile, max 6 work items).
+All 11 failures are in `fuzzy` (random service profile, max 6 work items).
 `fuzzy_light` (empty service profile, max 1 work item) passes 200/200.
 
 ### Fixed bugs
 
 | Fix | Impact | Details |
 |-----|-------:|---------|
+| **Context-gated HC → WHAT** | +16 steps | Host calls not allowed in the current invocation context (e.g. HC12 `invoke-pvm` in accumulate) must set `φ'₇ = WHAT` (2⁶⁴−2) per GP B.2/B.6/B.8/B.11. Old code charged gas but left registers untouched; guest code checked A0 after a blocked `ecalli` and got stale data instead of WHAT, taking wrong branches and computing incorrect storage values. |
 | **Page fault → panic** | +9 steps | `vm-run` page faults now panic instead of auto-allocating pages. GP A.7 pre-maps all valid memory regions (ro_data, rw_data, stack) at init; heap grows only via `sbrk`. Access to unmapped pages is invalid. The old code silently allocated zero-filled pages, letting the guest read/write outside valid regions. All 13 observed faults were at `0x10000` (ro_data start) when ro_data was empty — matching the Go reference which returns OOB for empty regions. |
 | **Page fault handling** | +6 steps | `vm-run` now handles page faults: allocates faulting page as R/W and retries instruction. Gas stays charged per GP: "some gas is always charged whenever execution is attempted" |
 | **OOB PC trap decode** | correctness | `decode-instruction` returns trap (opcode 0, gas=1) for OOB PC instead of NIL → gas always charged on trap |
