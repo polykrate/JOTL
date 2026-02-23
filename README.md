@@ -11,27 +11,33 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | fallback | 100/100 | 100/100 | 0 |
 | safrole | 100/100 | 100/100 | 0 |
 | storage | 100/100 | 100/100 | 0 |
-| storage_light | 100/100 | 100/100 | 0 |
+| storage\_light | 100/100 | 100/100 | 0 |
 | preimages | 100/100 | 100/100 | 0 |
-| preimages_light | 100/100 | 100/100 | 0 |
-| fuzzy_light | 200/200 | 200/200 | 0 |
-| fuzzy | 77/78 | 195/200 | 0 |
+| preimages\_light | 100/100 | 100/100 | 0 |
+| fuzzy\_light | 200/200 | 200/200 | 0 |
+| fuzzy | 102/103 | 198/200 | 0 |
 
-**995/1000 deterministic traces pass** — byte-exact state root match,
+**998/1000 deterministic traces pass** — byte-exact state root match,
 both chain and step modes. 0 silent errors.
 
-### Remaining: 5 steps (fuzzy only)
+### Remaining: 2 steps (fuzzy only)
 
-All 5 failures involve the **same contract** (`BB8648E2`), a single PVM
+Both failures involve the **same contract** (`BB8648E2`), a single PVM
 code blob exercised across many services. `fuzzy_light` (empty service
 profile) passes 200/200.
 
 | Block | Failure mode | Detail |
 |------:|:-------------|:-------|
-| 82, 179 | `theta`/`beta` | Correct storage effects, wrong yield hash |
 | 103 | `pi`/`delta-kvs` | Wrong storage\[5\] value + gas stats |
 | 110 | `delta-kvs` | Wrong storage\[5\] value |
-| 78 | `delta-kvs` | Spurious deferred transfer → extra accumulation |
+
+### Fixes applied
+
+| Fix | Blocks fixed | Detail |
+|:----|:-------------|:-------|
+| Cross-service account fields | +6 | `build-cross-service-accounts` was missing `creation-slot`, `last-accum-slot`, `parent-service` |
+| Yield detection (GP 12.21) | +2 (82, 179) | Halt-based yield (A0≠0, A1=32) now overrides HC25 when applicable |
+| Deferred transfer on gas=0 | +1 (78) | `accumulate-service` called even when gas=0 if `transfer-balance > 0` (GP B.9) |
 
 ## Architecture
 

@@ -334,10 +334,11 @@
                                        :key (lambda (x) (or (getf x :amount) 0))
                                        :initial-value 0)))
 
-        ;; Always invoke accumulate-service, even if gas-limit=0
-        ;; This ensures last_accumulation_slot is updated for all services in set s
+        ;; Always invoke accumulate-service when there's gas OR deferred transfers.
+        ;; GP B.9: balance augmentation s_d[s]_b = e_d[s]_b + Σ r_a applies
+        ;; regardless of gas budget. Even gas=0 services must credit transfer balance.
         (multiple-value-bind (effects gas-used)
-            (if (plusp gas-limit)
+            (if (or (plusp gas-limit) (plusp transfer-balance))
                 (accumulate-service sid items gas-limit state
                                    :transfer-balance transfer-balance
                                    :svc-transfers svc-transfers)
