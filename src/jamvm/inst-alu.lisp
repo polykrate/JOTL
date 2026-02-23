@@ -5,6 +5,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.10 (continued) — Two registers + one immediate: ALU ops
 ;;;
@@ -84,7 +86,7 @@
   (let* ((shift (mod (getf args :imm) 32))
          (v32 (logand (reg vm (getf args :rb)) #xFFFFFFFF))
          (signed32 (zn 4 v32))                ; Z₄: 32-bit → signed
-         (shifted (floor signed32 (expt 2 shift)))) ; arithmetic right shift
+         (shifted (ash signed32 (- shift))))          ; arithmetic right shift
     (set-reg vm (getf args :ra) (zn-inv 8 shifted))  ; Z₈⁻¹: signed → u64
     :continue))
 
@@ -131,7 +133,7 @@
   (let* ((shift (mod (reg vm (getf args :rb)) 32))
          (v32 (logand (u64 (getf args :imm)) #xFFFFFFFF))
          (signed32 (zn 4 v32))
-         (shifted (floor signed32 (expt 2 shift))))
+         (shifted (ash signed32 (- shift))))
     (set-reg vm (getf args :ra) (zn-inv 8 shifted))
     :continue))
 
@@ -184,7 +186,7 @@
 (definstruction :shar-r-imm-64 (vm args)
   (let* ((shift (mod (getf args :imm) 64))
          (signed64 (zn 8 (reg vm (getf args :rb))))
-         (shifted (floor signed64 (expt 2 shift))))
+         (shifted (ash signed64 (- shift))))
     (set-reg vm (getf args :ra) (zn-inv 8 shifted))
     :continue))
 
@@ -213,7 +215,7 @@
 (definstruction :shar-r-imm-alt-64 (vm args)
   (let* ((shift (mod (reg vm (getf args :rb)) 64))
          (signed64 (zn 8 (u64 (getf args :imm))))
-         (shifted (floor signed64 (expt 2 shift))))
+         (shifted (ash signed64 (- shift))))
     (set-reg vm (getf args :ra) (zn-inv 8 shifted))
     :continue))
 
@@ -333,7 +335,7 @@
     (cond
       ((zerop b)
        (set-reg vm (getf args :rd) +u64-max+))
-      ((and (= a (- (expt 2 31))) (= b -1))
+      ((and (= a #.(- (ash 1 31))) (= b -1))
        (set-reg vm (getf args :rd) (zn-inv 8 a)))
       (t
        (set-reg vm (getf args :rd) (zn-inv 8 (truncate a b)))))
@@ -365,7 +367,7 @@
        ;; GP doesn't list div-by-zero separately for rem_s_32,
        ;; but smod(a,0) is undefined; treating like rem_u: return a
        (set-reg vm (getf args :rd) (zn-inv 8 a)))
-      ((and (= a (- (expt 2 31))) (= b -1))
+      ((and (= a #.(- (ash 1 31))) (= b -1))
        (set-reg vm (getf args :rd) 0))
       (t
        (set-reg vm (getf args :rd) (zn-inv 8 (rem a b)))))
@@ -394,7 +396,7 @@
 (definstruction :shar-r-32 (vm args)
   (let* ((a-signed (zn 4 (logand (reg vm (getf args :ra)) #xFFFFFFFF)))
          (n (mod (reg vm (getf args :rb)) 32))
-         (result (floor a-signed (expt 2 n))))
+         (result (ash a-signed (- n))))
     (set-reg vm (getf args :rd) (zn-inv 8 result))
     :continue))
 
@@ -449,7 +451,7 @@
     (cond
       ((zerop b)
        (set-reg vm (getf args :rd) +u64-max+))
-      ((and (= (zn 8 a) (- (expt 2 63))) (= (zn 8 b) -1))
+      ((and (= (zn 8 a) #.(- (ash 1 63))) (= (zn 8 b) -1))
        ;; Overflow: −2⁶³ / −1 would be 2⁶³ which doesn't fit.
        ;; GP says φ'_D = φ_A (the raw unsigned value stays unchanged)
        (set-reg vm (getf args :rd) a))
@@ -481,7 +483,7 @@
     (cond
       ((zerop b)
        (set-reg vm (getf args :rd) (zn-inv 8 a)))
-      ((and (= a (- (expt 2 63))) (= b -1))
+      ((and (= a #.(- (ash 1 63))) (= b -1))
        (set-reg vm (getf args :rd) 0))
       (t
        (set-reg vm (getf args :rd) (zn-inv 8 (rem a b)))))
@@ -508,7 +510,7 @@
 (definstruction :shar-r-64 (vm args)
   (let* ((a-signed (zn 8 (reg vm (getf args :ra))))
          (n (mod (reg vm (getf args :rb)) 64)))
-    (set-reg vm (getf args :rd) (zn-inv 8 (floor a-signed (expt 2 n))))
+    (set-reg vm (getf args :rd) (zn-inv 8 (ash a-signed (- n))))
     :continue))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -549,7 +551,7 @@
   (let* ((a (zn 8 (reg vm (getf args :ra))))
          (b (zn 8 (reg vm (getf args :rb))))
          (full (* a b))
-         (hi (floor full (expt 2 64))))
+         (hi (ash full -64)))
     (set-reg vm (getf args :rd) (zn-inv 8 hi))
     :continue))
 
@@ -558,7 +560,7 @@
 (definstruction :mul-upper-u-u (vm args)
   (let* ((a (reg vm (getf args :ra)))
          (b (reg vm (getf args :rb)))
-         (hi (floor (* a b) (expt 2 64))))
+         (hi (ash (* a b) -64)))
     (set-reg vm (getf args :rd) hi)
     :continue))
 
@@ -567,7 +569,7 @@
 (definstruction :mul-upper-s-u (vm args)
   (let* ((a (zn 8 (reg vm (getf args :ra))))
          (b (reg vm (getf args :rb)))
-         (hi (floor (* a b) (expt 2 64))))
+         (hi (ash (* a b) -64)))
     (set-reg vm (getf args :rd) (zn-inv 8 hi))
     :continue))
 

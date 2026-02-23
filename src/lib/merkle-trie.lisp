@@ -107,8 +107,8 @@
     ((null kvs)
      (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
     
-    ;; Single leaf
-    ((= (length kvs) 1)
+    ;; Single leaf — O(1) check instead of O(n) length
+    ((null (cdr kvs))
      (let* ((kv (first kvs))
             (key (car kv))
             (value (cdr kv))

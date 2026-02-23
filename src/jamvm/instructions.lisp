@@ -9,6 +9,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Instruction dispatch table
 ;;;

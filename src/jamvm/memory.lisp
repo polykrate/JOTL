@@ -18,6 +18,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Page access modes
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -50,7 +52,7 @@
 ;;; Page helpers
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(declaim (inline page-index page-offset))
+(declaim (inline page-index page-offset page-access))
 
 (defun page-index (address)
   "Page number for ADDRESS: ⌊address / Z_P⌋."
@@ -93,19 +95,34 @@
    Returns (values byte-vector T) on success,
            (values NIL fault-address) on page fault."
   (let ((result (make-array length :element-type '(unsigned-byte 8))))
-    (dotimes (i length (values result t))
-      (let* ((addr (+ address i))
-             (pidx (page-index addr))
-             (poff (page-offset addr)))
-        ;; Check page is readable
-        (let ((mode (page-access mem pidx)))
-          (when (eq mode :inaccessible)
-            (return-from mem-read (values nil addr))))
-        ;; Read byte
-        (let ((page (gethash pidx (mem-pages mem))))
-          (if page
-              (setf (aref result i) (aref page poff))
-              (setf (aref result i) 0)))))))  ; mapped but no data → 0
+    ;; Fast path: all bytes on same page (common for ≤8 byte reads)
+    (let ((p0 (page-index address))
+          (p1 (page-index (+ address length -1))))
+      (if (= p0 p1)
+          ;; Same page — single access check, direct array copy
+          (progn
+            (when (eq (page-access mem p0) :inaccessible)
+              (return-from mem-read (values nil address)))
+            (let ((page (gethash p0 (mem-pages mem))))
+              (if page
+                  (let ((off (page-offset address)))
+                    (dotimes (i length)
+                      (setf (aref result i) (aref page (+ off i)))))
+                  (fill result 0)))   ; mapped but no data → zeroes
+            (values result t))
+          ;; Slow path: crosses page boundary
+          (progn
+            (dotimes (i length (values result t))
+              (let* ((addr (+ address i))
+                     (pidx (page-index addr))
+                     (poff (page-offset addr)))
+                (let ((mode (page-access mem pidx)))
+                  (when (eq mode :inaccessible)
+                    (return-from mem-read (values nil addr))))
+                (let ((page (gethash pidx (mem-pages mem))))
+                  (if page
+                      (setf (aref result i) (aref page poff))
+                      (setf (aref result i) 0))))))))))  ; mapped but no data → 0
 
 (defun mem-write (mem address data)
   "Write DATA (byte vector) to guest memory at ADDRESS.
@@ -132,58 +149,146 @@
 ;;; Typed read/write helpers (little-endian)
 ;;; ═══════════════════════════════════════════════════════════════════
 
+;;; ── Typed reads: zero-allocation fast path when same page ──
+
 (defun mem-read-u8 (mem addr)
   "Read unsigned 8-bit from guest memory. Returns (values val ok)."
-  (multiple-value-bind (data ok) (mem-read mem addr 1)
-    (if ok (values (aref data 0) t) (values 0 nil))))
+  (let ((pidx (page-index addr)))
+    (when (eq (page-access mem pidx) :inaccessible)
+      (return-from mem-read-u8 (values 0 nil)))
+    (let ((page (gethash pidx (mem-pages mem))))
+      (values (if page (aref page (page-offset addr)) 0) t))))
 
 (defun mem-read-u16 (mem addr)
-  "Read unsigned 16-bit LE from guest memory."
-  (multiple-value-bind (data ok) (mem-read mem addr 2)
-    (if ok
-        (values (logior (aref data 0) (ash (aref data 1) 8)) t)
-        (values 0 nil))))
+  "Read unsigned 16-bit LE. Zero-alloc same-page fast path."
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 1))))
+    (if (= p0 p1)
+        ;; Same page — no allocation
+        (progn
+          (when (eq (page-access mem p0) :inaccessible)
+            (return-from mem-read-u16 (values 0 nil)))
+          (let ((page (gethash p0 (mem-pages mem)))
+                (off  (page-offset addr)))
+            (if page
+                (values (logior (aref page off) (ash (aref page (1+ off)) 8)) t)
+                (values 0 t))))
+        ;; Crosses page — fallback
+        (multiple-value-bind (data ok) (mem-read mem addr 2)
+          (if ok
+              (values (logior (aref data 0) (ash (aref data 1) 8)) t)
+              (values 0 nil))))))
 
 (defun mem-read-u32 (mem addr)
-  "Read unsigned 32-bit LE from guest memory."
-  (multiple-value-bind (data ok) (mem-read mem addr 4)
-    (if ok
-        (values (logior (aref data 0)
-                        (ash (aref data 1) 8)
-                        (ash (aref data 2) 16)
-                        (ash (aref data 3) 24))
-                t)
-        (values 0 nil))))
+  "Read unsigned 32-bit LE. Zero-alloc same-page fast path."
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 3))))
+    (if (= p0 p1)
+        (progn
+          (when (eq (page-access mem p0) :inaccessible)
+            (return-from mem-read-u32 (values 0 nil)))
+          (let ((page (gethash p0 (mem-pages mem)))
+                (off  (page-offset addr)))
+            (if page
+                (values (logior (aref page off)
+                                (ash (aref page (+ off 1)) 8)
+                                (ash (aref page (+ off 2)) 16)
+                                (ash (aref page (+ off 3)) 24))
+                        t)
+                (values 0 t))))
+        (multiple-value-bind (data ok) (mem-read mem addr 4)
+          (if ok
+              (values (logior (aref data 0)
+                              (ash (aref data 1) 8)
+                              (ash (aref data 2) 16)
+                              (ash (aref data 3) 24))
+                      t)
+              (values 0 nil))))))
 
 (defun mem-read-u64 (mem addr)
-  "Read unsigned 64-bit LE from guest memory."
-  (multiple-value-bind (data ok) (mem-read mem addr 8)
-    (if ok
-        (let ((val 0))
-          (dotimes (i 8)
-            (setf val (logior val (ash (aref data i) (* 8 i)))))
-          (values val t))
-        (values 0 nil))))
+  "Read unsigned 64-bit LE. Zero-alloc same-page fast path."
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 7))))
+    (if (= p0 p1)
+        (progn
+          (when (eq (page-access mem p0) :inaccessible)
+            (return-from mem-read-u64 (values 0 nil)))
+          (let ((page (gethash p0 (mem-pages mem)))
+                (off  (page-offset addr)))
+            (if page
+                (let ((val 0))
+                  (dotimes (i 8)
+                    (setf val (logior val (ash (aref page (+ off i)) (* 8 i)))))
+                  (values val t))
+                (values 0 t))))
+        (multiple-value-bind (data ok) (mem-read mem addr 8)
+          (if ok
+              (let ((val 0))
+                (dotimes (i 8)
+                  (setf val (logior val (ash (aref data i) (* 8 i)))))
+                (values val t))
+              (values 0 nil))))))
+
+;;; ── Typed writes: zero-allocation fast path when same page ──
 
 (defun mem-write-u8 (mem addr val)
-  (mem-write mem addr (make-array 1 :element-type '(unsigned-byte 8)
-                                    :initial-contents (list (logand val #xFF)))))
+  (let ((pidx (page-index addr)))
+    (let ((mode (page-access mem pidx)))
+      (when (or (eq mode :inaccessible) (eq mode :read-only))
+        (return-from mem-write-u8 (values nil addr))))
+    (let ((page (ensure-page mem pidx)))
+      (setf (aref page (page-offset addr)) (logand val #xFF))
+      (values t t))))
 
 (defun mem-write-u16 (mem addr val)
-  (mem-write mem addr (make-array 2 :element-type '(unsigned-byte 8)
-                                    :initial-contents
-                                    (list (logand val #xFF)
-                                          (logand (ash val -8) #xFF)))))
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 1))))
+    (if (= p0 p1)
+        (let ((mode (page-access mem p0)))
+          (when (or (eq mode :inaccessible) (eq mode :read-only))
+            (return-from mem-write-u16 (values nil addr)))
+          (let ((page (ensure-page mem p0))
+                (off  (page-offset addr)))
+            (setf (aref page off)       (logand val #xFF)
+                  (aref page (1+ off))  (logand (ash val -8) #xFF))
+            (values t t)))
+        (let ((buf (make-array 2 :element-type '(unsigned-byte 8)
+                                 :initial-contents
+                                 (list (logand val #xFF)
+                                       (logand (ash val -8) #xFF)))))
+          (mem-write mem addr buf)))))
 
 (defun mem-write-u32 (mem addr val)
-  (let ((buf (make-array 4 :element-type '(unsigned-byte 8))))
-    (dotimes (i 4) (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
-    (mem-write mem addr buf)))
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 3))))
+    (if (= p0 p1)
+        (let ((mode (page-access mem p0)))
+          (when (or (eq mode :inaccessible) (eq mode :read-only))
+            (return-from mem-write-u32 (values nil addr)))
+          (let ((page (ensure-page mem p0))
+                (off  (page-offset addr)))
+            (dotimes (i 4)
+              (setf (aref page (+ off i)) (logand (ash val (* -8 i)) #xFF)))
+            (values t t)))
+        (let ((buf (make-array 4 :element-type '(unsigned-byte 8))))
+          (dotimes (i 4) (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
+          (mem-write mem addr buf)))))
 
 (defun mem-write-u64 (mem addr val)
-  (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
-    (dotimes (i 8) (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
-    (mem-write mem addr buf)))
+  (let ((p0 (page-index addr))
+        (p1 (page-index (+ addr 7))))
+    (if (= p0 p1)
+        (let ((mode (page-access mem p0)))
+          (when (or (eq mode :inaccessible) (eq mode :read-only))
+            (return-from mem-write-u64 (values nil addr)))
+          (let ((page (ensure-page mem p0))
+                (off  (page-offset addr)))
+            (dotimes (i 8)
+              (setf (aref page (+ off i)) (logand (ash val (* -8 i)) #xFF)))
+            (values t t)))
+        (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
+          (dotimes (i 8) (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
+          (mem-write mem addr buf)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Page allocation / mapping

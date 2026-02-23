@@ -14,6 +14,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Gas per page allocation (for sbrk / segfault handling)
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -100,11 +102,13 @@
           (return-from vm-step :oog)))
 
       ;; ── 3. Save registers for fault rollback (A.8) ──
-      ;; On memory fault, restore the ORIGINAL (ι, φ, μ) — PC, regs, memory.
+      ;; Only needed for memory instructions that can fault.
+      ;; Non-memory instructions (ALU, control) never produce :fault.
       ;; Gas (ϱ) stays deducted per GP: "some gas is always charged
       ;; whenever execution is attempted, even if no instruction is
       ;; effectively executed and machine state is unchanged."
-      (let ((saved-regs (copy-seq (pvm-regs vm))))
+      (let ((saved-regs (when (opi-memory-p info)
+                          (copy-seq (pvm-regs vm)))))
 
         ;; ── 4. Execute instruction ──
         (let ((result (dispatch-instruction (opi-name info) vm args)))
@@ -149,13 +153,13 @@
 
                (cond
                  ;; (A.8) min(x) mod 2³² < 2¹⁶ → ♯ panic
-                 ((< fault-addr (expt 2 16))
+                 ((< fault-addr #x10000)
                   (setf (pvm-status vm) +exit-panic+)
                   :panic)
 
                  ;; (A.8) otherwise → ∃ with page-aligned address
                  (t
-                  (let ((page-addr (* (floor fault-addr +page-size+) +page-size+)))
+                  (let ((page-addr (logand fault-addr (lognot #xFFF))))
                     (setf (pvm-status vm) +exit-page-fault+
                           (pvm-exit-arg vm) page-addr)
                     :page-fault)))))
@@ -167,11 +171,11 @@
                ;; Only restore PC to current instruction
                (setf (pvm-pc vm) pc)
                (cond
-                 ((< fault-addr (expt 2 16))
+                 ((< fault-addr #x10000)
                   (setf (pvm-status vm) +exit-panic+)
                   :panic)
                  (t
-                  (let ((page-addr (* (floor fault-addr +page-size+) +page-size+)))
+                  (let ((page-addr (logand fault-addr (lognot #xFFF))))
                     (setf (pvm-status vm) +exit-page-fault+
                           (pvm-exit-arg vm) page-addr)
                     :page-fault)))))

@@ -11,6 +11,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Constants
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -147,23 +149,23 @@
 (defun s64->u64 (x)
   "Convert signed 64-bit integer to unsigned 64-bit (two's complement)."
   (if (minusp x)
-      (logand (+ x (expt 2 64)) +u64-max+)
+      (logand (+ x #.(ash 1 64)) +u64-max+)
       (logand x +u64-max+)))
 
 (defun u64->s64 (x)
   "Convert unsigned 64-bit to signed 64-bit (two's complement)."
-  (if (>= x (expt 2 63))
-      (- x (expt 2 64))
+  (if (>= x #.(ash 1 63))
+      (- x #.(ash 1 64))
       x))
 
 (defun s32->u64 (x)
   "Sign-extend 32-bit signed to 64-bit unsigned."
-  (s64->u64 (if (>= x (expt 2 31)) (- x (expt 2 32)) x)))
+  (s64->u64 (if (>= x #.(ash 1 31)) (- x #.(ash 1 32)) x)))
 
 (defun u64->s32 (x)
   "Truncate 64-bit to signed 32-bit."
   (let ((v (logand x +u32-max+)))
-    (if (>= v (expt 2 31)) (- v (expt 2 32)) v)))
+    (if (>= v #.(ash 1 31)) (- v #.(ash 1 32)) v)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; GP A.10–A.16: Signed/unsigned conversions, bytecode decoding
@@ -180,7 +182,7 @@
 ;;; We provide Z_n, Z_n⁻¹, X_n as explicit functions.
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(declaim (inline zn zn-inv))
+(declaim (inline zn zn-inv sign-extend))
 
 (defun zn (n x)
   "Z_n (GP A.10): interpret unsigned n-byte value X as signed.
@@ -196,8 +198,9 @@
    Z_n⁻¹(a) = (2^{8n} + a) mod 2^{8n}"
   (if (zerop n)
       0
-      (logand (+ x (ash 1 (ash n 3)))        ; + 2^{8n}
-              (1- (ash 1 (ash n 3))))))       ; mod 2^{8n}
+      (let ((bits (ash n 3)))                 ; 8n
+        (logand (+ x (ash 1 bits))            ; + 2^{8n}
+                (1- (ash 1 bits))))))
 
 ;;; Bytecode decoding from instruction data
 
@@ -223,9 +226,10 @@
    If MSB is set → fill upper bits with 1s; else value is unchanged."
   (if (zerop n-bytes)
       0   ; X_0: 0-byte immediate = 0
-      (let ((half (ash 1 (1- (ash n-bytes 3)))))  ; 2^{8n−1}
+      (let* ((bits (ash n-bytes 3))                ; 8n
+             (half (ash 1 (1- bits))))             ; 2^{8n−1}
         (if (< value half)
             (u64 value)                             ; MSB=0: unchanged
             ;; MSB=1: x + (2^64 − 2^{8n})
-            (u64 (+ value (- (ash 1 64)
-                             (ash 1 (ash n-bytes 3)))))))))
+            (u64 (+ value (- #.(ash 1 64)
+                             (ash 1 bits))))))))

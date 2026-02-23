@@ -329,48 +329,51 @@
                       (format t "  ~A#~3D  chain ERROR~A ~A~%"
                               +bred+ b +reset+ (type-of e))))))
 
-              ;; === STEP MODE (always, for stats) ===
-              (let ((jotl::*chain-log-level* nil))
-                (declare (special jotl::*chain-log-level*))
-                (handler-case
-                    (multiple-value-bind (sigma-prime computed-root)
-                        (jotl::import-block pre-sigma block-cl)
-                      (if (equalp computed-root post-root)
-                          (progn
-                            (incf step-pass)
-                            ;; Show step ✓ only when chain already failed
-                            (when (and verbose (not chain-ok))
-                              (format t "  ~A#~3D~A  step  ✓  ~Aroot=~A…~A~%"
-                                      +dim+ b +reset+
-                                      +green+
-                                      (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
-                                      +reset+)))
-                          (progn
-                            (incf step-fail)
-                            (when verbose
-                              (format t "  ~A#~3D  step  ✗~A" +yellow+ b +reset+)
-                              ;; Show diverging components inline
-                              (let* ((diff (component-diff sigma-prime post-sigma))
-                                     (bad (remove-if (lambda (r)
-                                                       (eq (second r) :match))
-                                                     diff)))
-                                (if bad
-                                    (progn
-                                      (format t "  →")
-                                      (dolist (r bad)
-                                        (format t " ~A~A~A"
-                                                +red+
-                                                (string-downcase (symbol-name (first r)))
-                                                +reset+))
-                                      (format t "~%"))
-                                    (format t "~%")))))))
-                  (error (e)
-                    (incf step-fail)
-                    (incf errors)
-                    (when verbose
-                      (format t "  ~A#~3D  step  ✗ ERROR~A ~A: ~A~%"
-                              +bred+ b +reset+
-                              (type-of e) e)))))))
+              ;; === STEP MODE (only when chain failed — chain ✓ ⇒ step ✓) ===
+              (if chain-ok
+                  ;; Chain passed this block → step is identical, skip re-import
+                  (incf step-pass)
+                  ;; Chain broken — run step independently from reference pre-state
+                  (let ((jotl::*chain-log-level* nil))
+                    (declare (special jotl::*chain-log-level*))
+                    (handler-case
+                        (multiple-value-bind (sigma-prime computed-root)
+                            (jotl::import-block pre-sigma block-cl)
+                          (if (equalp computed-root post-root)
+                              (progn
+                                (incf step-pass)
+                                (when verbose
+                                  (format t "  ~A#~3D~A  step  ✓  ~Aroot=~A…~A~%"
+                                          +dim+ b +reset+
+                                          +green+
+                                          (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
+                                          +reset+)))
+                              (progn
+                                (incf step-fail)
+                                (when verbose
+                                  (format t "  ~A#~3D  step  ✗~A" +yellow+ b +reset+)
+                                  ;; Show diverging components inline
+                                  (let* ((diff (component-diff sigma-prime post-sigma))
+                                         (bad (remove-if (lambda (r)
+                                                           (eq (second r) :match))
+                                                         diff)))
+                                    (if bad
+                                        (progn
+                                          (format t "  →")
+                                          (dolist (r bad)
+                                            (format t " ~A~A~A"
+                                                    +red+
+                                                    (string-downcase (symbol-name (first r)))
+                                                    +reset+))
+                                          (format t "~%"))
+                                        (format t "~%")))))))
+                      (error (e)
+                        (incf step-fail)
+                        (incf errors)
+                        (when verbose
+                          (format t "  ~A#~3D  step  ✗ ERROR~A ~A: ~A~%"
+                                  +bred+ b +reset+
+                                  (type-of e) e))))))))
         (error (e)
           (incf errors)
           (when verbose

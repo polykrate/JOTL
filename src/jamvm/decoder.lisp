@@ -26,6 +26,8 @@
 
 (in-package #:jamvm)
 
+(declaim (optimize (speed 3) (safety 1) (debug 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Opcode table
 ;;;
@@ -44,18 +46,20 @@
   (name     :unknown :type keyword)       ; instruction name
   (args     :none    :type keyword)       ; argument format
   (gas-cost 1        :type integer)       ; ϱ_Δ
-  (skip-fn  nil))                         ; skip-distance function or fixed value
+  (skip-fn  nil)                          ; skip-distance function or fixed value
+  (memory-p nil      :type boolean))      ; T if instruction accesses memory (needs reg save)
 
 ;; The master opcode table: 256 entries (0x00–0xFF)
 (defvar *opcode-table*
   (make-array 256 :initial-element nil)
   "Opcode table: index = opcode byte → opcode-info or NIL (= trap).")
 
-(defun register-opcode (byte name args gas-cost &optional skip-fn)
+(defun register-opcode (byte name args gas-cost &optional skip-fn &key memory-p)
   "Register an opcode in the master table."
   (setf (aref *opcode-table* byte)
         (make-opcode-info :name name :args args
-                          :gas-cost gas-cost :skip-fn skip-fn)))
+                          :gas-cost gas-cost :skip-fn skip-fn
+                          :memory-p memory-p)))
 
 (defun lookup-opcode (byte)
   "Look up opcode metadata. Returns opcode-info or NIL (= trap)."
