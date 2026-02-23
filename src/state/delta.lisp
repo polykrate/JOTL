@@ -437,7 +437,8 @@
 (defun build-cross-service-accounts (caller-id delta-kvs)
   "Build alist of (service-id . plist) for all services EXCEPT caller-id.
    Each plist contains :code-hash :balance :threshold :min-accum-gas :min-memo-gas
-   :items-count :footprint :storage :preimages :lookup.
+   :items-count :footprint :creation-slot :last-accum-slot :parent-service
+   :storage :preimages :lookup.
    Storage is h27-keyed (trie-classified) — PVM hashes raw keys internally."
   (let ((result nil))
     (dolist (sid (extract-all-service-ids delta-kvs))
@@ -455,6 +456,9 @@
                               :min-memo-gas (or (getf metadata :min-memo-gas) 0)
                               :items-count (or (getf metadata :items) 0)
                               :footprint (or (getf metadata :bytes) 0)
+                              :creation-slot (or (getf metadata :creation-slot) 0)
+                              :last-accum-slot (or (getf metadata :last-accumulation-slot) 0)
+                              :parent-service (or (getf metadata :parent-service) 0)
                               :storage (getf svc-data :storage)
                               :preimages (getf svc-data :preimages)
                               :lookup (getf svc-data :lookup)))
