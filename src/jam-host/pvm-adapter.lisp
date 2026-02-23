@@ -614,20 +614,23 @@
                 (declare (ignore _final-ctx exit-arg))
 
                 ;; 5. Map exit status + detect yield via return value
+                ;;
+                ;; GP B.9/12.21: On HALT, the yield is determined by the
+                ;; return registers (A0, A1). If A0 ≠ 0 and A1 = 32,
+                ;; the yield hash is read from memory at A0.
+                ;; HC25 (yield) sets a preliminary yield during execution,
+                ;; but the HALT return value ALWAYS takes precedence.
                 (let ((outcome
                         (case exit-status
                           (:halt
-                           ;; Check yield: if A0 ≠ 0, A1 = 32, read hash
                            (let ((a0 (reg vm +a0+))
                                  (a1 (reg vm +a1+)))
                              (when debug-trace
                                (format *error-output*
                                        "~&[YIELD-DETECT] sid=~D exit=:halt A0=~D A1=~D prior-yield?=~A~%"
                                        service-id a0 a1 (and (hctx-yield-output ctx) t)))
-                             (if (and (not (hctx-yield-output ctx))
-                                      (/= a0 0)
-                                      (= a1 32))
-                                 ;; Yield via return value
+                             ;; Always try halt-based yield first (GP 12.21)
+                             (if (and (/= a0 0) (= a1 32))
                                  (let ((hash-bytes (read-guest vm (u32 a0) 32)))
                                    (when debug-trace
                                      (format *error-output*
@@ -638,6 +641,7 @@
                                          (setf (hctx-yield-output ctx) hash-bytes)
                                          :halt-with-yield)
                                        :halt))
+                                 ;; No halt-based yield → fall back to HC25
                                  (if (hctx-yield-output ctx)
                                      (progn
                                        (when debug-trace
