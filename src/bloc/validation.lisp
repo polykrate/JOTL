@@ -2,9 +2,13 @@
 ;;;; Gray Paper §5
 ;;;;
 ;;;; Two layers:
-;;;;   validate-block(B)  — intrinsic checks (HX). Called by Υ.
+;;;;   validate-block(B)  — intrinsic checks (HX, HO).  Called by Υ.
 ;;;;   validate-block-env — environmental checks (wall-clock, parent hash).
 ;;;;                        Called by import-block (node layer).
+;;;;
+;;;; TODO [M2]: Add HS (seal) validation via Bandersnatch VRF verify
+;;;;            against γS sealing keys (GP §6.24). Required for full
+;;;;            block authorship verification in production nodes.
 
 (in-package #:jotl)
 
@@ -28,6 +32,7 @@
    
    Checks:
      1. HX matches extrinsic data  (§5.4-5.6)
+     2. HO matches ED offenders     (§10.20)
    
    Returns: (values valid-p errors)"
   (let ((h (funcall block :header))
@@ -36,6 +41,11 @@
     (multiple-value-bind (ok computed) (validate-extrinsic-hash h block)
       (declare (ignore computed))
       (unless ok (push (list :hx "HX mismatch") errors)))
+    ;; §10.20: HO — offenders mark must match culprits/faults from ED
+    (handler-case
+        (validate-header-post-transition h (funcall block :disputes))
+      (error (e)
+        (push (list :ho (format nil "~A" e)) errors)))
     (values (null errors) (nreverse errors))))
 
 ;;; ═════════════════════════════════════════════════════════════════
