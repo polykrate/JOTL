@@ -146,10 +146,14 @@
         (format *error-output* "~&  gas=~D rk=~D rd-len=~D ao-len=~D payload-hash-len=~D~%"
                 (or (getf u :gas) 0) rk (if rd (length rd) 0) (if ao (length ao) 0)
                 (if (getf u :payload-hash) (length (getf u :payload-hash)) 0))))
-    ;; Also show actual encoded blob sizes
+    ;; Also show actual encoded blob sizes and full hex for 2+ item services
     (let ((blobs (append (encode-transfer-items (or transfers nil))
                          (encode-work-items (or items nil)))))
-      (format *error-output* "~&  encoded-blob-sizes: ~{~D~^ ~}~%" (mapcar #'length blobs))))
+      (format *error-output* "~&  encoded-blob-sizes: ~{~D~^ ~}~%" (mapcar #'length blobs))
+      (when (>= (length blobs) 2)
+        (loop for blob in blobs for i from 0 do
+          (format *error-output* "~&  BLOB[~D](~D): ~{~2,'0X~}~%" i (length blob)
+                  (coerce blob 'list))))))
   (append (encode-transfer-items (or transfers nil))
           (encode-work-items (or items nil))))
 

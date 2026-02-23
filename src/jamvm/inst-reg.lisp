@@ -51,7 +51,6 @@
             ;; = start of the allocated region.
             (set-reg vm (getf args :ra) (u64 old-top))
             :continue)))))))
-
 ;; 102 = count_set_bits_64: popcount(φ_A)
 (register-opcode 102 :count-set-bits-64 :reg-reg 1)
 (definstruction :count-set-bits-64 (vm args)

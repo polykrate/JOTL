@@ -90,23 +90,25 @@
        (when (plusp (length pp)) pp)))
 
     (#.+fetch-entropy+
+     ;; GP B.5: ω₁(κ) = η'_κ — return 32-byte entropy slice at index a.
+     ;; a ∈ {0,1,2,3} selects which of the 4 entropy hashes.
+     ;; a ≥ 4 → ∅ (NIL).
      (let ((result
-             (let ((raw (hctx-entropy-raw ctx)))
-               (if (plusp (length raw))
-                   raw
-                   ;; Flatten 4×32 entropy array
-                   (let* ((ent (hctx-entropy ctx))
-                          (flat (make-array 128 :element-type '(unsigned-byte 8))))
-                     (dotimes (i 4 flat)
-                       (dotimes (j 32)
-                         (setf (aref flat (+ (* i 32) j))
-                               (aref ent i j)))))))))
+             (when (< a 4)
+               (let ((raw (hctx-entropy-raw ctx)))
+                 (if (>= (length raw) 128)
+                     (subseq raw (* a 32) (+ (* a 32) 32))
+                     ;; Fallback: use 4×32 array
+                     (let* ((ent (hctx-entropy ctx))
+                            (slice (make-array 32 :element-type '(unsigned-byte 8))))
+                       (dotimes (j 32 slice)
+                         (setf (aref slice j) (aref ent a j)))))))))
        (when (and result (hctx-debug-trace ctx))
          (format *error-output*
-                 "~&[FETCH-1-ENTROPY] sid=~D len=~D first-32: ~{~2,'0X~}~%"
-                 (hctx-service-id ctx)
+                 "~&[FETCH-1-ENTROPY] sid=~D a=~D len=~D bytes: ~{~2,'0X~}~%"
+                 (hctx-service-id ctx) a
                  (length result)
-                 (coerce (subseq result 0 (min 32 (length result))) 'list)))
+                 (coerce result 'list)))
        result))
 
     ;; ── Refine context (B.6) ────────────────────────────

@@ -176,6 +176,11 @@
                           (pvm-exit-arg vm) page-addr)
                     :page-fault)))))
 
+            ;; ∞ OOG from instruction (e.g. sbrk page allocation)
+            ((eq result :oog)
+             (setf (pvm-status vm) +exit-oog+)
+             :oog)
+
             ;; ∞ Partial OOG (memset) — NO ROLLBACK, preserve partial progress
             ((eq result :partial-oog)
              (setf (pvm-pc vm) pc

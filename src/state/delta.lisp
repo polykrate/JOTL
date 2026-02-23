@@ -489,16 +489,16 @@
              ;; Update balance if provided (always, even no-code)
              (when (and effects (getf effects :balance))
                (setf (getf info :balance) (getf effects :balance)))
-             ;; Skip last-accumulation-slot + PVM fields if no code ran
-             (unless (getf effects :no-code)
-               (setf (getf info :last-accumulation-slot) timeslot)
-               ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
-               (when (and effects (getf effects :final-code-hash))
-                 (setf (getf info :code-hash) (getf effects :final-code-hash)))
-               (when (and effects (getf effects :final-min-accum-gas))
-                 (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
-               (when (and effects (getf effects :final-min-memo-gas))
-                 (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas))))
+            ;; Skip last-accumulation-slot + PVM fields if no code ran
+            (unless (getf effects :no-code)
+              (setf (getf info :last-accumulation-slot) timeslot)
+              ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
+              (when (and effects (getf effects :final-code-hash))
+                (setf (getf info :code-hash) (getf effects :final-code-hash)))
+              (when (and effects (getf effects :final-min-accum-gas))
+                (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
+              (when (and effects (getf effects :final-min-memo-gas))
+                (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas))))
              (setf (cdr meta-entry) (encode-service-info info)))))
 
        ;; Apply side-effects if present (skip for :no-code services)

@@ -615,11 +615,13 @@
 
                 ;; 5. Map exit status + detect yield via return value
                 ;;
-                ;; GP B.9/12.21: On HALT, the yield is determined by the
-                ;; return registers (A0, A1). If A0 ≠ 0 and A1 = 32,
-                ;; the yield hash is read from memory at A0.
-                ;; HC25 (yield) sets a preliminary yield during execution,
-                ;; but the HALT return value ALWAYS takes precedence.
+                ;; GP 12.21 yield detection:
+                ;;   a) If HC25 was NOT called: yield if A0≠0 ∧ A1=32
+                ;;      (halt-based yield from return registers)
+                ;;   b) If HC25 WAS called AND A0≠0 ∧ A1=32:
+                ;;      OVERRIDE HC25 hash with halt-based hash (latest memory)
+                ;;   c) If HC25 WAS called AND (A0=0 ∨ A1≠32):
+                ;;      use HC25 hash
                 (let ((outcome
                         (case exit-status
                           (:halt
@@ -629,27 +631,31 @@
                                (format *error-output*
                                        "~&[YIELD-DETECT] sid=~D exit=:halt A0=~D A1=~D prior-yield?=~A~%"
                                        service-id a0 a1 (and (hctx-yield-output ctx) t)))
-                             ;; Always try halt-based yield first (GP 12.21)
-                             (if (and (/= a0 0) (= a1 32))
-                                 (let ((hash-bytes (read-guest vm (u32 a0) 32)))
-                                   (when debug-trace
-                                     (format *error-output*
-                                             "~&[YIELD-DETECT] yield-via-halt addr=~D hash=~{~2,'0X~}~%"
-                                             a0 (coerce hash-bytes 'list)))
-                                   (if hash-bytes
-                                       (progn
-                                         (setf (hctx-yield-output ctx) hash-bytes)
-                                         :halt-with-yield)
-                                       :halt))
-                                 ;; No halt-based yield → fall back to HC25
-                                 (if (hctx-yield-output ctx)
-                                     (progn
-                                       (when debug-trace
-                                         (format *error-output*
-                                                 "~&[YIELD-DETECT] yield-via-hostcall hash=~{~2,'0X~}~%"
-                                                 (coerce (hctx-yield-output ctx) 'list)))
-                                       :halt-with-yield)
-                                     :halt))))
+                             (cond
+                               ;; Case a+b: halt registers indicate yield
+                               ((and (/= a0 0) (= a1 32))
+                                (let ((hash-bytes (read-guest vm (u32 a0) 32)))
+                                  (when debug-trace
+                                    (format *error-output*
+                                            "~&[YIELD-DETECT] yield-via-halt addr=~D hash=~{~2,'0X~}~%"
+                                            a0 (coerce hash-bytes 'list)))
+                                  (if hash-bytes
+                                      (progn
+                                        (setf (hctx-yield-output ctx) hash-bytes)
+                                        :halt-with-yield)
+                                      ;; Read failed — fall back to HC25 if present
+                                      (if (hctx-yield-output ctx)
+                                          :halt-with-yield
+                                          :halt))))
+                               ;; Case c: HC25 was called but halt registers don't indicate yield
+                               ((hctx-yield-output ctx)
+                                (when debug-trace
+                                  (format *error-output*
+                                          "~&[YIELD-DETECT] yield-via-hostcall hash=~{~2,'0X~}~%"
+                                          (coerce (hctx-yield-output ctx) 'list)))
+                                :halt-with-yield)
+                               ;; No yield at all
+                               (t :halt))))
                           (:panic      :panic)
                           (:page-fault :panic)   ; outer PVM: all valid memory pre-mapped
                           (:oog        :oog)
