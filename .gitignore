@@ -17,6 +17,7 @@
 
 # Temporary test/debug scripts
 /tmp/
+jam-conformance/
 /test-*.lisp
 /test-*.sh
 /test-*.c
