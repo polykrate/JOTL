@@ -291,12 +291,16 @@
     (subseq (jam.ffi:blake2b-256 buf) 0 27)))
 
 (defun load-lookup-value (val-bytes)
-  "Decode a lookup entry value: compact(n) . n*u32_LE -> list of timeslot u32s."
+  "Decode a lookup entry value: compact(n) . n*u32_LE -> list of timeslot u32s.
+   Optimized: direct byte access without subseq allocation."
   (when (and val-bytes (plusp (length val-bytes)))
     (multiple-value-bind (count consumed) (decode-compact val-bytes 0)
       (loop for i below count
-            for off = consumed then (+ off 4)
-            collect (decode-fixed-le (subseq val-bytes off (+ off 4)))))))
+            for off fixnum = consumed then (+ off 4)
+            collect (logior (aref val-bytes off)
+                            (ash (aref val-bytes (+ off 1)) 8)
+                            (ash (aref val-bytes (+ off 2)) 16)
+                            (ash (aref val-bytes (+ off 3)) 24))))))
 
 ;;; =====================================================================
 ;;; SID INDEX — O(1) lookup by service-id instead of O(N) scans
@@ -397,26 +401,26 @@
       (setf remaining (nreverse remaining))
 
       ;; -- Pass 2: Identify lookup entries --
-      ;; For each remaining entry, try matching against known preimage hashes
+      ;; Pre-build hash-table: expected-h → (pre-hash . pre-len) for O(1) matching
       (let ((lookup nil)
-            (storage nil))
+            (storage nil)
+            (lookup-map (make-hash-table :test 'equalp :size (length preimages))))
+        ;; Build lookup map: O(|preimages|) blake2b calls
+        (dolist (pre preimages)
+          (let* ((pre-hash (car pre))
+                 (pre-len (length (cdr pre)))
+                 (expected-h (lookup-trie-h pre-hash pre-len)))
+            (setf (gethash expected-h lookup-map) (cons pre-hash pre-len))))
+        ;; Classify remaining entries: O(|remaining|) with O(1) hash-table lookups
         (dolist (entry remaining)
           (let* ((h (car entry))
                  (val (cdr entry))
-                 (found-lookup nil))
-            ;; Try each known preimage (hash, blob-length)
-            (dolist (pre preimages)
-              (let* ((pre-hash (car pre))
-                     (pre-len (length (cdr pre)))
-                     (expected-h (lookup-trie-h pre-hash pre-len)))
-                (when (equalp h expected-h)
-                  (let ((statuses (load-lookup-value val)))
-                    (push (list* pre-hash pre-len statuses) lookup))
-                  (setf found-lookup t)
-                  (return))))
-            (unless found-lookup
-              ;; Unclassified -> storage (pseudo-keyed by trie hash)
-              (push entry storage))))
+                 (match (gethash h lookup-map)))
+            (if match
+                (let ((statuses (load-lookup-value val)))
+                  (push (list* (car match) (cdr match) statuses) lookup))
+                ;; Unclassified -> storage (pseudo-keyed by trie hash)
+                (push entry storage))))
         (setf lookup (nreverse lookup))
         (setf storage (nreverse storage))
 
@@ -478,11 +482,16 @@
                  preimages)))
 
     ;; -- Validate necessity + Integrate --
-    (let ((new-kvs (copy-list raw-kvs)))
+    ;; Build key→cons-cell index for O(1) lookup/replace
+    (let ((new-kvs (copy-list raw-kvs))
+          (kv-index (make-hash-table :test 'equalp :size (length raw-kvs))))
+      ;; Index all entries
+      (dolist (kv new-kvs)
+        (setf (gethash (car kv) kv-index) kv))
       (flet ((find-kv (target-key)
-               (find target-key new-kvs :key #'car :test #'equalp))
+               (gethash target-key kv-index))
              (replace-kv-val (target-key new-val)
-               (let ((pair (find target-key new-kvs :key #'car :test #'equalp)))
+               (let ((pair (gethash target-key kv-index)))
                  (when pair (setf (cdr pair) new-val)))))
 
         (dolist (a annotated)
@@ -503,7 +512,9 @@
                            (evenp (length statuses))))
                 (let ((statuses (load-lookup-value (cdr lookup-entry))))
                   ;; Store preimage blob
-                  (push (cons blob-key (ensure-bytes blob)) new-kvs)
+                  (let ((new-kv (cons blob-key (ensure-bytes blob))))
+                    (push new-kv new-kvs)
+                    (setf (gethash blob-key kv-index) new-kv))
                   ;; Update lookup: append tau' to status list
                   (replace-kv-val lookup-key
                                   (encode-lookup-value (append statuses (list timeslot))))))))))
@@ -592,17 +603,20 @@
    DELTA-RESULTS: hash-table of (sid → effects-plist)
    TIMESLOT: current timeslot for last-accumulation-slot updates
    Returns: new raw-kvs list.
-   Optimized: uses hash-table scope membership for O(1) lookups."
-  (let ((current-kvs (copy-list raw-kvs)))
+   Optimized: metadata-index for O(1) lookup, hash-table scope membership."
+  (let ((current-kvs (copy-list raw-kvs))
+        ;; Pre-build metadata index: sid → kv cons cell for O(1) lookup
+        (meta-index (make-hash-table :test 'eql)))
+    ;; One pass to index all metadata entries
+    (dolist (kv current-kvs)
+      (when (service-metadata-key-p (car kv))
+        (setf (gethash (service-id-from-metadata-key (car kv)) meta-index) kv)))
     (maphash
      (lambda (sid effects)
        ;; Update metadata entry for this service.
        ;; If :no-code flag is set, only update balance (service never ran PVM).
        ;; Otherwise, also update last-accumulation-slot and PVM-final fields.
-       (let ((meta-entry (find-if (lambda (kv)
-                                    (and (service-metadata-key-p (car kv))
-                                         (= (service-id-from-metadata-key (car kv)) sid)))
-                                  current-kvs)))
+       (let ((meta-entry (gethash sid meta-index)))
          (when meta-entry
            (let ((info (load-service-info (cdr meta-entry))))
              ;; Update balance if provided (always, even no-code)
@@ -653,10 +667,11 @@
                    (push (cons trie-key (ensure-bytes val)) current-kvs)))
 
                ;; ── MERGE lookups: scope-based (hash-table O(1) membership) ──
-               (let* ((post-storage-classified (classify-service-sub-keys sid current-kvs))
-                      (initial-lookup-h27s
+               ;; Reuse initial-classified: lookup entries are unaffected by storage changes
+               ;; (different trie-h formula), so no need to re-classify.
+               (let* ((initial-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
-                               (getf post-storage-classified :lookup)))
+                               (getf initial-classified :lookup)))
                       (final-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (or (getf effects :lookup) '())))
@@ -717,12 +732,14 @@
                  (declare (ignorable ejector-id))
                (setf current-kvs
                      (remove-if (lambda (kv)
-                                  (or (and (service-metadata-key-p (car kv))
-                                           (= (service-id-from-metadata-key (car kv)) target-id))
-                                      (and (not (service-metadata-key-p (car kv)))
-                                           (not (segment-key-p (car kv)))
-                                           (= (service-id-from-sub-key (car kv)) target-id))))
-                                current-kvs))))
+                                  (let ((key (car kv)))
+                                    (or (and (service-metadata-key-p key)
+                                             (= (service-id-from-metadata-key key) target-id))
+                                        (and (not (service-metadata-key-p key))
+                                             (not (segment-key-p key))
+                                             (= (service-id-from-sub-key key) target-id)))))
+                                current-kvs))
+               (remhash target-id meta-index)))
 
            ;; ── Handle created services (ΩN) ──
            ;; GP B.10: New service gets a lookup entry {((c,l)↦[])} and
@@ -743,13 +760,14 @@
                                 :last-accumulation-slot 0
                                 :parent-service (or (getf cs :parent-service) sid))))
                ;; Remove any existing metadata entry for this service
-               (setf current-kvs
-                     (remove-if (lambda (kv)
-                                  (and (service-metadata-key-p (car kv))
-                                       (= (service-id-from-metadata-key (car kv)) new-sid)))
-                                current-kvs))
+               (let ((old-meta (gethash new-sid meta-index)))
+                 (when old-meta
+                   (setf current-kvs (remove old-meta current-kvs :test #'eq))
+                   (remhash new-sid meta-index)))
                ;; Add the new metadata entry
-               (push (cons meta-key (encode-service-info info)) current-kvs)
+               (let ((new-kv (cons meta-key (encode-service-info info))))
+                 (push new-kv current-kvs)
+                 (setf (gethash new-sid meta-index) new-kv))
 
                ;; GP B.10: Create lookup entry {((c,l)↦[])} for the code hash.
                ;; The lookup trie key is interleave(new-sid, H(E4(l).hash)[0:27]).
@@ -765,10 +783,7 @@
            (when (and update-storage-p
                       (getf effects :items-count)
                       (getf effects :footprint))
-             (let ((meta-entry (find-if (lambda (kv)
-                                          (and (service-metadata-key-p (car kv))
-                                               (= (service-id-from-metadata-key (car kv)) sid)))
-                                        current-kvs)))
+             (let ((meta-entry (gethash sid meta-index)))
                (when meta-entry
                  (let ((info (load-service-info (cdr meta-entry))))
                    (setf (getf info :items) (getf effects :items-count))

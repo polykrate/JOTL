@@ -306,6 +306,15 @@
          ;; ── Collect operand tuples from all reports ──
          (all-tuples (mapcan #'extract-operand-tuples reports))
          (by-service (group-by-service all-tuples))
+         ;; ── Pre-group transfers by destination (O(T) once, O(1) per service) ──
+         ;; push reverses order → nreverse each bucket to preserve original order
+         (xfer-by-dest (let ((ht (make-hash-table :test 'eql)))
+                         (dolist (x transfers)
+                           (push x (gethash (getf x :destination) ht)))
+                         (maphash (lambda (k v)
+                                    (setf (gethash k ht) (nreverse v)))
+                                  ht)
+                         ht))
          ;; ── Run Δ_1 for each service s ∈ s ──
          ;; results: alist of (sid . effects-plist)
          (delta-results (make-hash-table :test 'eql))
@@ -319,10 +328,8 @@
       (when (<= remaining-gas 0) (return))
 
       (let* ((items (or (gethash sid by-service) nil))
-             ;; Deferred transfers for this service
-             (svc-transfers (remove-if-not
-                             (lambda (x) (= (getf x :destination) sid))
-                             transfers))
+             ;; Deferred transfers for this service — O(1) hash lookup
+             (svc-transfers (gethash sid xfer-by-dest))
              ;; Gas: max of (sum of advertised, free-accum gas, transfer gas)
              (work-gas (if items
                            (reduce #'+ items :key (lambda (u) (or (getf u :gas) 0)))
