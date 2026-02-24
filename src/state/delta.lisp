@@ -499,14 +499,15 @@
                  (hash (getf a :hash))
                  (blob (getf a :blob))
                  (len  (length blob))
+                 (meta-key   (make-service-metadata-key sid))
                  (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
                  (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
 
-            ;; GP §9.2: integrate if lookup entry exists with even-length status
-            ;; The lookup entry's existence proves the service solicited this preimage.
-            ;; No separate metadata check — a service can have lookup entries without
-            ;; a metadata key (e.g. freshly created or partially populated).
-            (let ((lookup-entry (find-kv lookup-key)))
+            ;; GP §9.2: integrate only if:
+            ;;   1. Service s exists (has metadata key C(255,s))
+            ;;   2. Lookup entry (h,l) exists with even-length status list
+            (let ((lookup-entry (when (find-kv meta-key)
+                                  (find-kv lookup-key))))
               (when (and lookup-entry
                          (let ((statuses (load-lookup-value (cdr lookup-entry))))
                            (evenp (length statuses))))

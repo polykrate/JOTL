@@ -431,61 +431,59 @@
             (nreverse gas-usage))))  ;; closes values, let*, let, defun
 
 (defun accumulate-all (r-star state)
-  "GP §12.2 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
-   Recursive definition:
-     Δ+(g, t, [],    e, f) = Δ*(e, t, [], f)         — base case
-     Δ+(g, t, r:R*, e, f) = let (e',t',b,u) = Δ*(e, t, [r], f)
-                              in (n+1, Δ+(g', t', R*, e', f))
-   f (always-accumulate) is passed to EVERY Δ* call.
-   After the last report, one final Δ* call processes residual
-   deferred transfers + always-accumulate services.
+  "GP §12.18 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
+   
+   GP formal definition is recursive (one report at a time), but all conformant
+   implementations batch all reports into a single Δ* call. This is equivalent
+   because each service appears at most once in the service-set s (set union),
+   and accumulate-service processes all items for that service together.
+   
+   f (always-accumulate) is included in the first Δ* call only.
+   After reports, residual deferred transfers are drained in a loop until
+   no new transfers are produced.
 
    STATE is the mutable accumulation state (includes χ fields, f).
    Returns: updated STATE with :commitments, :gas-usage, :pending-transfers populated."
   (let ((all-commitments nil)
         (all-gas-usage nil)
         (pending-transfers (getf state :pending-transfers))
-        (free-accum (funcall (getf state :chi) :always-accum)))
+        (free-accum (funcall (getf state :chi) :always-accum))
+        (n (length r-star)))
 
-    ;; ── GP 12.18: Δ+(g, t, r, e, f) ──
-    ;; Process ALL reports in ONE Δ* call (not one-by-one).
-    ;; Then recurse with new deferred transfers, f = {} in recursion.
-    (let ((n (length r-star)))
+    ;; ── First call: Δ*(e, t, R*, f) — all reports + free-accum ──
+    (when (and (plusp (getf state :remaining-gas))
+               (or r-star pending-transfers free-accum))
+      (multiple-value-bind (state* new-transfers commitments gas-usage)
+          (accumulate-star state
+                          pending-transfers
+                          r-star        ;; all reports at once
+                          free-accum)   ;; f = free-accum (first call only)
+        (setf state state*
+              pending-transfers new-transfers)
+        (setf all-commitments (nconc all-commitments commitments))
+        (setf all-gas-usage (nconc all-gas-usage gas-usage))))
 
-      ;; ── First call: Δ*(e, t, r...i, f) — all reports + free-accum ──
-      (when (and (plusp (getf state :remaining-gas))
-                 (or r-star pending-transfers free-accum))
-        (multiple-value-bind (state* new-transfers commitments gas-usage)
-            (accumulate-star state
-                            pending-transfers
-                            r-star        ;; ALL reports at once
-                            free-accum)   ;; f = free-accum (first call only)
-          (setf state state*)
-          (setf pending-transfers new-transfers)
-          (setf all-commitments (nconc all-commitments commitments))
-          (setf all-gas-usage (nconc all-gas-usage gas-usage))))
+    ;; ── Drain residual deferred transfers ──
+    ;; Continue until no more deferred transfers emerge.
+    ;; f = {} in subsequent rounds (no free-accum re-invocation).
+    (loop while (and (plusp (getf state :remaining-gas))
+                     pending-transfers)
+          do (multiple-value-bind (state* new-transfers commitments gas-usage)
+                 (accumulate-star state
+                                 pending-transfers
+                                 nil   ;; no reports
+                                 nil)  ;; f = {} in recursion
+               (setf state state*
+                     pending-transfers new-transfers)
+               (setf all-commitments (nconc all-commitments commitments))
+               (setf all-gas-usage (nconc all-gas-usage gas-usage))))
 
-      ;; ── Recursion: Δ+(g*, t*, [], e*, {}) — deferred transfers only ──
-      ;; GP 12.18: f = {} in recursion, no more reports.
-      ;; Continue until no more deferred transfers (n = |t| = 0 → stop).
-      (loop while (and (plusp (getf state :remaining-gas))
-                       pending-transfers)
-            do (multiple-value-bind (state* new-transfers commitments gas-usage)
-            (accumulate-star state
-                            pending-transfers
-                                   nil   ;; no reports
-                                   nil)  ;; f = {} in recursion
-          (setf state state*)
-          (setf pending-transfers new-transfers)
-          (setf all-commitments (nconc all-commitments commitments))
-          (setf all-gas-usage (nconc all-gas-usage gas-usage))))
-
-      ;; Store results back in state
-      (setf (getf state :commitments) all-commitments)
-      (setf (getf state :gas-usage) all-gas-usage)
-      (setf (getf state :pending-transfers) pending-transfers)
-      (setf (getf state :n-accumulated) n)
-      state)))
+    ;; Store results back in state
+    (setf (getf state :commitments) all-commitments
+          (getf state :gas-usage) all-gas-usage
+          (getf state :pending-transfers) pending-transfers
+          (getf state :n-accumulated) n)
+    state))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; transition-accumulate — GP (4.16) top-level entry
