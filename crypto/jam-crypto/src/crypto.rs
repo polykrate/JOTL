@@ -1180,6 +1180,7 @@ mod tests {
         
         assert!(result, "VRF verification should succeed via FFI");
     }
+
 }
 
 // ============================================================================

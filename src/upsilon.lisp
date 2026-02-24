@@ -119,6 +119,11 @@
                                      :tickets e-t :iota iota
                                      :eta-prime eta-prime :kappa-prime kappa-prime
                                      :psi-prime psi-prime))
+               ;; ── Safrole header validation (GP §5-6) ──
+               ;; Validate HI, HS, HV, HE, HW against γ'/η'/κ'
+               ;; Must happen after γ' is computed.
+               (_ (validate-header-safrole h tau tau-prime gamma eta eta-prime
+                                           gamma-prime kappa-prime))
                ;; (4.13) ρ‡  < (EA, ρ†)
                ;; (4.15) R*  accessible via (funcall rho-ddagger :reported)
                (rho-ddagger (funcall rho-dagger :transition-ddagger

@@ -178,9 +178,9 @@ dependencies = [
 
 [[package]]
 name = "ark-vrf"
-version = "0.1.1"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d63e9780640021b74d02b32895d8cec1b4abe8e5547b560a6bda6b14b78c6da"
+checksum = "b722df2194fd06cd069bb3cb29cd4bfce8e023b6cace34d314ee2cf4bd4df9b5"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -522,12 +522,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itoa"
-version = "1.0.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ee5b5339afb4c41626dde77b7a611bd4f2c202b897852b4bcf5d03eddc61010"
-
-[[package]]
 name = "jam-crypto"
 version = "0.1.0"
 dependencies = [
@@ -543,7 +537,6 @@ dependencies = [
  "log",
  "reed-solomon-novelpoly",
  "reed-solomon-simd",
- "serde_json",
  "sha3",
 ]
 
@@ -794,12 +787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ryu"
-version = "1.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62049b2877bf12821e8f9ad256ee38fdc31db7387ec2d3b3f403024de2034aea"
-
-[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -838,19 +825,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
-]
-
-[[package]]
-name = "serde_json"
-version = "1.0.146"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217ca874ae0207aac254aa02c957ded05585a90892cc8d87f9e5fa49669dadd8"
-dependencies = [
- "itoa",
- "memchr",
- "ryu",
- "serde",
- "serde_core",
 ]
 
 [[package]]
@@ -995,9 +969,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "w3f-pcs"
-version = "0.0.2"
+version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbe7a8d5c914b69392ab3b267f679a2e546fe29afaddce47981772ac71bd02e1"
+checksum = "3ea1046a1deb6d26c34ba2d1f1bab4222d695d126502ee765f80b021753cb674"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -1010,9 +984,9 @@ dependencies = [
 
 [[package]]
 name = "w3f-plonk-common"
-version = "0.0.2"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aca389e494fe08c5c108b512e2328309036ee1c0bc7bdfdb743fef54d448c8c"
+checksum = "077db25196f87773d7f0784c0ea5b11f18f38d336fa25c24bc67d7936af05d7a"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -1027,9 +1001,9 @@ dependencies = [
 
 [[package]]
 name = "w3f-ring-proof"
-version = "0.0.2"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a639379402ad51504575dbd258740383291ac8147d3b15859bdf1ea48c677de"
+checksum = "a3afac5d485a6eed7c1762be4b7b70a6f9b346bd6eebe485f48b7d909a6773f5"
 dependencies = [
  "ark-ec",
  "ark-ff",

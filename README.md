@@ -21,6 +21,24 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 **1000/1000 deterministic traces pass** — byte-exact state root match,
 chain and step modes. Zero errors, zero regressions.
 
+### Fuzzer target (fuzz-v1)
+
+JOTL includes a **fuzz-v1 protocol server** for real-time conformance testing
+via the [jam-conformance](https://github.com/davxy/jam-conformance) fuzzer.
+
+```bash
+./scripts/fuzz-target.sh /tmp/jam_target.sock
+```
+
+The server handles `PeerInfo`, `Initialize`, `ImportBlock`, and `GetState`
+messages over a Unix domain socket, with fork-aware state management.
+
+**Status**: `no_forks` minifuzz tests pass. `forks` tests require IETF VRF
+verification (Bandersnatch seal/entropy checks) which is currently under
+investigation — `ark-vrf` deserialization succeeds but `public.verify()`
+returns `VerificationFailure` even on valid test-vector data. All non-VRF
+header validations (HI, HE, HW) are active.
+
 ## Architecture
 
 Each GP state component (τ η κ λ β ψ ρ ι γ α ϕ δ π χ ω ξ θ) is a
@@ -62,6 +80,9 @@ cargo build --manifest-path crypto/jam-crypto/Cargo.toml --release
 ./scripts/test.sh                    # all traces
 ./scripts/test.sh storage -v         # verbose, per-block output
 ./scripts/test.sh safrole preimages  # specific traces
+
+# Fuzzer target
+./scripts/fuzz-target.sh /tmp/jam_target.sock
 ```
 
 ## Layout
@@ -71,6 +92,7 @@ src/
 ├── upsilon.lisp        Υ(σ,B)→σ'  4-wave graph
 ├── accumulate.lisp     §12  R*, PVM orchestration
 ├── import.lisp         Block import, chain logging
+├── fuzz-target.lisp    fuzz-v1 protocol server
 ├── jamvm/              PVM interpreter (GP Appendix A)
 ├── jam-host/           Host calls (GP Appendix B)
 ├── lib/                Codecs, constants, Merkle trie, MMR
@@ -78,6 +100,10 @@ src/
 └── state/              17 components (one file each)
 
 crypto/jam-crypto/      Rust: Blake2b, Bandersnatch, Ed25519, erasure coding
+scripts/
+├── test.sh             Trace runner (1000 blocks, colored diff)
+├── fuzz-target.sh      Launch fuzzer target server
+└── load-jotl.lisp      SBCL loader script
 tests/conformance.lisp  Trace runner (colored diff on 1000 blocks)
 ```
 

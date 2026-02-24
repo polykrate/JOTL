@@ -23,7 +23,7 @@ ed25519-dalek = { version = "2", features = ["hazmat"] }
 
 # Bandersnatch VRF (davxy's ark-vrf)
 # Supports: IETF VRF, Pedersen VRF, Ring VRF on Bandersnatch curve
-ark-vrf = { version = "0.1", features = ["bandersnatch", "ring", "parallel"] }
+ark-vrf = { version = "=0.1.0", features = ["bandersnatch", "ring", "parallel"] }
 
 # BLS12-381 for validator keys (GP 6.8-6.11)
 # Note: Already transitive via ark-vrf, but Rust requires explicit declaration to `use`

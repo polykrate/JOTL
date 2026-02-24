@@ -321,5 +321,10 @@
    #:blake2b-256 #:keccak-256
    #:hex-string-to-bytes #:bytes-to-hex-string
    
+   ;; ═══════════════════════════════════════════════════════════════
+   ;; Fuzz Target — fuzz-v1 protocol server
+   ;; ═══════════════════════════════════════════════════════════════
+   #:run-fuzz-target
+
    ;; Version
    #:*jotl-version*))

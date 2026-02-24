@@ -85,5 +85,8 @@
    
    ;; 7. Block Importer — M1 API (parse binary, import block, run traces)
    (:file "import" :pathname "src/import")
+
+   ;; 8. Fuzz Target — fuzz-v1 protocol server for conformance testing
+   (:file "fuzz-target" :pathname "src/fuzz-target")
    
    ))
