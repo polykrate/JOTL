@@ -104,7 +104,28 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 (GP Appendix B) in `src/jam-host/`. Arguments are mapped at `ARGS_SEGMENT`
 (0xFEFF0000) as read-only per GP A.8 / SPI convention.
 
-~12 K lines Lisp · ~1 K lines Rust (crypto only)
+### Line count
+
+| | Code | Comments | Total |
+|-|-----:|---------:|------:|
+| **Lisp** | 12 907 | 4 242 | 19 314 |
+| **Rust** | 1 525 | 422 | 2 277 |
+| **All** | **14 432** | **4 664** | **21 591** |
+
+<details><summary>Lisp breakdown</summary>
+
+| Module | Code | Comments |
+|--------|-----:|---------:|
+| State (17 components) | 3 055 | 1 224 |
+| Host calls (GP B) | 2 365 | 820 |
+| PVM interpreter (GP A) | 2 105 | 975 |
+| Tests & scripts | 1 768 | 245 |
+| Orchestration (Υ, §12, import) | 1 140 | 316 |
+| Library (codecs, Merkle) | 1 137 | 364 |
+| Block/extrinsics | 845 | 231 |
+| Crypto FFI bindings | 492 | 67 |
+
+</details>
 
 ## Run
 
