@@ -6,6 +6,8 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 ## Conformance
 
+### Static test vectors (1000 blocks)
+
 | Trace | Chain | Step | Errors |
 |-------|------:|-----:|-------:|
 | fallback | 100/100 ✓ | 100/100 ✓ | 0 |
@@ -18,26 +20,31 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | fuzzy | 200/200 ✓ | 200/200 ✓ | 0 |
 | **TOTAL** | **1000/1000** | **1000/1000** | **0** |
 
-**1000/1000 deterministic traces pass** — byte-exact state root match,
-chain and step modes. Zero errors, zero regressions.
-
 ### Fuzzer target (fuzz-v1)
 
-JOTL includes a **fuzz-v1 protocol server** for real-time conformance testing
+JOTL implements a **fuzz-v1 protocol server** for real-time conformance testing
 via the [jam-conformance](https://github.com/davxy/jam-conformance) fuzzer.
 
+| Test suite | Result |
+|------------|--------|
+| `no_forks` (102 pairs) | **102/102 ✓** |
+| `forks` (102 pairs) | **51/102** (state root divergence at pair 52) |
+
+VRF verification is **fully enabled** — Bandersnatch IETF VRF for both seal
+and entropy source, in both fallback and tickets modes:
+- Seal VRF: `ad = EU(H)` (header without seal, GP §6.4)
+- Entropy VRF: `ad = []` (empty, GP §6.17)
+- Fallback mode key: `γ'S[HT mod E]` (GP §6.16)
+- Tickets mode key: `κ'[HI].kb` (GP §6.15)
+
 ```bash
+# Launch fuzzer target
 ./scripts/fuzz-target.sh /tmp/jam_target.sock
+
+# Run minifuzz self-test (from jam-conformance/fuzz-proto/)
+python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
+  -d examples/0.7.2/no_forks
 ```
-
-The server handles `PeerInfo`, `Initialize`, `ImportBlock`, and `GetState`
-messages over a Unix domain socket, with fork-aware state management.
-
-**Status**: `no_forks` minifuzz tests pass. `forks` tests require IETF VRF
-verification (Bandersnatch seal/entropy checks) which is currently under
-investigation — `ark-vrf` deserialization succeeds but `public.verify()`
-returns `VerificationFailure` even on valid test-vector data. All non-VRF
-header validations (HI, HE, HW) are active.
 
 ## Architecture
 
@@ -48,7 +55,7 @@ no mutation.
 
 **Uniform `:transition` protocol** — every closure follows the same contract:
 
-- `:transition` returns the **new closure**, period. No `multiple-value-bind`.
+- `:transition` returns the **new closure**, period.
 - Side-data computed during transition (e.g. R\* from ω, emitted validators
   from χ) is stored as **transient fields** queryable on the returned closure.
 - Multi-stage transitions use `:transition-dagger` / `:transition-ddagger`
@@ -66,9 +73,7 @@ Crypto (Blake2b, Bandersnatch, Ed25519) is Rust via CFFI.
 
 PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 (GP Appendix B) in `src/jam-host/`. Arguments are mapped at `ARGS_SEGMENT`
-(0xFEFF0000) as read-only per GP A.8 / SPI convention. Memory model follows
-GP A.7: all valid regions (ro\_data, rw\_data+padding, stack) are pre-mapped
-at init. Heap extends via `sbrk` only. Page faults on unmapped memory → panic.
+(0xFEFF0000) as read-only per GP A.8 / SPI convention.
 
 ~12 K lines Lisp · ~1 K lines Rust (crypto only)
 
@@ -104,7 +109,7 @@ scripts/
 ├── test.sh             Trace runner (1000 blocks, colored diff)
 ├── fuzz-target.sh      Launch fuzzer target server
 └── load-jotl.lisp      SBCL loader script
-tests/conformance.lisp  Trace runner (colored diff on 1000 blocks)
+tests/conformance.lisp  Trace runner entry point
 ```
 
 ## License
