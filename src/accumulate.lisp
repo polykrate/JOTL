@@ -410,9 +410,18 @@
       (let ((iota-vals (funcall chi-new :emitted-validators))
             (phi-qs    (funcall chi-new :emitted-queues)))
         (when iota-vals
-          (setf (getf state :iota)
-                (funcall (getf state :iota) :transition
-                         :new-validators iota-vals)))
+          ;; ΩD stores raw 336-byte arrays; ι expects decoded validator plists.
+          ;; Convert any raw byte-vector entries to (:bandersnatch :ed25519 :bls :metadata) plists.
+          (let ((decoded-vals
+                  (mapcar (lambda (raw)
+                            (if (and (typep raw '(vector (unsigned-byte 8)))
+                                     (= (length raw) 336))
+                                (decode-full-validator raw 0) ;; returns (values plist 336)
+                                raw))  ;; already a plist
+                          iota-vals)))
+            (setf (getf state :iota)
+                  (funcall (getf state :iota) :transition
+                           :new-validators decoded-vals))))
         (when phi-qs
           (setf (getf state :phi)
                 (funcall (getf state :phi) :transition

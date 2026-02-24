@@ -30,28 +30,27 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **678** |
+| Pass | **683** |
 | Correct reject | **40** |
-| Fail | **42** |
+| Fail | **37** |
 | Errors | **0** |
 
-#### Failure typology (42 remaining)
+#### Failure typology (37 remaining)
 
 | Signature | Count | Root cause |
 |-----------|------:|------------|
 | `(GAMMA)` | 6 | γZ ring commitment at epoch boundary |
-| `(IOTA PI)` | 6 | ι wrong → cascade to π |
-| `(BETA PI THETA DELTA-KVS)` | 6 | π\_C/π\_S cores/services stats → cascade |
-| `(PI DELTA-KVS)` | 4 | π\_C/π\_S → δ cascade |
-| `(IOTA PI DELTA-KVS)` | 4 | ι → π → δ cascade |
-| `(BETA GAMMA ETA KAPPA RHO TAU PI XI THETA DELTA-KVS)` | 4 | Epoch cascade (γ wrong → all) |
+| `(BETA PI THETA DELTA-KVS)` | 6 | π\_S accumulate-gas → cascade |
+| `(PI DELTA-KVS)` | 4 | π\_S → δ cascade |
+| `(IOTA PI DELTA-KVS)` | 4 | ι+π → δ cascade |
+| `(BETA GAMMA ETA KAPPA RHO TAU PI XI THETA DELTA-KVS)` | 4 | Epoch cascade (γ → all) |
 | `(BETA GAMMA ETA KAPPA RHO TAU PI XI DELTA-KVS)` | 4 | Epoch cascade (no θ) |
 | `(DELTA-KVS)` | 3 | Accumulate (pure δ divergence) |
-| `(PI)` | 2 | π\_C/π\_S cores/services stats |
-| Other cascades | 3 | Partial epoch cascades |
+| `(PI)` | 2 | π\_S accumulate gas accounting |
+| Other cascades | 4 | Partial epoch/chi cascades |
 
 **3 independent root causes:**
-1. **π\_C/π\_S** — core & service activity statistics (§13.2)
+1. **PVM gas** — accumulate gas accounting → π\_S divergence (§13.2 / Appendix A)
 2. **γZ** — ring commitment at epoch boundary (§6)
 3. **δ** — accumulate storage divergence (§12)
 

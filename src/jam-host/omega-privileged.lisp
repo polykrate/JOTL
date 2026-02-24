@@ -135,11 +135,14 @@
           (return-from omega-assign :continue))
 
         ;; ── x_s ≠ (x_e).a[c] → HUH ──
-        (let ((emp (hctx-empower ctx)))
-          (unless (and emp
-                       (< c-idx (length (emp-auth-agents emp)))
+        ;; GP: x_e defaults to zero-initialized; (x_e).a = [] initially.
+        ;; If no prior ΩB, emp is nil → auth-agents is empty → always HUH.
+        (let* ((emp (hctx-empower ctx))
+               (auth (when emp (emp-auth-agents emp))))
+          (unless (and auth
+                       (< c-idx (length auth))
                        (= (hctx-service-id ctx)
-                          (aref (emp-auth-agents emp) c-idx)))
+                          (aref auth c-idx)))
             (set-reg vm +a0+ +hc-huh+)
             (return-from omega-assign :continue))
 
@@ -174,7 +177,11 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 16 omega-designate (vm ctx)
-  "ΩD: Designate validator keys."
+  "ΩD: Designate validator keys.
+   GP B.9: x_s ≠ (x_e)_v → HUH.
+   When x_e has not been set (no prior ΩB), the GP defines the initial
+   empower state as zero-initialized: (x_e)_v = 0.  Service 0 (= χ_V
+   by default) can therefore call ΩD without a prior ΩB."
   (let* ((o       (u32 (reg vm +a0+)))
          (v-count (hctx-val-count ctx)))  ; V
 
@@ -184,11 +191,18 @@
       (unless v-raw (return-from omega-designate :fault))
 
       ;; ── x_s ≠ (x_e)_v → HUH ──
-      (let ((emp (hctx-empower ctx)))
-        (unless (and emp
-                     (= (hctx-service-id ctx) (emp-validator emp)))
+      ;; GP: x_e defaults to zero-initialized tuple, so (x_e)_v = 0 initially.
+      ;; If no prior ΩB: emp is nil → treat (x_e)_v as 0.
+      (let* ((emp (hctx-empower ctx))
+             (emp-v (if emp (emp-validator emp) 0)))
+        (unless (= (hctx-service-id ctx) emp-v)
           (set-reg vm +a0+ +hc-huh+)
           (return-from omega-designate :continue))
+
+        ;; Create default empower state if ΩB was never called
+        (unless emp
+          (setf emp (make-empower-state))
+          (setf (hctx-empower ctx) emp))
 
         ;; Parse validator keys
         (let ((validators (make-array v-count)))
