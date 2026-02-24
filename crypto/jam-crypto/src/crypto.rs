@@ -713,6 +713,104 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment(
     }
 }
 
+/// Compute ring commitment with explicit ring_size (may differ from num_validators)
+/// If ring_size > num_validators, the ring is padded with padding points.
+///
+/// # Safety
+/// - `srs_data`: Zcash SRS file contents
+/// - `ring_pks`: V * 32 bytes (V compressed Bandersnatch points)
+/// - `ring_size`: Domain size for KZG (may be > num_validators)
+/// - `output`: Buffer for 144-byte ring commitment
+#[no_mangle]
+pub unsafe extern "C" fn bandersnatch_compute_ring_commitment_padded(
+    srs_data: *const u8,
+    srs_len: usize,
+    ring_pks: *const u8,
+    num_validators: usize,
+    ring_size: usize,
+    output: *mut u8,
+) -> bool {
+    #[cfg(not(feature = "ring"))]
+    {
+        let _ = (srs_data, srs_len, ring_pks, num_validators, ring_size, output);
+        return false;
+    }
+    
+    #[cfg(feature = "ring")]
+    {
+        use ark_vrf::ring::RingProofParams;
+        use ark_vrf::suites::bandersnatch::PcsParams;
+        
+        if srs_data.is_null() || ring_pks.is_null() || output.is_null() {
+            return false;
+        }
+        
+        let srs_bytes = std::slice::from_raw_parts(srs_data, srs_len);
+        let pks_bytes = std::slice::from_raw_parts(ring_pks, num_validators * 32);
+        
+        // Load PCS params from SRS
+        let pcs_params: PcsParams = 
+            match PcsParams::deserialize_uncompressed_unchecked(&mut &srs_bytes[..]) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("PCS params error: {:?}", e);
+                    return false;
+                }
+            };
+        
+        // Create ring proof params with explicit ring_size
+        let params: RingProofParams<BandersnatchSha512Ell2> = 
+            match RingProofParams::from_pcs_params(ring_size, pcs_params) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("RingProofParams error for ring_size={}: {:?}", ring_size, e);
+                    return false;
+                }
+            };
+        
+        let padding = RingProofParams::<BandersnatchSha512Ell2>::padding_point();
+        
+        // Build ring from public keys + pad to ring_size
+        let mut ring = Vec::with_capacity(ring_size);
+        for i in 0..num_validators {
+            let pk_bytes = &pks_bytes[i*32..(i+1)*32];
+            let is_zero_key = pk_bytes.iter().all(|&b| b == 0);
+            
+            if is_zero_key {
+                ring.push(padding);
+            } else {
+                match Public::deserialize_compressed(&pk_bytes[..]) {
+                    Ok(pk) => ring.push(pk.0),
+                    Err(_) => ring.push(padding),
+                }
+            }
+        }
+        
+        // Pad remaining slots with padding point
+        for _ in num_validators..ring_size {
+            ring.push(padding);
+        }
+        
+        // Compute ring commitment
+        let verifier_key = params.verifier_key(&ring);
+        let commitment = verifier_key.commitment();
+        
+        // Serialize to output
+        let mut commitment_bytes = Vec::new();
+        if commitment.serialize_compressed(&mut commitment_bytes).is_err() {
+            return false;
+        }
+        
+        if commitment_bytes.len() != 144 {
+            eprintln!("Unexpected commitment size: {}", commitment_bytes.len());
+            return false;
+        }
+        
+        std::ptr::copy_nonoverlapping(commitment_bytes.as_ptr(), output, 144);
+        true
+    }
+}
+
 /// Verify a complete Bandersnatch Ring VRF signature (784 bytes format)
 ///
 /// The signature format is: [VRF output: 32] [Pedersen proof: 160] [Ring proof: 592]

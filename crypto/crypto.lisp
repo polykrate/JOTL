@@ -532,6 +532,52 @@
                 output
                 nil)))))))
 
+(cffi:defcfun ("bandersnatch_compute_ring_commitment_padded" 
+               %bandersnatch-compute-ring-commitment-padded) :bool
+  "Compute ring commitment with explicit ring_size (FFI)"
+  (srs-data :pointer)
+  (srs-len :size)
+  (ring-pks :pointer)
+  (num-validators :size)
+  (ring-size :size)
+  (output :pointer))
+
+(defun bandersnatch-compute-ring-commitment-padded (validator-keys ring-size)
+  "Compute ring commitment (γz) with explicit ring-size.
+   Pads the ring with padding points if ring-size > num-validators.
+   
+   Args:
+     validator-keys: Vector of 32-byte Bandersnatch public keys
+     ring-size: Domain size for KZG commitment (may be > num validators)
+   
+   Returns: 144-byte ring commitment, or NIL on error"
+  (let ((srs (load-bandersnatch-srs)))
+    (unless srs
+      (warn "SRS not loaded")
+      (return-from bandersnatch-compute-ring-commitment-padded nil))
+    
+    (let* ((num-validators (length validator-keys))
+           (ring-pks (make-array (* num-validators 32) :element-type '(unsigned-byte 8)))
+           (output (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0)))
+      
+      ;; Concatenate all validator keys
+      (loop for i from 0 below num-validators
+            for key = (elt validator-keys i)
+            do (dotimes (j 32)
+                 (setf (aref ring-pks (+ (* i 32) j)) (aref key j))))
+      
+      ;; Call FFI with explicit ring_size
+      (cffi:with-pointer-to-vector-data (srs-ptr srs)
+        (cffi:with-pointer-to-vector-data (pks-ptr ring-pks)
+          (cffi:with-pointer-to-vector-data (out-ptr output)
+            (if (%bandersnatch-compute-ring-commitment-padded 
+                 srs-ptr (length srs)
+                 pks-ptr num-validators
+                 ring-size
+                 out-ptr)
+                output
+                nil)))))))
+
 (defun ticket-vrf-input (η₂ attempt)
   "Build VRF input for ticket validation.
    

@@ -29,6 +29,7 @@
    #:bandersnatch-verify-ring-vrf
    #:bandersnatch-verify-ring-vrf-with-output
    #:bandersnatch-compute-ring-commitment
+   #:bandersnatch-compute-ring-commitment-padded
    #:ticket-vrf-input
    #:load-bandersnatch-srs
    #:*bandersnatch-srs*
