@@ -25,16 +25,37 @@
    
    Returns:
      Byte array of length num-bytes"
-  (check-type value (integer 0 *))
-  (check-type num-bytes (integer 1 *))
-  
-  (when (>= value (expt 2 (* 8 num-bytes)))
-    (error "Value ~A too large for ~A bytes" value num-bytes))
-  
+  (declare (optimize (speed 3) (safety 1)))
   (let ((result (make-array num-bytes :element-type '(unsigned-byte 8))))
-    (loop for i from 0 below num-bytes
-          do (setf (aref result i) (ldb (byte 8 (* 8 i)) value)))
+    (loop for i fixnum from 0 below num-bytes
+          do (setf (aref result i) (ldb (byte 8 (the fixnum (* 8 i))) value)))
     result))
+
+(declaim (inline E4 E8))
+
+(defun E4 (value)
+  "Encode u32. Specialized fast path — no check-type, no expt."
+  (declare (optimize (speed 3) (safety 1)))
+  (let ((buf (make-array 4 :element-type '(unsigned-byte 8))))
+    (setf (aref buf 0) (logand value #xFF)
+          (aref buf 1) (logand (ash value -8) #xFF)
+          (aref buf 2) (logand (ash value -16) #xFF)
+          (aref buf 3) (logand (ash value -24) #xFF))
+    buf))
+
+(defun E8 (value)
+  "Encode u64. Specialized fast path — no check-type, no expt."
+  (declare (optimize (speed 3) (safety 1)))
+  (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
+    (setf (aref buf 0) (logand value #xFF)
+          (aref buf 1) (logand (ash value -8) #xFF)
+          (aref buf 2) (logand (ash value -16) #xFF)
+          (aref buf 3) (logand (ash value -24) #xFF)
+          (aref buf 4) (logand (ash value -32) #xFF)
+          (aref buf 5) (logand (ash value -40) #xFF)
+          (aref buf 6) (logand (ash value -48) #xFF)
+          (aref buf 7) (logand (ash value -56) #xFF))
+    buf))
 
 (defun decode-fixed-le (bytes)
   "Decode little-endian bytes to natural number (Gray Paper C.12).
@@ -44,42 +65,64 @@
    
    Returns:
      Natural number"
-  (let ((result 0))
-    (loop for i from 0 below (length bytes)
-          do (setf result (logior result (ash (aref bytes i) (* 8 i)))))
+  (declare (optimize (speed 3) (safety 1)))
+  (let ((result 0)
+        (n (length bytes)))
+    (declare (type fixnum n))
+    (loop for i fixnum from 0 below n
+          do (setf result (logior result (ash (aref bytes i) (the fixnum (* 8 i))))))
     result))
 
 ;; Convenience aliases for common sizes (Gray Paper notation)
 (defun E1 (value) "Encode u8"  (encode-fixed-le value 1))
 (defun E2 (value) "Encode u16" (encode-fixed-le value 2))
-(defun E4 (value) "Encode u32" (encode-fixed-le value 4))
-(defun E8 (value) "Encode u64" (encode-fixed-le value 8))
+;; E4 and E8 are defined above as specialized fast-path functions
 
 ;; User-friendly named aliases
 (defun encode-u8 (value) "Encode u8" (encode-fixed-le value 1))
 (defun encode-u16 (value) "Encode u16" (encode-fixed-le value 2))
-(defun encode-u32 (value) "Encode u32" (encode-fixed-le value 4))
-(defun encode-u64 (value) "Encode u64" (encode-fixed-le value 8))
+(defun encode-u32 (value) "Encode u32" (E4 value))
+(defun encode-u64 (value) "Encode u64" (E8 value))
+
+(declaim (inline decode-u8 decode-u16 decode-u32 decode-u64))
 
 (defun decode-u8 (bytes &optional (offset 0))
-  "Decode u8 from bytes at offset.
+  "Decode u8 from bytes at offset. Zero-alloc.
    Returns: (values decoded-value bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 1))) 1))
+  (declare (optimize (speed 3) (safety 1)))
+  (values (aref bytes offset) 1))
 
 (defun decode-u16 (bytes &optional (offset 0))
-  "Decode u16 from bytes at offset.
+  "Decode u16 from bytes at offset. Zero-alloc.
    Returns: (values decoded-value bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
+  (declare (optimize (speed 3) (safety 1)))
+  (values (logior (aref bytes offset)
+                  (ash (aref bytes (+ offset 1)) 8))
+          2))
 
 (defun decode-u32 (bytes &optional (offset 0))
-  "Decode u32 from bytes at offset.
+  "Decode u32 from bytes at offset. Zero-alloc.
    Returns: (values decoded-value bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 4))) 4))
+  (declare (optimize (speed 3) (safety 1)))
+  (values (logior (aref bytes offset)
+                  (ash (aref bytes (+ offset 1)) 8)
+                  (ash (aref bytes (+ offset 2)) 16)
+                  (ash (aref bytes (+ offset 3)) 24))
+          4))
 
 (defun decode-u64 (bytes &optional (offset 0))
-  "Decode u64 from bytes at offset.
+  "Decode u64 from bytes at offset. Zero-alloc.
    Returns: (values decoded-value bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 8))) 8))
+  (declare (optimize (speed 3) (safety 1)))
+  (values (logior (aref bytes offset)
+                  (ash (aref bytes (+ offset 1)) 8)
+                  (ash (aref bytes (+ offset 2)) 16)
+                  (ash (aref bytes (+ offset 3)) 24)
+                  (ash (aref bytes (+ offset 4)) 32)
+                  (ash (aref bytes (+ offset 5)) 40)
+                  (ash (aref bytes (+ offset 6)) 48)
+                  (ash (aref bytes (+ offset 7)) 56))
+          8))
 
 ;;; ==========================================================================
 ;;; JAM Compact Integer Encoding (GP Appendix C.1.5)

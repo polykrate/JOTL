@@ -184,11 +184,20 @@
 ;;; Input: list of (31-byte-key . raw-bytes) pairs from Merkle trie.
 ;;; Output: σ closure with all segments populated.
 
+(declaim (inline segment-key-p))
+
 (defun segment-key-p (key-31)
-  "Is KEY-31 a fixed segment key C(n) (first byte 1-16, rest zero)?"
+  "Is KEY-31 a fixed segment key C(n) (first byte 1-16, rest zero)?
+   Optimized: checks first byte + key bytes 1,2,3,4,6 for quick rejection."
+  (declare (optimize (speed 3) (safety 1)))
   (and (>= (length key-31) 1)
        (<= 1 (aref key-31 0) 16)
-       (loop for i from 1 below (length key-31) always (zerop (aref key-31 i)))))
+       ;; Quick rejection on first few bytes before full scan
+       (or (<= (length key-31) 1)
+           (and (zerop (aref key-31 1))
+                (zerop (aref key-31 2))
+                (loop for i fixnum from 3 below (length key-31)
+                      always (zerop (aref key-31 i)))))))
 
 (defun load-state-from-keyvals (keyvals)
   "Build σ from a list of (31-byte-key . raw-bytes) Merkle key-value pairs.

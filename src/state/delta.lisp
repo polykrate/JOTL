@@ -49,17 +49,32 @@
 (defun load-service-info (bytes &optional (offset 0))
   "Decode a 89-byte ServiceInfo from BYTES at OFFSET.
    Returns (values plist bytes-consumed).
-   Plist keys match the jam-types.asn field names."
+   Plist keys match the jam-types.asn field names.
+   Optimized: reads directly from buffer without subseq allocations."
+  (declare (optimize (speed 3) (safety 1)))
   (let ((pos offset))
     (flet ((read-u8 ()
              (prog1 (aref bytes pos) (incf pos 1)))
            (read-hash ()
-             (prog1 (subseq bytes pos (+ pos 32)) (incf pos 32)))
+             (let ((h (make-array 32 :element-type '(unsigned-byte 8))))
+               (replace h bytes :start2 pos :end2 (+ pos 32))
+               (incf pos 32)
+               h))
            (read-u64 ()
-             (prog1 (decode-fixed-le (subseq bytes pos (+ pos 8)))
+             (prog1 (logior (aref bytes pos)
+                            (ash (aref bytes (+ pos 1)) 8)
+                            (ash (aref bytes (+ pos 2)) 16)
+                            (ash (aref bytes (+ pos 3)) 24)
+                            (ash (aref bytes (+ pos 4)) 32)
+                            (ash (aref bytes (+ pos 5)) 40)
+                            (ash (aref bytes (+ pos 6)) 48)
+                            (ash (aref bytes (+ pos 7)) 56))
                (incf pos 8)))
            (read-u32 ()
-             (prog1 (decode-fixed-le (subseq bytes pos (+ pos 4)))
+             (prog1 (logior (aref bytes pos)
+                            (ash (aref bytes (+ pos 1)) 8)
+                            (ash (aref bytes (+ pos 2)) 16)
+                            (ash (aref bytes (+ pos 3)) 24))
                (incf pos 4))))
       (let* ((version (read-u8))
              (code-hash (read-hash))
@@ -125,6 +140,8 @@
 ;;; TRIE KEY CONSTRUCTION -- GP Appendix D
 ;;; =====================================================================
 
+(declaim (inline service-id-from-sub-key service-id-from-metadata-key extract-sub-key-h))
+
 (defun interleave-sub-key (service-id h-27)
   "Build a 31-byte interleaved trie key from service-id and 27-byte hash.
    GP D.1: C(s, a) = [s0,a0,s1,a1,s2,a2,s3,a3,a4,...,a26]
@@ -146,12 +163,15 @@
 
 (defun storage-trie-h (key-bytes)
   "Compute the 27-byte trie sub-key hash for a storage entry.
-   GP D.1: H(E4(2^32-1) . key)[0:27]"
-  (subseq (jam.ffi:blake2b-256
-           (concatenate '(vector (unsigned-byte 8))
-                        (E4 (- (ash 1 32) 1))  ;; 0xFFFFFFFF
-                        (ensure-bytes key-bytes)))
-          0 27))
+   GP D.1: H(E4(2^32-1) . key)[0:27]
+   Optimized: pre-allocates buffer instead of concatenate."
+  (declare (optimize (speed 3) (safety 1)))
+  (let* ((kb (ensure-bytes key-bytes))
+         (buf (make-array (+ 4 (length kb)) :element-type '(unsigned-byte 8))))
+    (setf (aref buf 0) #xFF (aref buf 1) #xFF
+          (aref buf 2) #xFF (aref buf 3) #xFF)
+    (replace buf kb :start1 4)
+    (subseq (jam.ffi:blake2b-256 buf) 0 27)))
 
 (defun encode-lookup-value (statuses)
   "Encode lookup entry value: compact(n) . n*E4(s).
@@ -185,10 +205,18 @@
 (defun service-metadata-key-p (key-31)
   "Is KEY-31 a service metadata key C(255, s)?
    Interleaved format: interleave(255, [E4(s), 0..0]).
-   The SID at positions [0,2,4,6] must be 255, and hash bytes [4..26] must be zero."
-  (and (= (service-id-from-sub-key key-31) 255)
-       (let ((h (extract-sub-key-h key-31)))
-         (loop for i from 4 below 27 always (zerop (aref h i))))))
+   The SID at positions [0,2,4,6] must encode 255 (LE: 0xFF,0x00,0x00,0x00),
+   and hash bytes h[4..26] must be zero (positions 8..30 in interleaved key).
+   Optimized: direct byte checks without extract-sub-key-h allocation."
+  (declare (optimize (speed 3) (safety 1)))
+  ;; 255 in LE u32 = [0xFF, 0x00, 0x00, 0x00]
+  ;; Interleaved positions: key[0]=s0, key[2]=s1, key[4]=s2, key[6]=s3
+  (and (= (aref key-31 0) #xFF)
+       (zerop (aref key-31 2))
+       (zerop (aref key-31 4))
+       (zerop (aref key-31 6))
+       ;; Hash bytes h[4..26] must be zero → positions 8..30 in interleaved key
+       (loop for i fixnum from 8 below 31 always (zerop (aref key-31 i)))))
 
 (defun service-id-from-metadata-key (key-31)
   "Extract service ID from C(255, s) metadata key.
@@ -202,10 +230,12 @@
 (defun service-id-from-sub-key (key-31)
   "Extract service ID from interleaved sub-key.
    s = u32_le(key[0], key[2], key[4], key[6])."
-  (logior (aref key-31 0)
-          (ash (aref key-31 2) 8)
-          (ash (aref key-31 4) 16)
-          (ash (aref key-31 6) 24)))
+  (declare (optimize (speed 3) (safety 1)))
+  (the (unsigned-byte 32)
+       (logior (aref key-31 0)
+               (ash (aref key-31 2) 8)
+               (ash (aref key-31 4) 16)
+               (ash (aref key-31 6) 24))))
 
 ;;; =====================================================================
 ;;; SUB-KEY CLASSIFICATION -- GP Appendix D.1
@@ -235,21 +265,30 @@
 
 (defun preimage-trie-h (blob-hash)
   "Compute the 27-byte trie sub-key hash for a preimage blob.
-   GP D.1: H(E4(0xFFFFFFFE) . blob_hash)[0:27]"
-  (subseq (jam.ffi:blake2b-256
-           (concatenate '(vector (unsigned-byte 8))
-                        (E4 (- (ash 1 32) 2))  ;; 0xFFFFFFFE
-                        (ensure-bytes blob-hash)))
-          0 27))
+   GP D.1: H(E4(0xFFFFFFFE) . blob_hash)[0:27]
+   Optimized: pre-allocates buffer instead of concatenate."
+  (declare (optimize (speed 3) (safety 1)))
+  (let* ((bh (ensure-bytes blob-hash))
+         (buf (make-array (+ 4 (length bh)) :element-type '(unsigned-byte 8))))
+    (setf (aref buf 0) #xFE (aref buf 1) #xFF
+          (aref buf 2) #xFF (aref buf 3) #xFF)
+    (replace buf bh :start1 4)
+    (subseq (jam.ffi:blake2b-256 buf) 0 27)))
 
 (defun lookup-trie-h (preimage-hash preimage-length)
   "Compute the 27-byte trie sub-key hash for a lookup entry.
-   GP D.1: H(E4(length) . hash)[0:27]"
-  (subseq (jam.ffi:blake2b-256
-           (concatenate '(vector (unsigned-byte 8))
-                        (E4 preimage-length)
-                        (ensure-bytes preimage-hash)))
-          0 27))
+   GP D.1: H(E4(length) . hash)[0:27]
+   Optimized: pre-allocates buffer instead of concatenate."
+  (declare (optimize (speed 3) (safety 1)))
+  (let* ((ph (ensure-bytes preimage-hash))
+         (buf (make-array (+ 4 (length ph)) :element-type '(unsigned-byte 8))))
+    ;; E4(preimage-length) inline
+    (setf (aref buf 0) (logand preimage-length #xFF)
+          (aref buf 1) (logand (ash preimage-length -8) #xFF)
+          (aref buf 2) (logand (ash preimage-length -16) #xFF)
+          (aref buf 3) (logand (ash preimage-length -24) #xFF))
+    (replace buf ph :start1 4)
+    (subseq (jam.ffi:blake2b-256 buf) 0 27)))
 
 (defun load-lookup-value (val-bytes)
   "Decode a lookup entry value: compact(n) . n*u32_LE -> list of timeslot u32s."
@@ -259,9 +298,44 @@
             for off = consumed then (+ off 4)
             collect (decode-fixed-le (subseq val-bytes off (+ off 4)))))))
 
-(defun classify-service-sub-keys (service-id delta-kvs)
+;;; =====================================================================
+;;; SID INDEX — O(1) lookup by service-id instead of O(N) scans
+;;; =====================================================================
+
+(defun build-sid-index (delta-kvs)
+  "Build hash-table mapping service-id → (metadata-kv sub-kvs-list).
+   One pass over delta-kvs; segment keys C(1..16) are excluded.
+   METADATA-KV is the single (key . val) cons for C(255,s), or NIL.
+   SUB-KVS is the list of non-metadata (key . val) entries for that SID."
+  (declare (optimize (speed 3) (safety 1)))
+  (let ((index (make-hash-table :test 'eql)))
+    (dolist (kv delta-kvs)
+      (let ((key (car kv)))
+        (unless (segment-key-p key)
+          (if (service-metadata-key-p key)
+              ;; Metadata entry — store in car of (metadata . sub-kvs) pair
+              (let* ((sid (service-id-from-metadata-key key))
+                     (entry (gethash sid index)))
+                (if entry
+                    (setf (car entry) kv)
+                    (setf (gethash sid index) (cons kv nil))))
+              ;; Sub-key entry — push to cdr of pair
+              (let* ((sid (service-id-from-sub-key key))
+                     (entry (gethash sid index)))
+                (if entry
+                    (push kv (cdr entry))
+                    (setf (gethash sid index) (cons nil (list kv)))))))))
+    ;; Reverse sub-kvs lists to maintain insertion order
+    (maphash (lambda (k v)
+               (declare (ignore k))
+               (setf (cdr v) (nreverse (cdr v))))
+             index)
+    index))
+
+(defun classify-service-sub-keys (service-id delta-kvs &optional sid-index)
   "Parse all sub-keys for SERVICE-ID from DELTA-KVS into categories.
    Uses GP D.1 discriminant formulas to classify each entry.
+   When SID-INDEX is provided, uses O(1) lookup instead of O(N) scan.
 
    Returns plist:
      :metadata   -- ServiceInfo plist (from C(255,s) key)
@@ -273,20 +347,33 @@
         (sub-entries nil)   ;; (h-27 . val-bytes)
         (code-hash nil))
     ;; -- Pass 0: Collect metadata + sub-keys for this service --
-    (dolist (kv delta-kvs)
-      (let ((key (car kv)) (val (cdr kv)))
-        (cond
-          ;; Metadata key C(255, s)
-          ((and (service-metadata-key-p key)
-                (= (service-id-from-metadata-key key) service-id))
-           (setf metadata (load-service-info val))
-           (setf code-hash (getf metadata :code-hash)))
-          ;; Sub-key for this service (interleaved)
-          ((and (not (service-metadata-key-p key))
-                (not (segment-key-p key))
-                (= (service-id-from-sub-key key) service-id))
-           (push (cons (extract-sub-key-h key) val) sub-entries)))))
-    (setf sub-entries (nreverse sub-entries))
+    (if sid-index
+        ;; Fast path: use pre-built index
+        (let ((indexed (gethash service-id sid-index)))
+          (when indexed
+            (let ((meta-kv (car indexed)))
+              (when meta-kv
+                (setf metadata (load-service-info (cdr meta-kv)))
+                (setf code-hash (getf metadata :code-hash))))
+            (dolist (kv (cdr indexed))
+              (push (cons (extract-sub-key-h (car kv)) (cdr kv)) sub-entries))
+            (setf sub-entries (nreverse sub-entries))))
+        ;; Slow path: scan all delta-kvs (fallback)
+        (progn
+          (dolist (kv delta-kvs)
+            (let ((key (car kv)) (val (cdr kv)))
+              (cond
+                ;; Metadata key C(255, s)
+                ((and (service-metadata-key-p key)
+                      (= (service-id-from-metadata-key key) service-id))
+                 (setf metadata (load-service-info val))
+                 (setf code-hash (getf metadata :code-hash)))
+                ;; Sub-key for this service (interleaved)
+                ((and (not (service-metadata-key-p key))
+                      (not (segment-key-p key))
+                      (= (service-id-from-sub-key key) service-id))
+                 (push (cons (extract-sub-key-h key) val) sub-entries)))))
+          (setf sub-entries (nreverse sub-entries))))
 
     ;; -- Pass 1: Identify preimage blobs --
     ;; For each entry, check: H(E4(0xFFFFFFFE) . H(val))[0:27] == h?
@@ -426,24 +513,34 @@
 ;;; CROSS-SERVICE & SERVICE-ID EXTRACTION
 ;;; =====================================================================
 
-(defun extract-all-service-ids (delta-kvs)
-  "Extract list of all service IDs present in delta-kvs."
-  (let ((ids (make-hash-table :test 'eql)))
-    (dolist (kv delta-kvs)
-      (when (service-metadata-key-p (car kv))
-        (setf (gethash (service-id-from-metadata-key (car kv)) ids) t)))
-    (loop for id being the hash-keys of ids collect id)))
+(defun extract-all-service-ids (delta-kvs &optional sid-index)
+  "Extract list of all service IDs present in delta-kvs.
+   When SID-INDEX is provided, uses O(1) key iteration instead of O(N) scan."
+  (if sid-index
+      ;; Fast path: iterate index keys, filter to those with metadata
+      (loop for sid being the hash-keys of sid-index
+            using (hash-value entry)
+            when (car entry)  ;; has metadata key
+            collect sid)
+      ;; Slow path: scan all delta-kvs
+      (let ((ids (make-hash-table :test 'eql)))
+        (dolist (kv delta-kvs)
+          (when (service-metadata-key-p (car kv))
+            (setf (gethash (service-id-from-metadata-key (car kv)) ids) t)))
+        (loop for id being the hash-keys of ids collect id))))
 
-(defun build-cross-service-accounts (caller-id delta-kvs)
+(defun build-cross-service-accounts (caller-id delta-kvs &optional sid-index)
   "Build alist of (service-id . plist) for all services EXCEPT caller-id.
    Each plist contains :code-hash :balance :threshold :min-accum-gas :min-memo-gas
    :items-count :footprint :creation-slot :last-accum-slot :parent-service
    :storage :preimages :lookup.
-   Storage is h27-keyed (trie-classified) — PVM hashes raw keys internally."
-  (let ((result nil))
-    (dolist (sid (extract-all-service-ids delta-kvs))
+   Storage is h27-keyed (trie-classified) — PVM hashes raw keys internally.
+   When SID-INDEX is provided, uses O(1) lookup instead of O(S×N) scans."
+  (let ((result nil)
+        (idx (or sid-index (build-sid-index delta-kvs))))
+    (dolist (sid (extract-all-service-ids delta-kvs idx))
       (unless (= sid caller-id)
-        (let* ((svc-data (classify-service-sub-keys sid delta-kvs))
+        (let* ((svc-data (classify-service-sub-keys sid delta-kvs idx))
                (metadata (getf svc-data :metadata)))
           (when metadata
             (push (cons sid
@@ -469,11 +566,33 @@
 ;;; ABSORB-EFFECTS — apply PVM side-effects to raw-kvs (GP 12.30-12.31)
 ;;; =====================================================================
 
+(defun make-h27-set (h27-list)
+  "Build a hash-table set from a list of 27-byte vectors for O(1) membership.
+   Returns NIL if the list is empty (fast check: no set needed)."
+  (when h27-list
+    (let ((ht (make-hash-table :test 'equalp :size (length h27-list))))
+      (dolist (h h27-list) (setf (gethash h ht) t))
+      ht)))
+
+(defun remove-by-sid-and-scope (kvs sid scope-ht)
+  "Remove entries from KVS that belong to SID and whose h27 is in SCOPE-HT.
+   Optimized: uses hash-table O(1) membership instead of list O(n) member."
+  (if (null scope-ht)
+      kvs
+      (remove-if (lambda (kv)
+                   (let ((key (car kv)))
+                     (and (not (service-metadata-key-p key))
+                          (not (segment-key-p key))
+                          (= (service-id-from-sub-key key) sid)
+                          (gethash (extract-sub-key-h key) scope-ht))))
+                 kvs)))
+
 (defun absorb-delta-effects (raw-kvs delta-results timeslot)
   "Apply all PVM accumulation effects to raw key-value pairs.
    DELTA-RESULTS: hash-table of (sid → effects-plist)
    TIMESLOT: current timeslot for last-accumulation-slot updates
-   Returns: new raw-kvs list."
+   Returns: new raw-kvs list.
+   Optimized: uses hash-table scope membership for O(1) lookups."
   (let ((current-kvs (copy-list raw-kvs)))
     (maphash
      (lambda (sid effects)
@@ -513,23 +632,18 @@
            (when update-storage-p
              (let ((initial-classified (classify-service-sub-keys sid current-kvs)))
 
-               ;; ── MERGE storage: scope-based ──
+               ;; ── MERGE storage: scope-based (hash-table O(1) membership) ──
                (let* ((initial-storage-h27s
                        (mapcar #'car (or (getf initial-classified :storage) '())))
                       (final-storage-h27s
                        (mapcar #'car (or (getf effects :storage) '())))
-                      (scope-h27s (remove-duplicates
-                                   (append initial-storage-h27s final-storage-h27s)
-                                   :test #'equalp)))
-                 (when scope-h27s
+                      (scope-ht (make-h27-set
+                                 (remove-duplicates
+                                  (nconc initial-storage-h27s final-storage-h27s)
+                                  :test #'equalp))))
+                 (when scope-ht
                    (setf current-kvs
-                         (remove-if (lambda (kv)
-                                      (and (not (service-metadata-key-p (car kv)))
-                                           (not (segment-key-p (car kv)))
-                                           (= (service-id-from-sub-key (car kv)) sid)
-                                           (member (extract-sub-key-h (car kv))
-                                                   scope-h27s :test #'equalp)))
-                                    current-kvs))))
+                         (remove-by-sid-and-scope current-kvs sid scope-ht))))
 
                ;; ── Add new storage entries ──
                (dolist (s-entry (getf effects :storage))
@@ -538,7 +652,7 @@
                         (trie-key (interleave-sub-key sid h-27)))
                    (push (cons trie-key (ensure-bytes val)) current-kvs)))
 
-               ;; ── MERGE lookups: scope-based ──
+               ;; ── MERGE lookups: scope-based (hash-table O(1) membership) ──
                (let* ((post-storage-classified (classify-service-sub-keys sid current-kvs))
                       (initial-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
@@ -546,18 +660,13 @@
                       (final-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (or (getf effects :lookup) '())))
-                      (scope-lookup-h27s (remove-duplicates
-                                          (append initial-lookup-h27s final-lookup-h27s)
-                                          :test #'equalp)))
-                 (when scope-lookup-h27s
+                      (scope-ht (make-h27-set
+                                 (remove-duplicates
+                                  (nconc initial-lookup-h27s final-lookup-h27s)
+                                  :test #'equalp))))
+                 (when scope-ht
                    (setf current-kvs
-                         (remove-if (lambda (kv)
-                                      (and (not (service-metadata-key-p (car kv)))
-                                           (not (segment-key-p (car kv)))
-                                           (= (service-id-from-sub-key (car kv)) sid)
-                                           (member (extract-sub-key-h (car kv))
-                                                   scope-lookup-h27s :test #'equalp)))
-                                    current-kvs))))
+                         (remove-by-sid-and-scope current-kvs sid scope-ht))))
 
                (dolist (l-entry (getf effects :lookup))
                  (let* ((hash-32  (first l-entry))
@@ -568,25 +677,20 @@
                         (val      (encode-lookup-value statuses)))
                    (push (cons trie-key val) current-kvs)))
 
-               ;; ── MERGE preimage blobs: scope-based ──
+               ;; ── MERGE preimage blobs: scope-based (hash-table O(1) membership) ──
                (let* ((initial-preimage-h27s
                        (mapcar (lambda (p) (preimage-trie-h (car p)))
                                (or (getf initial-classified :preimages) '())))
                       (final-preimage-h27s
                        (mapcar (lambda (p) (preimage-trie-h (car p)))
                                (or (getf effects :preimages) '())))
-                      (scope-preimage-h27s (remove-duplicates
-                                            (append initial-preimage-h27s final-preimage-h27s)
-                                            :test #'equalp)))
-                 (when scope-preimage-h27s
+                      (scope-ht (make-h27-set
+                                 (remove-duplicates
+                                  (nconc initial-preimage-h27s final-preimage-h27s)
+                                  :test #'equalp))))
+                 (when scope-ht
                    (setf current-kvs
-                         (remove-if (lambda (kv)
-                                      (and (not (service-metadata-key-p (car kv)))
-                                           (not (segment-key-p (car kv)))
-                                           (= (service-id-from-sub-key (car kv)) sid)
-                                           (member (extract-sub-key-h (car kv))
-                                                   scope-preimage-h27s :test #'equalp)))
-                                    current-kvs)))
+                         (remove-by-sid-and-scope current-kvs sid scope-ht)))
                  (dolist (p-entry (getf effects :preimages))
                    (let* ((hash-32  (car p-entry))
                           (blob     (cdr p-entry))
@@ -679,11 +783,16 @@
 
 (define-state-closure delta-state
   ((raw-kvs nil)
-   (accounts-cache nil))
+   (accounts-cache nil)
+   (sid-index-cache nil))
 
   ;; δ's :save returns the multi-key Merkle pairs — σ stores them as delta-kvs.
   ;; Unlike segment components (single byte vector), δ is a list of (key . bytes).
   (:save raw-kvs)
+
+  ;; ── Lazy SID index — O(1) lookups instead of O(N) scans ──
+  (:sid-index :memo
+   (build-sid-index raw-kvs))
 
   ;; Decoded accounts list -- lazy parse from raw-kvs.
   (:accounts
@@ -697,17 +806,17 @@
 
   ;; ── Sovereign queries for accumulate orchestrator ──────────
 
-  ;; All known service IDs in delta.
+  ;; All known service IDs in delta (indexed).
   (:all-service-ids
-   (extract-all-service-ids raw-kvs))
+   (extract-all-service-ids raw-kvs (self :sid-index)))
 
-  ;; Classified service data for PVM invocation (GP D.1).
+  ;; Classified service data for PVM invocation (GP D.1) — indexed.
   (:service-data (sid)
-   (classify-service-sub-keys sid raw-kvs))
+   (classify-service-sub-keys sid raw-kvs (self :sid-index)))
 
-  ;; Cross-service accounts for ΩJ host call.
+  ;; Cross-service accounts for ΩJ host call — indexed.
   (:cross-service-accounts (caller-id)
-   (build-cross-service-accounts caller-id raw-kvs))
+   (build-cross-service-accounts caller-id raw-kvs (self :sid-index)))
 
   ;; ── Transition-dagger: absorb PVM effects (δ → δ†) ─────────
   ;; Takes a hash-table of (sid → effects) + timeslot, returns δ†
