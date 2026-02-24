@@ -39,8 +39,16 @@ tests/trace-*.lisp
 *.dylib
 target/
 
+# Python (minifuzz venv etc.)
+.venv/
+__pycache__/
+*.pyc
+
 # Quicklisp
 quicklisp/
+
+# Test vectors (external symlink)
+tests/jamtestvectors
 
 # OS
 .DS_Store

@@ -13,14 +13,9 @@
 
 SOCKET_PATH="${1:-/tmp/jam_target.sock}"
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$DIR"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 exec sbcl --dynamic-space-size 4096 --noinform --disable-debugger \
-     --eval '(require :asdf)' \
-     --eval "(pushnew #p\"$DIR/\" asdf:*central-registry*)" \
-     --eval "(pushnew #p\"$DIR/crypto/\" asdf:*central-registry*)" \
-     --eval "(pushnew #p\"$DIR/jamvm/\" asdf:*central-registry*)" \
-     --eval '(asdf:load-system :jotl)' \
+     --load scripts/load-jotl.lisp \
      --eval "(jotl:run-fuzz-target :socket \"$SOCKET_PATH\")" \
      --eval '(sb-ext:exit :code 0)'
