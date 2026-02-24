@@ -37,7 +37,10 @@
   "Advance PC past the current ecalli instruction.
    Call this after handling a host call to resume execution."
   (let* ((pc (pvm-pc vm))
-         (skip (skip-distance vm pc)))
+         (skip-tbl (pvm-skip-table vm))
+         (skip (if (< pc (length skip-tbl))
+                   (aref skip-tbl pc)
+                   (skip-distance vm pc))))
     (setf (pvm-pc vm) (u32 (+ pc 1 skip))
           (pvm-status vm) nil)))
 

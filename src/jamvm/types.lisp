@@ -107,9 +107,35 @@
   ;; Bit-vector: 1 at indices that are valid basic-block entry points.
   ;; Computed once during init, used by branch/djump for target validation.
   (basic-blocks #*  :type simple-bit-vector)                   ; ω̄
+  ;; Precomputed skip-distance table: skip-table[i] = skip(i)
+  ;; Avoids bitmask scanning on every step.
+  (skip-table   (make-array 0 :element-type '(unsigned-byte 8))
+               :type (simple-array (unsigned-byte 8) (*))) ; ℓ
+  ;; Reusable instruction args buffer (zero allocation per step)
+  (args-buf  (make-pvm-args) :type pvm-args)
   ;; Exit state
   (status    nil  :type (or null keyword))                     ; ε
   (exit-arg  0    :type (unsigned-byte 64)))                   ; associated value
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Pre-allocated instruction arguments buffer
+;;;
+;;; Replaces plist allocation in decode-arguments with a reusable struct.
+;;; Each VM has one args buffer, reused every vm-step (zero allocation).
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defstruct (pvm-args (:conc-name arg-))
+  "Reusable instruction argument container. Filled by decode-arguments."
+  (ra     0 :type fixnum)      ; first register index
+  (rb     0 :type fixnum)      ; second register index
+  (rc     0 :type fixnum)      ; third register index (reg-reg-reg-imm)
+  (rd     0 :type fixnum)      ; third register index (reg-reg-reg)
+  (imm    0 :type integer)     ; immediate value
+  (imm1   0 :type integer)     ; first immediate (imm-imm, reg-imm-imm, etc.)
+  (imm2   0 :type integer)     ; second immediate
+  (offset 0 :type integer))    ; PC-relative offset (resolved to absolute)
+
+(declaim (inline arg-ra arg-rb arg-rc arg-rd arg-imm arg-imm1 arg-imm2 arg-offset))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Register access — (reg vm i), (set-reg vm i val)

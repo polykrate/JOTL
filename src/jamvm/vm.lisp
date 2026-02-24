@@ -63,17 +63,15 @@
      :host-call  → ℏ ecalli (id in pvm-exit-arg)
      :page-fault → ∃ fault  (page-addr in pvm-exit-arg)"
   (let ((pc (pvm-pc vm)))
-    ;; Capture PC for panic diagnosis
-    (setf *vm-last-step-pc* pc)
 
     ;; ── 1. Decode instruction at ι ──
     (multiple-value-bind (info skip args) (decode-instruction vm pc)
       (unless info
         ;; ── Trap diagnostic logging ──
-        (let ((raw-byte (if (< pc (length (pvm-code vm)))
-                            (aref (pvm-code vm) pc) 0))
-              (bm-bit (bitmask-bit (pvm-bitmask vm) pc)))
-          (when *vm-trap-log*
+        (when *vm-trap-log*
+          (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                              (aref (pvm-code vm) pc) 0))
+                (bm-bit (bitmask-bit (pvm-bitmask vm) pc)))
             (push (list :pc pc :raw-opcode raw-byte :bitmask-bit bm-bit
                         :effective (pvm-opcode vm pc))
                   *vm-trap-log*)))
@@ -81,17 +79,18 @@
         (setf (pvm-status vm) +exit-panic+)
         (return-from vm-step :panic))
 
-      ;; ── Opcode counting / trace logging ──
-      (let ((raw-byte (if (< pc (length (pvm-code vm)))
-                          (aref (pvm-code vm) pc) 0)))
-        (when *vm-opcode-counts*
-          (incf (aref *vm-opcode-counts* raw-byte)))
-        (when *vm-trace-stream*
-          (incf *vm-step-counter*)
-          (format *vm-trace-stream*
-                  "~D ~D ~D ~D~{ ~D~}~%"
-                  *vm-step-counter* pc raw-byte (pvm-gas vm)
-                  (coerce (pvm-regs vm) 'list))))
+      ;; ── Opcode counting / trace logging (skip when disabled) ──
+      (when (or *vm-opcode-counts* *vm-trace-stream*)
+        (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                            (aref (pvm-code vm) pc) 0)))
+          (when *vm-opcode-counts*
+            (incf (aref *vm-opcode-counts* raw-byte)))
+          (when *vm-trace-stream*
+            (incf *vm-step-counter*)
+            (format *vm-trace-stream*
+                    "~D ~D ~D ~D~{ ~D~}~%"
+                    *vm-step-counter* pc raw-byte (pvm-gas vm)
+                    (coerce (pvm-regs vm) 'list)))))
 
       ;; ── 2. Charge gas: ϱ' = ϱ − ϱ_Δ ──
       (let ((cost (opi-gas-cost info)))
@@ -111,40 +110,40 @@
                           (copy-seq (pvm-regs vm)))))
 
         ;; ── 4. Execute instruction ──
-        (let ((result (dispatch-instruction (opi-name info) vm args)))
-          (cond
+        (let ((result (dispatch-instruction info vm args)))
+          (case result
             ;; ► Continue → advance PC: ι' = ι + 1 + skip(ι)
-            ((eq result :continue)
+            (:continue
              (setf (pvm-pc vm) (u32 (+ pc 1 skip)))
              nil)
 
-            ;; ► Branch → ι' = target
-            ((and (consp result) (eq (car result) :branch))
-             (setf (pvm-pc vm) (u32 (cdr result)))
+            ;; ► Branch → ι' = target (stored in pvm-exit-arg by do-branch/do-djump)
+            (:branch
+             (setf (pvm-pc vm) (u32 (pvm-exit-arg vm)))
              nil)
 
             ;; ■ Halt
-            ((eq result :halt)
+            (:halt
              (setf (pvm-status vm) +exit-halt+
                    (pvm-pc vm) 0)
              :halt)
 
             ;; ♯ Trap/Panic
-            ((or (eq result :trap) (eq result :panic))
+            ((:trap :panic)
              (setf (pvm-status vm) +exit-panic+
                    (pvm-pc vm) 0)
              :panic)
 
-            ;; ℏ Host call → ε = ℏ, exit-arg = id, PC unchanged
-            ((and (consp result) (eq (car result) :ecalli))
+            ;; ℏ Host call → ε = ℏ, exit-arg = id (stored by ecalli handler), PC unchanged
+            (:host-call
              (setf (pvm-status vm) +exit-host-call+
-                   (pvm-exit-arg vm) (cdr result)
                    (pvm-pc vm) pc)          ; PC stays at ecalli
              :host-call)
 
             ;; ∃ Page fault (A.8) — ROLLBACK (ι, φ), KEEP ϱ' charged
-            ((and (consp result) (eq (car result) :fault))
-             (let* ((fault-addr (logand (cdr result) +u32-max+)))
+            ;; Fault address already in pvm-exit-arg (set by do-load/do-store)
+            (:fault
+             (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
 
                ;; Rollback: restore (ι, φ) to pre-instruction values
                ;; Gas (ϱ') stays deducted — GP: gas always charged on attempt
@@ -165,8 +164,9 @@
                     :page-fault)))))
 
             ;; ∃ Partial fault (memset) — NO ROLLBACK, preserve partial progress
-            ((and (consp result) (eq (car result) :partial-fault))
-             (let* ((fault-addr (logand (cdr result) +u32-max+)))
+            ;; Fault address already in pvm-exit-arg
+            (:partial-fault
+             (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
                ;; Keep current registers/gas (partial progress)
                ;; Only restore PC to current instruction
                (setf (pvm-pc vm) pc)
@@ -181,18 +181,18 @@
                     :page-fault)))))
 
             ;; ∞ OOG from instruction (e.g. sbrk page allocation)
-            ((eq result :oog)
+            (:oog
              (setf (pvm-status vm) +exit-oog+)
              :oog)
 
             ;; ∞ Partial OOG (memset) — NO ROLLBACK, preserve partial progress
-            ((eq result :partial-oog)
+            (:partial-oog
              (setf (pvm-pc vm) pc
                    (pvm-status vm) +exit-oog+)
              :oog)
 
             ;; Unknown → ♯ panic
-            (t
+            (otherwise
              (setf (pvm-status vm) +exit-panic+
                    (pvm-pc vm) 0)
              :panic)))))))
@@ -275,7 +275,10 @@
                  (if continue-p
                      ;; Handler dealt with it, advance PC past ecalli
                      (let* ((pc (pvm-pc vm))
-                            (skip (skip-distance vm pc)))
+                            (skip-tbl (pvm-skip-table vm))
+                            (skip (if (< pc (length skip-tbl))
+                                      (aref skip-tbl pc)
+                                      (skip-distance vm pc))))
                        (setf (pvm-pc vm) (u32 (+ pc 1 skip))
                              (pvm-status vm) nil))
                      ;; Handler says stop

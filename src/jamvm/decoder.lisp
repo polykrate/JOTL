@@ -47,7 +47,8 @@
   (args     :none    :type keyword)       ; argument format
   (gas-cost 1        :type integer)       ; ϱ_Δ
   (skip-fn  nil)                          ; skip-distance function or fixed value
-  (memory-p nil      :type boolean))      ; T if instruction accesses memory (needs reg save)
+  (memory-p nil      :type boolean)       ; T if instruction accesses memory (needs reg save)
+  (handler  nil      :type (or null function))) ; direct dispatch handler (set by definstruction)
 
 ;; The master opcode table: 256 entries (0x00–0xFF)
 (defvar *opcode-table*
@@ -91,6 +92,14 @@
           do (incf count))
     count))
 
+(defun build-skip-table (vm)
+  "Pre-compute skip(i) for every byte offset into a fast lookup table.
+   Returns a u8 vector. Call once during deblob/init."
+  (let* ((len (length (pvm-code vm)))
+         (table (make-array len :element-type '(unsigned-byte 8) :initial-element 0)))
+    (dotimes (i len table)
+      (setf (aref table i) (skip-distance vm i)))))
+
 (defun bitmask-bit (bitmask byte-index)
   "Read bit at BYTE-INDEX from BITMASK.
    k[i] = 1 iff byte i starts an instruction."
@@ -105,44 +114,43 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Instruction decoding
 ;;;
-;;; Returns (values opcode-info skip-distance arguments)
-;;; Arguments is a plist depending on the format:
-;;;   :none               → nil
-;;;   :reg                → (:ra reg-index)
-;;;   :reg-reg            → (:ra idx :rb idx)
-;;;   :reg-imm            → (:ra idx :imm value)
-;;;   :reg-reg-imm        → (:ra idx :rb idx :imm value)
-;;;   :offset             → (:offset value)
-;;;   :reg-reg-offset     → (:ra idx :rb idx :offset value)
-;;;   etc.
+;;; Returns (values opcode-info skip-distance args-buf)
+;;; args-buf is a pre-allocated pvm-args struct filled in-place.
+;;; Struct slots: ra, rb, rc, rd, imm, imm1, imm2, offset.
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun decode-instruction (vm pc)
   "Decode the instruction at PC in VM's code.
    Uses pvm-opcode (A.19) for effective opcode.
-   Returns (values opcode-info skip-dist arg-plist) or NIL for trap.
+   Returns (values opcode-info skip-dist args-buf) where args-buf is the
+   VM's pre-allocated pvm-args struct, filled in-place (zero allocation).
    GP A.19: when pc >= |c|, effective opcode is 0 (trap, gas cost 1)."
   (let* ((code (pvm-code vm))
-         (len  (length code)))
+         (len  (length code))
+         (args (pvm-args-buf vm)))
     ;; Out of bounds → trap (opcode 0, gas cost 1)
     (when (>= pc len)
       (let ((trap-info (lookup-opcode 0)))
-        (return-from decode-instruction (values trap-info 0 nil))))
+        (return-from decode-instruction (values trap-info 0 args))))
     ;; A.19: effective opcode (0 if invalid)
     (let* ((effective (pvm-opcode vm pc))
            (info (lookup-opcode effective)))
       ;; Unknown/invalid opcode → trap (opcode 0, gas cost 1)
       (unless info
         (let ((trap-info (lookup-opcode 0)))
-          (return-from decode-instruction (values trap-info 0 nil))))
-      ;; A.20: ℓ = skip(ι)
-      (let ((skip (skip-distance vm pc)))
-        (values info skip
-                (decode-arguments info code pc skip))))))
+          (return-from decode-instruction (values trap-info 0 args))))
+      ;; A.20: ℓ = skip(ι) — use precomputed table for O(1) lookup
+      (let* ((skip-tbl (pvm-skip-table vm))
+             (skip (if (< pc (length skip-tbl))
+                       (aref skip-tbl pc)
+                       (skip-distance vm pc))))
+        (decode-arguments info code pc skip args)
+        (values info skip args)))))
 
-(defun decode-arguments (info code pc skip)
-  "Decode instruction arguments based on argument format.
-   Returns a plist of decoded arguments."
+(defun decode-arguments (info code pc skip args)
+  "Decode instruction arguments into the pre-allocated pvm-args struct ARGS.
+   No allocation — struct slots are set in-place."
+  (declare (type pvm-args args))
   (let ((fmt (opi-args info))
         (len (length code)))
     (flet ((byte-at (i) (if (< i len) (aref code i) 0)))
@@ -151,174 +159,121 @@
         (:none nil)
 
         ;; ── A.5.2: one immediate (no register) ──
-        ;; (A.21) l_X = min(4, ℓ), ν_X = X_{l_X}(E_{l_X}^{-1}(ζ_{ι+1…+l_X}))
         (:imm
          (let* ((l-x (min 4 skip))
-                (raw (decode-le-unsigned code (1+ pc) l-x))
-                (imm (sign-extend raw l-x)))
-           (list :imm imm)))
+                (raw (decode-le-unsigned code (1+ pc) l-x)))
+           (setf (arg-imm args) (sign-extend raw l-x))))
 
         ;; ── A.5.3: one register + extended 8-byte immediate ──
-        ;; (A.22) r_A = min(12, ζ_{ι+1} mod 16), ν_X = E_8^{-1}(ζ_{ι+2…+8})
-        ;; Note: E_8^{-1} is unsigned decode, NO sign extension (full 64-bit)
         (:reg-imm64
-         (let* ((r-a (min 12 (mod (byte-at (1+ pc)) 16)))
-                (imm (decode-le-unsigned code (+ pc 2) 8)))
-           (list :ra r-a :imm imm)))
+         (setf (arg-ra args) (min 12 (mod (byte-at (1+ pc)) 16))
+               (arg-imm args) (decode-le-unsigned code (+ pc 2) 8)))
 
         ;; ── A.5.4: two immediates ──
-        ;; (A.23) l_X = min(4, ζ_{ι+1} mod 8)
-        ;;        ν_X = X_{l_X}(E_{l_X}^{-1}(ζ_{ι+2…+l_X}))
-        ;;        l_Y = min(4, max(0, ℓ − l_X − 1))
-        ;;        ν_Y = X_{l_Y}(E_{l_Y}^{-1}(ζ_{ι+2+l_X…+l_Y}))
         (:imm-imm
          (let* ((l-x (min 4 (mod (byte-at (1+ pc)) 8)))
                 (raw-x (decode-le-unsigned code (+ pc 2) l-x))
-                (imm-x (sign-extend raw-x l-x))
                 (l-y (min 4 (max 0 (- skip l-x 1))))
-                (raw-y (decode-le-unsigned code (+ pc 2 l-x) l-y))
-                (imm-y (sign-extend raw-y l-y)))
-           (list :imm1 imm-x :imm2 imm-y)))
+                (raw-y (decode-le-unsigned code (+ pc 2 l-x) l-y)))
+           (setf (arg-imm1 args) (sign-extend raw-x l-x)
+                 (arg-imm2 args) (sign-extend raw-y l-y))))
 
         ;; ── A.5.2 (regs): one register ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
         (:reg
-         (let ((r-a (min 12 (mod (byte-at (1+ pc)) 16))))
-           (list :ra r-a)))
+         (setf (arg-ra args) (min 12 (mod (byte-at (1+ pc)) 16))))
 
         ;; ── A.5.3: two registers ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; r_B = min(12, ⌊ζ_{ι+1} / 16⌋)
         (:reg-reg
-         (let* ((b (byte-at (1+ pc)))
-                (r-a (min 12 (mod b 16)))
-                (r-b (min 12 (floor b 16))))
-           (list :ra r-a :rb r-b)))
+         (let ((b (byte-at (1+ pc))))
+           (setf (arg-ra args) (min 12 (mod b 16))
+                 (arg-rb args) (min 12 (floor b 16)))))
 
         ;; ── A.5.5: one offset ──
-        ;; (A.24) l_X = min(4, ℓ), ν_X = ι + Z_{l_X}^{-1}(ζ_{ι+1…+l_X})
         (:offset
          (let* ((l-x (min 4 skip))
                 (signed-offset (decode-le-signed code (1+ pc) l-x)))
-           (list :offset (+ pc signed-offset))))
+           (setf (arg-offset args) (+ pc signed-offset))))
 
         ;; ── A.5.6: one register + one immediate ──
-        ;; (A.25) r_A = min(12, ζ_{ι+1} mod 16)
-        ;;        l_X = min(4, max(0, ℓ-1))
-        ;;        ν_X = X_{l_X}(E_{l_X}^{-1}(ζ_{ι+2…+l_X}))
         (:reg-imm
-         (let* ((r-a (min 12 (mod (byte-at (1+ pc)) 16)))
-                (l-x (min 4 (max 0 (1- skip))))
-                (raw (decode-le-unsigned code (+ pc 2) l-x))
-                (imm (sign-extend raw l-x)))
-           (list :ra r-a :imm imm)))
+         (let* ((l-x (min 4 (max 0 (1- skip))))
+                (raw (decode-le-unsigned code (+ pc 2) l-x)))
+           (setf (arg-ra args) (min 12 (mod (byte-at (1+ pc)) 16))
+                 (arg-imm args) (sign-extend raw l-x))))
 
         ;; ── A.5.7: two registers + one immediate ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; r_B = min(12, ⌊ζ_{ι+1} / 16⌋)
-        ;; l_X = min(4, max(0, ℓ-1))
-        ;; ν_X = X_{l_X}(E_{l_X}^{-1}(ζ_{ι+2…+l_X}))
         (:reg-reg-imm
          (let* ((b (byte-at (1+ pc)))
-                (r-a (min 12 (mod b 16)))
-                (r-b (min 12 (floor b 16)))
                 (l-x (min 4 (max 0 (1- skip))))
-                (raw (decode-le-unsigned code (+ pc 2) l-x))
-                (imm (sign-extend raw l-x)))
-           (list :ra r-a :rb r-b :imm imm)))
+                (raw (decode-le-unsigned code (+ pc 2) l-x)))
+           (setf (arg-ra args) (min 12 (mod b 16))
+                 (arg-rb args) (min 12 (floor b 16))
+                 (arg-imm args) (sign-extend raw l-x))))
 
         ;; ── A.5.4 / A.5.8: two registers + offset ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; r_B = min(12, ⌊ζ_{ι+1} / 16⌋)
-        ;; l_X = min(4, max(0, ℓ-1))
-        ;; ν_X = ι + Z_{l_X}^{-1}(ζ_{ι+2…+l_X})  [signed offset from PC]
         (:reg-reg-offset
          (let* ((b (byte-at (1+ pc)))
-                (r-a (min 12 (mod b 16)))
-                (r-b (min 12 (floor b 16)))
                 (l-x (min 4 (max 0 (1- skip))))
                 (signed-off (decode-le-signed code (+ pc 2) l-x)))
-           (list :ra r-a :rb r-b :offset (+ pc signed-off))))
+           (setf (arg-ra args) (min 12 (mod b 16))
+                 (arg-rb args) (min 12 (floor b 16))
+                 (arg-offset args) (+ pc signed-off))))
 
         ;; ── A.5.7 (A.26): one register + two immediates ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; l_X = min(4, ⌊ζ_{ι+1}/16⌋ mod 8)   ← high nibble encodes l_X
-        ;; ν_X = X_{l_X}(E^{-1}_{l_X}(ζ_{ι+2…+l_X}))
-        ;; l_Y = min(4, max(0, ℓ − l_X − 1))
-        ;; ν_Y = X_{l_Y}(E^{-1}_{l_Y}(ζ_{ι+2+l_X…+l_Y}))
         (:reg-imm-imm
          (let* ((b1 (byte-at (1+ pc)))
-                (r-a (min 12 (mod b1 16)))
                 (l-x (min 4 (mod (floor b1 16) 8)))
                 (l-y (min 4 (max 0 (- skip l-x 1))))
                 (raw-x (decode-le-unsigned code (+ pc 2) l-x))
-                (imm-x (sign-extend raw-x l-x))
-                (raw-y (decode-le-unsigned code (+ pc 2 l-x) l-y))
-                (imm-y (sign-extend raw-y l-y)))
-           (list :ra r-a :imm1 imm-x :imm2 imm-y)))
+                (raw-y (decode-le-unsigned code (+ pc 2 l-x) l-y)))
+           (setf (arg-ra args) (min 12 (mod b1 16))
+                 (arg-imm1 args) (sign-extend raw-x l-x)
+                 (arg-imm2 args) (sign-extend raw-y l-y))))
 
         ;; ── A.5.8 (A.27): one register + immediate + offset ──
-        ;; Same byte layout as A.26 but ν_Y is PC-relative:
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; l_X = min(4, ⌊ζ_{ι+1}/16⌋ mod 8)
-        ;; ν_X = X_{l_X}(E^{-1}_{l_X}(ζ_{ι+2…+l_X}))
-        ;; l_Y = min(4, max(0, ℓ − l_X − 1))
-        ;; ν_Y = ι + Z_{l_Y}(E^{-1}_{l_Y}(ζ_{ι+2+l_X…+l_Y}))  ← offset!
         (:reg-imm-offset
          (let* ((b1 (byte-at (1+ pc)))
-                (r-a (min 12 (mod b1 16)))
                 (l-x (min 4 (mod (floor b1 16) 8)))
                 (l-y (min 4 (max 0 (- skip l-x 1))))
                 (raw-x (decode-le-unsigned code (+ pc 2) l-x))
-                (imm-x (sign-extend raw-x l-x))
                 (off-y (decode-le-signed code (+ pc 2 l-x) l-y)))
-           (list :ra r-a :imm imm-x :offset (+ pc off-y))))
+           (setf (arg-ra args) (min 12 (mod b1 16))
+                 (arg-imm args) (sign-extend raw-x l-x)
+                 (arg-offset args) (+ pc off-y))))
 
         ;; ── A.5.12 (A.31): two registers + two immediates ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; r_B = min(12, ⌊ζ_{ι+1}/16⌋)
-        ;; l_X = min(4, ζ_{ι+2} mod 8)
-        ;; ν_X = X_{l_X}(E^{-1}_{l_X}(ζ_{ι+3…+l_X}))
-        ;; l_Y = min(4, max(0, ℓ − l_X − 2))
-        ;; ν_Y = X_{l_Y}(E^{-1}_{l_Y}(ζ_{ι+3+l_X…+l_Y}))
         (:reg-reg-imm-imm
          (let* ((b1 (byte-at (1+ pc)))
                 (b2 (byte-at (+ pc 2)))
-                (r-a (min 12 (mod b1 16)))
-                (r-b (min 12 (floor b1 16)))
                 (l-x (min 4 (mod b2 8)))
                 (l-y (min 4 (max 0 (- skip l-x 2))))
                 (raw-x (decode-le-unsigned code (+ pc 3) l-x))
-                (imm-x (sign-extend raw-x l-x))
-                (raw-y (decode-le-unsigned code (+ pc 3 l-x) l-y))
-                (imm-y (sign-extend raw-y l-y)))
-           (list :ra r-a :rb r-b :imm1 imm-x :imm2 imm-y)))
+                (raw-y (decode-le-unsigned code (+ pc 3 l-x) l-y)))
+           (setf (arg-ra args) (min 12 (mod b1 16))
+                 (arg-rb args) (min 12 (floor b1 16))
+                 (arg-imm1 args) (sign-extend raw-x l-x)
+                 (arg-imm2 args) (sign-extend raw-y l-y))))
 
         ;; ── A.5.13 (A.32): three registers ──
-        ;; r_A = min(12, ζ_{ι+1} mod 16)
-        ;; r_B = min(12, ⌊ζ_{ι+1}/16⌋)
-        ;; r_D = min(12, ζ_{ι+2})            ← full byte, not nibble!
         (:reg-reg-reg
          (let* ((b1 (byte-at (1+ pc)))
-                (b2 (byte-at (+ pc 2)))
-                (r-a (min 12 (mod b1 16)))
-                (r-b (min 12 (floor b1 16)))
-                (r-d (min 12 b2)))
-           (list :ra r-a :rb r-b :rd r-d)))
+                (b2 (byte-at (+ pc 2))))
+           (setf (arg-ra args) (min 12 (mod b1 16))
+                 (arg-rb args) (min 12 (floor b1 16))
+                 (arg-rd args) (min 12 b2))))
 
         ;; ── A.5.11: three registers + immediate ──
         (:reg-reg-reg-imm
          (let* ((b1 (byte-at (1+ pc)))
                 (b2 (byte-at (+ pc 2)))
-                (r-a (min 12 (mod b1 16)))
-                (r-b (min 12 (floor b1 16)))
-                (r-c (min 12 (mod b2 16)))
                 (l-x (min 4 (max 0 (- skip 2))))
-                (raw (decode-le-unsigned code (+ pc 3) l-x))
-                (imm (sign-extend raw l-x)))
-           (list :ra r-a :rb r-b :rc r-c :imm imm)))
+                (raw (decode-le-unsigned code (+ pc 3) l-x)))
+           (setf (arg-ra args) (min 12 (mod b1 16))
+                 (arg-rb args) (min 12 (floor b1 16))
+                 (arg-rc args) (min 12 (mod b2 16))
+                 (arg-imm args) (sign-extend raw l-x))))
 
-        ;; Default: no args
+        ;; Default: nothing
         (otherwise nil)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

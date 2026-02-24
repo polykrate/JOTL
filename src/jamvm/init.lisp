@@ -300,6 +300,8 @@
         (set-reg vm +sp+ stack-addr-high)
         ;; Precompute basic-block starts ω̄ (GP A.5)
         (setf (pvm-basic-blocks vm) (compute-basic-block-starts vm))
+        ;; Precompute skip-distance table for O(1) lookups
+        (setf (pvm-skip-table vm) (build-skip-table vm))
         vm))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

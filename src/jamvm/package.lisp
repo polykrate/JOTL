@@ -38,6 +38,13 @@
    #:pvm-code                 ; c  instruction data
    #:pvm-bitmask              ; k  basic-block bitmask
    #:pvm-jump-table           ; j  dynamic jump table
+   #:pvm-skip-table           ; precomputed skip-distance LUT
+
+   #:pvm-args-buf             ; pre-allocated instruction args buffer
+   ;; ── Instruction args struct (zero-allocation) ──
+   #:pvm-args #:make-pvm-args
+   #:arg-ra #:arg-rb #:arg-rc #:arg-rd
+   #:arg-imm #:arg-imm1 #:arg-imm2 #:arg-offset
 
    ;; ── Register accessors (GP names) ────────────
    #:reg                      ; (reg vm i) → value

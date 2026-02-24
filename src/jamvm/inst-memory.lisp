@@ -44,7 +44,8 @@
           (unless ok
             (set-reg vm +a0+ dst)
             (set-reg vm +a2+ count)
-            (return-from memset-body (cons :partial-fault fault-addr))))
+            (setf (pvm-exit-arg vm) fault-addr)
+            (return-from memset-body :partial-fault)))
         ;; Charge 1 gas, advance
         (decf (pvm-gas vm) 1)
         (setf dst (u32 (1+ dst)))
@@ -61,7 +62,7 @@
 ;; 20 = load_imm_64: φ'_A = ν_X (full 64-bit immediate)
 (register-opcode 20 :load-imm-64 :reg-imm64 1)
 (definstruction :load-imm-64 (vm args)
-  (set-reg vm (getf args :ra) (getf args :imm))
+  (set-reg vm (arg-ra args) (arg-imm args))
   :continue)
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -71,24 +72,24 @@
 ;; 30 = store_imm_u8
 (register-opcode 30 :store-imm-u8 :imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-u8 (vm args)
-  (do-store vm (getf args :imm1)
+  (do-store vm (arg-imm1 args)
             (make-array 1 :element-type '(unsigned-byte 8)
-                          :initial-contents (list (logand (getf args :imm2) #xFF)))))
+                          :initial-contents (list (logand (arg-imm2 args) #xFF)))))
 
 ;; 31 = store_imm_u16
 (register-opcode 31 :store-imm-u16 :imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-u16 (vm args)
-  (do-store vm (getf args :imm1) (encode-le (logand (getf args :imm2) #xFFFF) 2)))
+  (do-store vm (arg-imm1 args) (encode-le (logand (arg-imm2 args) #xFFFF) 2)))
 
 ;; 32 = store_imm_u32
 (register-opcode 32 :store-imm-u32 :imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-u32 (vm args)
-  (do-store vm (getf args :imm1) (encode-le (logand (getf args :imm2) #xFFFFFFFF) 4)))
+  (do-store vm (arg-imm1 args) (encode-le (logand (arg-imm2 args) #xFFFFFFFF) 4)))
 
 ;; 33 = store_imm_u64
 (register-opcode 33 :store-imm-u64 :imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-u64 (vm args)
-  (do-store vm (getf args :imm1) (encode-le (u64 (getf args :imm2)) 8)))
+  (do-store vm (arg-imm1 args) (encode-le (u64 (arg-imm2 args)) 8)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.6 — One register + one immediate (loads/stores/load_imm)
@@ -97,7 +98,7 @@
 ;; 51 = load_imm: φ'_A = ν_X
 (register-opcode 51 :load-imm :reg-imm 1)
 (definstruction :load-imm (vm args)
-  (set-reg vm (getf args :ra) (getf args :imm))
+  (set-reg vm (arg-ra args) (arg-imm args))
   :continue)
 
 ;; ── Loads from absolute address ──
@@ -142,24 +143,24 @@
 ;; 59 = store_u8: μ'[ν_X] = φ_A mod 2⁸
 (register-opcode 59 :store-u8 :reg-imm 1 nil :memory-p t)
 (definstruction :store-u8 (vm args)
-  (do-store vm (getf args :imm)
+  (do-store vm (arg-imm args)
             (make-array 1 :element-type '(unsigned-byte 8)
-                          :initial-contents (list (logand (reg vm (getf args :ra)) #xFF)))))
+                          :initial-contents (list (logand (reg vm (arg-ra args)) #xFF)))))
 
 ;; 60 = store_u16
 (register-opcode 60 :store-u16 :reg-imm 1 nil :memory-p t)
 (definstruction :store-u16 (vm args)
-  (do-store vm (getf args :imm) (encode-le (logand (reg vm (getf args :ra)) #xFFFF) 2)))
+  (do-store vm (arg-imm args) (encode-le (logand (reg vm (arg-ra args)) #xFFFF) 2)))
 
 ;; 61 = store_u32
 (register-opcode 61 :store-u32 :reg-imm 1 nil :memory-p t)
 (definstruction :store-u32 (vm args)
-  (do-store vm (getf args :imm) (encode-le (logand (reg vm (getf args :ra)) #xFFFFFFFF) 4)))
+  (do-store vm (arg-imm args) (encode-le (logand (reg vm (arg-ra args)) #xFFFFFFFF) 4)))
 
 ;; 62 = store_u64
 (register-opcode 62 :store-u64 :reg-imm 1 nil :memory-p t)
 (definstruction :store-u64 (vm args)
-  (do-store vm (getf args :imm) (encode-le (u64 (reg vm (getf args :ra))) 8)))
+  (do-store vm (arg-imm args) (encode-le (u64 (reg vm (arg-ra args))) 8)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.7 — One register + two immediates (store imm indirect)
@@ -170,27 +171,27 @@
 ;; 70 = store_imm_ind_u8
 (register-opcode 70 :store-imm-ind-u8 :reg-imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-ind-u8 (vm args)
-  (let ((addr (u32 (+ (reg vm (getf args :ra)) (getf args :imm1)))))
+  (let ((addr (u32 (+ (reg vm (arg-ra args)) (arg-imm1 args)))))
     (do-store vm addr (make-array 1 :element-type '(unsigned-byte 8)
-                                    :initial-contents (list (logand (u64 (getf args :imm2)) #xFF))))))
+                                    :initial-contents (list (logand (u64 (arg-imm2 args)) #xFF))))))
 
 ;; 71 = store_imm_ind_u16
 (register-opcode 71 :store-imm-ind-u16 :reg-imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-ind-u16 (vm args)
-  (let ((addr (u32 (+ (reg vm (getf args :ra)) (getf args :imm1)))))
-    (do-store vm addr (encode-le (logand (u64 (getf args :imm2)) #xFFFF) 2))))
+  (let ((addr (u32 (+ (reg vm (arg-ra args)) (arg-imm1 args)))))
+    (do-store vm addr (encode-le (logand (u64 (arg-imm2 args)) #xFFFF) 2))))
 
 ;; 72 = store_imm_ind_u32
 (register-opcode 72 :store-imm-ind-u32 :reg-imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-ind-u32 (vm args)
-  (let ((addr (u32 (+ (reg vm (getf args :ra)) (getf args :imm1)))))
-    (do-store vm addr (encode-le (logand (u64 (getf args :imm2)) #xFFFFFFFF) 4))))
+  (let ((addr (u32 (+ (reg vm (arg-ra args)) (arg-imm1 args)))))
+    (do-store vm addr (encode-le (logand (u64 (arg-imm2 args)) #xFFFFFFFF) 4))))
 
 ;; 73 = store_imm_ind_u64
 (register-opcode 73 :store-imm-ind-u64 :reg-imm-imm 1 nil :memory-p t)
 (definstruction :store-imm-ind-u64 (vm args)
-  (let ((addr (u32 (+ (reg vm (getf args :ra)) (getf args :imm1)))))
-    (do-store vm addr (encode-le (u64 (getf args :imm2)) 8))))
+  (let ((addr (u32 (+ (reg vm (arg-ra args)) (arg-imm1 args)))))
+    (do-store vm addr (encode-le (u64 (arg-imm2 args)) 8))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; A.5.10 — Two registers + one immediate (indirect load/store)
@@ -205,22 +206,22 @@
 (definstruction :store-ind-u8 (vm args)
   (do-store vm (ind-addr vm args)
             (make-array 1 :element-type '(unsigned-byte 8)
-                          :initial-contents (list (logand (reg vm (getf args :ra)) #xFF)))))
+                          :initial-contents (list (logand (reg vm (arg-ra args)) #xFF)))))
 
 ;; 121 = store_ind_u16
 (register-opcode 121 :store-ind-u16 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :store-ind-u16 (vm args)
-  (do-store vm (ind-addr vm args) (encode-le (logand (reg vm (getf args :ra)) #xFFFF) 2)))
+  (do-store vm (ind-addr vm args) (encode-le (logand (reg vm (arg-ra args)) #xFFFF) 2)))
 
 ;; 122 = store_ind_u32
 (register-opcode 122 :store-ind-u32 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :store-ind-u32 (vm args)
-  (do-store vm (ind-addr vm args) (encode-le (logand (reg vm (getf args :ra)) #xFFFFFFFF) 4)))
+  (do-store vm (ind-addr vm args) (encode-le (logand (reg vm (arg-ra args)) #xFFFFFFFF) 4)))
 
 ;; 123 = store_ind_u64
 (register-opcode 123 :store-ind-u64 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :store-ind-u64 (vm args)
-  (do-store vm (ind-addr vm args) (encode-le (u64 (reg vm (getf args :ra))) 8)))
+  (do-store vm (ind-addr vm args) (encode-le (u64 (reg vm (arg-ra args))) 8)))
 
 ;; ── Loads ──
 
@@ -228,40 +229,40 @@
 (register-opcode 124 :load-ind-u8 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-u8 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 1)
-    (if err err (progn (set-reg vm (getf args :ra) val) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) val) :continue))))
 
 ;; 125 = load_ind_i8 (sign-extended)
 (register-opcode 125 :load-ind-i8 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-i8 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 1)
-    (if err err (progn (set-reg vm (getf args :ra) (sign-extend val 1)) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) (sign-extend val 1)) :continue))))
 
 ;; 126 = load_ind_u16
 (register-opcode 126 :load-ind-u16 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-u16 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 2)
-    (if err err (progn (set-reg vm (getf args :ra) val) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) val) :continue))))
 
 ;; 127 = load_ind_i16 (sign-extended)
 (register-opcode 127 :load-ind-i16 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-i16 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 2)
-    (if err err (progn (set-reg vm (getf args :ra) (sign-extend val 2)) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) (sign-extend val 2)) :continue))))
 
 ;; 128 = load_ind_u32
 (register-opcode 128 :load-ind-u32 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-u32 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 4)
-    (if err err (progn (set-reg vm (getf args :ra) val) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) val) :continue))))
 
 ;; 129 = load_ind_i32 (sign-extended)
 (register-opcode 129 :load-ind-i32 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-i32 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 4)
-    (if err err (progn (set-reg vm (getf args :ra) (sign-extend val 4)) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) (sign-extend val 4)) :continue))))
 
 ;; 130 = load_ind_u64
 (register-opcode 130 :load-ind-u64 :reg-reg-imm 1 nil :memory-p t)
 (definstruction :load-ind-u64 (vm args)
   (multiple-value-bind (val err) (do-load vm (ind-addr vm args) 8)
-    (if err err (progn (set-reg vm (getf args :ra) val) :continue))))
+    (if err err (progn (set-reg vm (arg-ra args) val) :continue))))
