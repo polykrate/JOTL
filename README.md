@@ -20,15 +20,45 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | fuzzy | 200/200 ✓ | 200/200 ✓ | 0 |
 | **TOTAL** | **1000/1000** | **1000/1000** | **0** |
 
+### STF sub-component tests
+
+| Suite | Result |
+|-------|--------|
+| safrole (tiny, 21 tests) | **21/21 ✓** — τ η κ λ ι γP γZ γS γA offenders |
+
+### polkajam-fuzz traces (205 traces, 760 steps)
+
+| Metric | Value |
+|--------|-------|
+| Pass | **678** |
+| Correct reject | **40** |
+| Fail | **42** |
+| Errors | **0** |
+
+#### Failure typology (42 remaining)
+
+| Signature | Count | Root cause |
+|-----------|------:|------------|
+| `(GAMMA)` | 6 | γZ ring commitment at epoch boundary |
+| `(IOTA PI)` | 6 | ι wrong → cascade to π |
+| `(BETA PI THETA DELTA-KVS)` | 6 | π\_C/π\_S cores/services stats → cascade |
+| `(PI DELTA-KVS)` | 4 | π\_C/π\_S → δ cascade |
+| `(IOTA PI DELTA-KVS)` | 4 | ι → π → δ cascade |
+| `(BETA GAMMA ETA KAPPA RHO TAU PI XI THETA DELTA-KVS)` | 4 | Epoch cascade (γ wrong → all) |
+| `(BETA GAMMA ETA KAPPA RHO TAU PI XI DELTA-KVS)` | 4 | Epoch cascade (no θ) |
+| `(DELTA-KVS)` | 3 | Accumulate (pure δ divergence) |
+| `(PI)` | 2 | π\_C/π\_S cores/services stats |
+| Other cascades | 3 | Partial epoch cascades |
+
+**3 independent root causes:**
+1. **π\_C/π\_S** — core & service activity statistics (§13.2)
+2. **γZ** — ring commitment at epoch boundary (§6)
+3. **δ** — accumulate storage divergence (§12)
+
 ### Fuzzer target (fuzz-v1)
 
 JOTL implements a **fuzz-v1 protocol server** for real-time conformance testing
 via the [jam-conformance](https://github.com/davxy/jam-conformance) fuzzer.
-
-| Test suite | Result |
-|------------|--------|
-| `no_forks` (102 pairs) | **102/102 ✓** |
-| `forks` (102 pairs) | **51/102** (state root divergence at pair 52) |
 
 VRF verification is **fully enabled** — Bandersnatch IETF VRF for both seal
 and entropy source, in both fallback and tickets modes:
