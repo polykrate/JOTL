@@ -214,16 +214,17 @@
   (signature :pointer))
 
 (defun bandersnatch-verify-ring-vrf (ring-commitment vrf-input signature 
-                                     &key (ring-size 6))
+                                     &key (ring-size 6) (ad #()))
   "Verify a Bandersnatch Ring VRF signature.
-   
-   GP Section 6: Used for ticket verification in Safrole.
+   GP §6.15: Used for ticket-based seal verification in Safrole.
+   GP G.1: ad = additional data (m parameter).
    
    Args:
    - ring-commitment: 144 bytes (gamma_z)
    - vrf-input: variable length (typically 48 bytes for tickets)
    - signature: 784 bytes (Ring VRF signature)
    - ring-size: 6 for TINY, 1023 for FULL
+   - ad: additional data bytes (GP §6.4: EU(H) for seal verification)
    
    Returns:
    - T if valid, NIL otherwise"
@@ -242,14 +243,24 @@
           (cffi:with-pointer-to-vector-data (commitment-ptr ring-commitment)
             (cffi:with-pointer-to-vector-data (input-ptr vrf-input)
               (cffi:with-pointer-to-vector-data (sig-ptr signature)
-                (let ((result (%bandersnatch-verify-ring-vrf-with-commitment
-                               srs-ptr (length srs)
-                               ring-size
-                               commitment-ptr
-                               input-ptr (length vrf-input)
-                               (cffi:null-pointer) 0
-                               sig-ptr)))
-                  (not (zerop result)))))))
+                (if (and ad (plusp (length ad)))
+                    (cffi:with-pointer-to-vector-data (ad-ptr ad)
+                      (let ((result (%bandersnatch-verify-ring-vrf-with-commitment
+                                     srs-ptr (length srs)
+                                     ring-size
+                                     commitment-ptr
+                                     input-ptr (length vrf-input)
+                                     ad-ptr (length ad)
+                                     sig-ptr)))
+                        (not (zerop result))))
+                    (let ((result (%bandersnatch-verify-ring-vrf-with-commitment
+                                   srs-ptr (length srs)
+                                   ring-size
+                                   commitment-ptr
+                                   input-ptr (length vrf-input)
+                                   (cffi:null-pointer) 0
+                                   sig-ptr)))
+                      (not (zerop result))))))))
       (error (e)
         (warn "bandersnatch-verify-ring-vrf FFI failed: ~A" e)
         nil))))
@@ -269,9 +280,8 @@
   (vrf-output-hash :pointer))
 
 (defun bandersnatch-verify-ring-vrf-with-output (ring-commitment vrf-input signature 
-                                                  &key (ring-size 6))
+                                                  &key (ring-size 6) (ad #()))
   "Verify Ring VRF and return the VRF output hash (ticket ID).
-   
    GP Section 6: Used for ticket verification and ID computation.
    
    Returns: (values valid-p output-hash)"
@@ -286,17 +296,30 @@
               (cffi:with-pointer-to-vector-data (input-ptr vrf-input)
                 (cffi:with-pointer-to-vector-data (sig-ptr signature)
                   (cffi:with-pointer-to-vector-data (out-ptr output-hash)
-                    (let ((result (%bandersnatch-verify-ring-vrf-with-output
-                                   srs-ptr (length srs)
-                                   ring-size
-                                   commitment-ptr
-                                   input-ptr (length vrf-input)
-                                   (cffi:null-pointer) 0
-                                   sig-ptr
-                                   out-ptr)))
-                      (if (zerop result)
-                          (values t output-hash)
-                          (values nil nil))))))))
+                    (if (and ad (plusp (length ad)))
+                        (cffi:with-pointer-to-vector-data (ad-ptr ad)
+                          (let ((result (%bandersnatch-verify-ring-vrf-with-output
+                                         srs-ptr (length srs)
+                                         ring-size
+                                         commitment-ptr
+                                         input-ptr (length vrf-input)
+                                         ad-ptr (length ad)
+                                         sig-ptr
+                                         out-ptr)))
+                            (if (zerop result)
+                                (values t output-hash)
+                                (values nil nil))))
+                        (let ((result (%bandersnatch-verify-ring-vrf-with-output
+                                       srs-ptr (length srs)
+                                       ring-size
+                                       commitment-ptr
+                                       input-ptr (length vrf-input)
+                                       (cffi:null-pointer) 0
+                                       sig-ptr
+                                       out-ptr)))
+                          (if (zerop result)
+                              (values t output-hash)
+                              (values nil nil)))))))))
         (error (e)
           (warn "bandersnatch-verify-ring-vrf-with-output FFI failed: ~A" e)
           (values nil nil))))))
@@ -421,32 +444,46 @@
 ;;; ==========================================================================
 
 (cffi:defcfun ("bandersnatch_verify_vrf" %bandersnatch-verify-vrf) :bool
-  "Verify a Bandersnatch IETF VRF proof (block sealing)"
+  "Verify a Bandersnatch IETF VRF proof (block sealing).
+   GP G.1: verify(k, c, m, x) where m = additional data."
   (public-key :pointer)
   (vrf-input :pointer)
   (vrf-input-len :size)
   (vrf-output :pointer)
   (proof :pointer)
-  (proof-len :size))
+  (proof-len :size)
+  (ad :pointer)
+  (ad-len :size))
 
-(defun bandersnatch-verify-vrf (public-key vrf-input vrf-output proof)
+(defun bandersnatch-verify-vrf (public-key vrf-input vrf-output proof
+                                &optional (ad #()))
   "Verify a Bandersnatch IETF VRF proof.
+   GP G.1: V̂ₖᵐᴮ(c) — verify(k, c, m, x) = T
    
    Args:
      public-key: 32 bytes (Bandersnatch compressed point)
-     vrf-input: arbitrary bytes
-     vrf-output: 32 bytes (expected output)
-     proof: VRF proof bytes
+     vrf-input: arbitrary bytes (hashed to curve internally)
+     vrf-output: 32 bytes (expected VRF output point)
+     proof: VRF proof bytes (~64 bytes)
+     ad: additional data bytes (GP §6.4: EU(H) for seal verification)
    
    Returns: T if valid, NIL otherwise"
   (cffi:with-pointer-to-vector-data (pk-ptr public-key)
     (cffi:with-pointer-to-vector-data (input-ptr vrf-input)
       (cffi:with-pointer-to-vector-data (output-ptr vrf-output)
         (cffi:with-pointer-to-vector-data (proof-ptr proof)
-          (%bandersnatch-verify-vrf pk-ptr
-                                    input-ptr (length vrf-input)
-                                    output-ptr
-                                    proof-ptr (length proof)))))))
+          (if (and ad (plusp (length ad)))
+              (cffi:with-pointer-to-vector-data (ad-ptr ad)
+                (%bandersnatch-verify-vrf pk-ptr
+                                          input-ptr (length vrf-input)
+                                          output-ptr
+                                          proof-ptr (length proof)
+                                          ad-ptr (length ad)))
+              (%bandersnatch-verify-vrf pk-ptr
+                                        input-ptr (length vrf-input)
+                                        output-ptr
+                                        proof-ptr (length proof)
+                                        (cffi:null-pointer) 0)))))))
 
 ;;; ==========================================================================
 ;;; Compute Ring Commitment (GP 6.15)

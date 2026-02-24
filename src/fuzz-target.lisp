@@ -192,8 +192,14 @@
     result))
 
 (defun encode-fuzz-error (message)
-  "Encode Error = 0xFF + compact(len) + utf8 bytes."
-  (let* ((msg-bytes (map '(vector (unsigned-byte 8)) #'char-code message))
+  "Encode Error = 0xFF + compact(len) + ASCII bytes.
+   Non-ASCII characters (like em-dash) are replaced with '?' to avoid
+   (UNSIGNED-BYTE 8) overflow."
+  (let* ((msg-bytes (map '(vector (unsigned-byte 8))
+                         (lambda (c)
+                           (let ((code (char-code c)))
+                             (if (< code 128) code (char-code #\?))))
+                         message))
          (len-enc (encode-compact (length msg-bytes))))
     (concatenate '(vector (unsigned-byte 8))
                  (vector +fuzz-error+)
@@ -226,9 +232,10 @@
 ;;; Fork depth is limited to 1 (mutations never become parents).
 ;;; Ancestry is maintained as a list of (slot, header-hash) pairs.
 
-(defconstant +max-live-states+ 10
+(defconstant +max-live-states+ 128
   "Maximum number of states to keep in memory.
-   Oldest states are GC'd when this limit is exceeded.")
+   Oldest states are GC'd when this limit is exceeded.
+   Set high enough for fuzzer forks scenarios (up to ~50 concurrent chains).")
 
 (defstruct fuzz-state-manager
   "Fork-aware state manager for fuzz-v1 sessions."
@@ -333,6 +340,8 @@
         (values :error (format nil "Disputes error: ~A" e)))
       (safrole-error (e)
         (values :error (format nil "Safrole error: ~A" e)))
+      (preimages-error (e)
+        (values :error (format nil "Preimages error: ~A" e)))
       ;; Block validation errors (from validate-block in apply-block)
       (simple-error (e)
         (values :error (format nil "Block error: ~A" e))))))

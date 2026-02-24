@@ -40,6 +40,17 @@
 (in-package #:jotl)
 
 ;;; =====================================================================
+;;; ERROR CONDITION
+;;; =====================================================================
+
+(define-condition preimages-error (error)
+  ((code   :initarg :code   :reader preimages-error-code)
+   (detail :initarg :detail :reader preimages-error-detail :initform nil))
+  (:report (lambda (c s)
+             (format s "preimages error: ~A~@[ -- ~A~]"
+                     (preimages-error-code c) (preimages-error-detail c)))))
+
+;;; =====================================================================
 ;;; SERVICE INFO CODEC -- 89-byte fixed-size binary <-> plist
 ;;; =====================================================================
 
@@ -503,22 +514,30 @@
                  (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
                  (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
 
-            ;; GP §9.2: integrate only if:
-            ;;   1. Service s exists (has metadata key C(255,s))
-            ;;   2. Lookup entry (h,l) exists with even-length status list
-            (let ((lookup-entry (when (find-kv meta-key)
-                                  (find-kv lookup-key))))
-              (when (and lookup-entry
-                         (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                           (evenp (length statuses))))
-                (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                  ;; Store preimage blob
-                  (let ((new-kv (cons blob-key (ensure-bytes blob))))
-                    (push new-kv new-kvs)
-                    (setf (gethash blob-key kv-index) new-kv))
-                  ;; Update lookup: append tau' to status list
-                  (replace-kv-val lookup-key
-                                  (encode-lookup-value (append statuses (list timeslot))))))))))
+            ;; GP §9.2: preimage MUST be required — reject block otherwise.
+            ;;   1. Service s must exist (has metadata key C(255,s))
+            (unless (find-kv meta-key)
+              (error 'preimages-error
+                     :code :preimage-not-required
+                     :detail (format nil "service ~D does not exist" sid)))
+            ;;   2. Lookup entry (h,l) must exist with even-length status list
+            (let ((lookup-entry (find-kv lookup-key)))
+              (unless lookup-entry
+                (error 'preimages-error
+                       :code :preimage-not-required
+                       :detail (format nil "no lookup entry for preimage in service ~D" sid)))
+              (let ((statuses (load-lookup-value (cdr lookup-entry))))
+                (unless (evenp (length statuses))
+                  (error 'preimages-error
+                         :code :preimage-not-required
+                         :detail (format nil "preimage already provided for service ~D" sid)))
+                ;; Store preimage blob
+                (let ((new-kv (cons blob-key (ensure-bytes blob))))
+                  (push new-kv new-kvs)
+                  (setf (gethash blob-key kv-index) new-kv))
+                ;; Update lookup: append tau' to status list
+                (replace-kv-val lookup-key
+                                (encode-lookup-value (append statuses (list timeslot)))))))))
       new-kvs)))
 
 ;;; =====================================================================

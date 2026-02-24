@@ -91,6 +91,9 @@ struct RingVrfSignature {
 
 /// Verify a Bandersnatch IETF VRF proof (used for block sealing)
 ///
+/// GP Appendix G.1: V̂ₖᵐᴮ(c) — verify(k, c, m, x) = T
+///   k = public key, c = VRF input, m = additional data, x = signature
+///
 /// # Safety
 /// - `public_key`: 32 bytes (compressed Bandersnatch point)
 /// - `vrf_input`: arbitrary bytes that will be hashed to curve
@@ -98,6 +101,8 @@ struct RingVrfSignature {
 /// - `vrf_output`: 32 bytes (compressed curve point)
 /// - `proof`: IETF VRF proof (variable size, typically ~64 bytes)
 /// - `proof_len`: length of proof
+/// - `ad`: additional data bytes (GP §6.4: header serialization without seal)
+/// - `ad_len`: length of ad
 #[no_mangle]
 pub unsafe extern "C" fn bandersnatch_verify_vrf(
     public_key: *const u8,
@@ -106,6 +111,8 @@ pub unsafe extern "C" fn bandersnatch_verify_vrf(
     vrf_output: *const u8,
     proof: *const u8,
     proof_len: usize,
+    ad: *const u8,
+    ad_len: usize,
 ) -> bool {
     if public_key.is_null() || vrf_input.is_null() || vrf_output.is_null() || proof.is_null() {
         return false;
@@ -115,6 +122,11 @@ pub unsafe extern "C" fn bandersnatch_verify_vrf(
     let input_bytes = std::slice::from_raw_parts(vrf_input, vrf_input_len);
     let output_bytes = std::slice::from_raw_parts(vrf_output, 32);
     let proof_bytes = std::slice::from_raw_parts(proof, proof_len);
+    let ad_bytes = if ad.is_null() || ad_len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(ad, ad_len)
+    };
 
     // Deserialize public key
     let public = match Public::deserialize_compressed(&pk_bytes[..]) {
@@ -140,9 +152,9 @@ pub unsafe extern "C" fn bandersnatch_verify_vrf(
         Err(_) => return false,
     };
 
-    // Verify using IETF VRF trait
+    // Verify using IETF VRF trait — ad is the additional data (GP §G.1: m parameter)
     use ark_vrf::ietf::Verifier;
-    public.verify(input, output, &[], &proof).is_ok()
+    public.verify(input, output, ad_bytes, &proof).is_ok()
 }
 
 /// Extract VRF output hash (Y function) from a Bandersnatch VRF signature
@@ -1175,10 +1187,223 @@ mod tests {
                 output_bytes.as_ptr(),
                 proof_bytes.as_ptr(),
                 proof_bytes.len(),
+                std::ptr::null(),  // ad = empty (matches prove(&[]))
+                0,
             )
         };
         
         assert!(result, "VRF verification should succeed via FFI");
+    }
+
+    #[test]
+    fn test_bandersnatch_spec_vector1() {
+        // From bandersnatch-vrf-spec Vector 1 (no input, no ad)
+        let pk_hex = "a1b1da71cc4682e159b7da23050d8b6261eb11a3247c89b07ef56ccd002fd38b";
+        let gamma_hex = "e7aa5154103450f0a0525a36a441f827296ee489ef30ed8787cff8df1bef223f";
+        let proof_c_hex = "439fd9495643314fa623f2581f4b3d7d6037394468084f4ad7d8031479d9d101";
+        let proof_s_hex = "828bedd2ad95380b11f67a05ea0a76f0c3fef2bee9f043f4dffdddde09f55c01";
+        
+        let pk = hex::decode(pk_hex).unwrap();
+        let gamma = hex::decode(gamma_hex).unwrap();
+        let proof_c = hex::decode(proof_c_hex).unwrap();
+        let proof_s = hex::decode(proof_s_hex).unwrap();
+        
+        // proof = c || s (64 bytes)
+        let mut proof = proof_c.clone();
+        proof.extend_from_slice(&proof_s);
+        
+        // VRF input is empty for Vector 1
+        let vrf_input: &[u8] = b"";
+        
+        println!("PK: {} bytes, Gamma: {} bytes, Proof: {} bytes",
+                 pk.len(), gamma.len(), proof.len());
+        
+        // Try via FFI
+        let result = unsafe {
+            bandersnatch_verify_vrf(
+                pk.as_ptr(),
+                vrf_input.as_ptr(),
+                vrf_input.len(),
+                gamma.as_ptr(),
+                proof.as_ptr(),
+                proof.len(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        println!("FFI verify result (no input, no ad): {}", result);
+        assert!(result, "Spec vector 1 should verify");
+    }
+
+    #[test]
+    fn test_bandersnatch_spec_vector3_with_ad() {
+        // From bandersnatch-vrf-spec Vector 3 (no input, ad = 0x0b8c)
+        let pk_hex = "9d97151298a5339866ddd3539d16696e19e6b68ac731562c807fe63a1ca49506";
+        let gamma_hex = "67a348e256d908eb695d15ee0d869efef2bcf9f0fea646e788f967abbc0464dd";
+        let proof_c_hex = "aec4d1cf308cb4cb400190350e69f4fb309255aa738fff5a6ac4ced7538fce03";
+        let proof_s_hex = "54e5d38a76f309ce63ca82465160abd8d75b78805a0b499e60c26436de4a8e01";
+        
+        let pk = hex::decode(pk_hex).unwrap();
+        let gamma = hex::decode(gamma_hex).unwrap();
+        let proof_c = hex::decode(proof_c_hex).unwrap();
+        let proof_s = hex::decode(proof_s_hex).unwrap();
+        
+        let mut proof = proof_c.clone();
+        proof.extend_from_slice(&proof_s);
+        
+        // VRF input is empty for Vector 3
+        let vrf_input: &[u8] = b"";
+        let ad = hex::decode("0b8c").unwrap();
+        
+        // Try with correct ad
+        let result = unsafe {
+            bandersnatch_verify_vrf(
+                pk.as_ptr(),
+                vrf_input.as_ptr(),
+                vrf_input.len(),
+                gamma.as_ptr(),
+                proof.as_ptr(),
+                proof.len(),
+                ad.as_ptr(),
+                ad.len(),
+            )
+        };
+        println!("FFI verify result (no input, ad=0b8c): {}", result);
+        assert!(result, "Spec vector 3 should verify with correct ad");
+        
+        // Try with wrong ad — should fail
+        let result_wrong = unsafe {
+            bandersnatch_verify_vrf(
+                pk.as_ptr(),
+                vrf_input.as_ptr(),
+                vrf_input.len(),
+                gamma.as_ptr(),
+                proof.as_ptr(),
+                proof.len(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        println!("FFI verify result (no input, no ad): {}", result_wrong);
+        assert!(!result_wrong, "Spec vector 3 should fail with no ad");
+    }
+
+    #[test]
+    fn test_jam_fallback_block1() {
+        // Real data from JAM test vector: fallback trace, block 1
+        let pk = hex::decode("2105650944FCD101621FD5BB3124C9FD191D114B7AD936C1D79D734F9F21392E").unwrap();
+        let inp = hex::decode("6A616D5F66616C6C6261636B5F7365616C5710C5F909ACECAEC8AFE31F4EDDD93C495BAC0618E715A3F22ABC90670E5AAB").unwrap();
+        let out = hex::decode("39CA45236C96EAE24D57127288F16BF6E64DFBBF8D1D693E660474A4D43A424A").unwrap();
+        let prf = hex::decode("C558311581B4DEA4F1D1842430A7556E73F418C59281708F90A06849B09C8C009F95D145FDE8E323FEF5B3C935BB7A75DA9403C668631D0A6CE718CF4C968A11").unwrap();
+        let ad = hex::decode("2BF11DC5E1C7B9BBAAFC2C8533017ABC12DAEB0BAF22C92509AD50F7875E5716BAFD5B0B2668FEF3611D9B856CB879483A4BC3C0428DD523CB95D2021C320029189D15AF832DFE4F67744008B62C334B569FCBB4C261E0F065655697306CA252010000000000000062BC9D2311DA8DB52DA45C5785333B39DA3F1464B0D0341D12E2EE2987DA6595463487A2D903C169560A90521CE06ECC99E466AFEAA04F766E4E6FD3BF3677170282A54709E0E92A1A37C853F8C83053C9746E53581366BF1AAEDD621BD4A71300").unwrap();
+        
+        println!("PK: {} bytes, INP: {} bytes, OUT: {} bytes, PRF: {} bytes, AD: {} bytes",
+                 pk.len(), inp.len(), out.len(), prf.len(), ad.len());
+        
+        // Try via FFI with no ad
+        let r1 = unsafe {
+            bandersnatch_verify_vrf(
+                pk.as_ptr(), inp.as_ptr(), inp.len(),
+                out.as_ptr(), prf.as_ptr(), prf.len(),
+                std::ptr::null(), 0,
+            )
+        };
+        println!("FFI (no ad): {}", r1);
+        
+        // Try via FFI with ad = EU(H) 
+        let r2 = unsafe {
+            bandersnatch_verify_vrf(
+                pk.as_ptr(), inp.as_ptr(), inp.len(),
+                out.as_ptr(), prf.as_ptr(), prf.len(),
+                ad.as_ptr(), ad.len(),
+            )
+        };
+        println!("FFI (ad=EU(H)): {}", r2);
+        
+        // Try direct to see error details
+        use ark_serialize::CanonicalDeserialize;
+        use ark_vrf::ietf::Verifier;
+        
+        let public = Public::deserialize_compressed(&pk[..]).unwrap();
+        let output = Output::deserialize_compressed(&out[..]).unwrap();
+        let proof = ark_vrf::ietf::Proof::<BandersnatchSha512Ell2>::deserialize_compressed(&prf[..]).unwrap();
+        let input = Input::new(&inp).unwrap();
+        
+        let r3 = public.verify(input, output, &[], &proof);
+        println!("Direct (no ad): {:?}", r3);
+        let r4 = public.verify(input, output, &ad, &proof);
+        println!("Direct (ad=EU(H)): {:?}", r4);
+    }
+
+    #[test]
+    fn test_bandersnatch_ietf_vrf_with_ad() {
+        use ark_vrf::ietf::{Prover, Verifier};
+        
+        let secret = Secret::from_seed(b"test seed for jam crypto ad");
+        let public = secret.public();
+        
+        let vrf_input_data = b"jam_fallback_seal\x00\x00\x00test_eta3";
+        let ad_data = b"this is the unsealed header EU(H) bytes for test";
+        
+        let input = Input::new(vrf_input_data).unwrap();
+        let output = secret.output(input);
+        
+        // Sign WITH ad
+        let proof = secret.prove(input, output, ad_data);
+        
+        // Verify with correct ad
+        assert!(public.verify(input, output, ad_data, &proof).is_ok(),
+                "Direct verify with ad should succeed");
+        
+        // Verify with wrong ad should FAIL
+        assert!(public.verify(input, output, b"wrong ad", &proof).is_err(),
+                "Verify with wrong ad should fail");
+        
+        // Verify with empty ad should FAIL (ad was non-empty during proving)
+        assert!(public.verify(input, output, &[], &proof).is_err(),
+                "Verify with empty ad should fail when prove used non-empty ad");
+        
+        // Now test via FFI with the 96-byte seal format [output:32][proof:64]
+        let mut pk_bytes = Vec::new();
+        let mut output_bytes = Vec::new();
+        let mut proof_bytes = Vec::new();
+        
+        public.serialize_compressed(&mut pk_bytes).unwrap();
+        output.serialize_compressed(&mut output_bytes).unwrap();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
+        
+        println!("PK: {} bytes, Output: {} bytes, Proof: {} bytes",
+                 pk_bytes.len(), output_bytes.len(), proof_bytes.len());
+        
+        // FFI verify with correct ad
+        let result = unsafe {
+            bandersnatch_verify_vrf(
+                pk_bytes.as_ptr(),
+                vrf_input_data.as_ptr(),
+                vrf_input_data.len(),
+                output_bytes.as_ptr(),
+                proof_bytes.as_ptr(),
+                proof_bytes.len(),
+                ad_data.as_ptr(),
+                ad_data.len(),
+            )
+        };
+        assert!(result, "FFI verify with correct ad should succeed");
+        
+        // FFI verify with empty ad should fail
+        let result_no_ad = unsafe {
+            bandersnatch_verify_vrf(
+                pk_bytes.as_ptr(),
+                vrf_input_data.as_ptr(),
+                vrf_input_data.len(),
+                output_bytes.as_ptr(),
+                proof_bytes.as_ptr(),
+                proof_bytes.len(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        assert!(!result_no_ad, "FFI verify with empty ad should fail when prove used ad");
     }
 
 }

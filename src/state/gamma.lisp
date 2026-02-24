@@ -465,12 +465,18 @@
    Returns: HT mod E"
   (mod timeslot (epoch-duration)))
 
-(defun validate-seal-tickets (slot seal gamma-prime eta-3-prime gamma-z)
+(defun validate-seal-tickets (slot seal gamma-prime eta-3-prime gamma-z
+                               unsealed-header kappa-prime author-idx)
   "GP (6.15) — Validate seal in tickets mode.
    - γ'S[HT mod E] is the ticket at this timeslot
    - iy = Y(HS): VRF output matches ticket ID
-   - HS verified via Ring VRF with input = XT ⌢ η'₃ ⌢ ie
-   slot: HT (integer), seal: HS (bytes), gamma-prime: γ' closure.
+   - HS ∈ V̂^{EU(H)}_{HA}(XT ⌢ η'₃ ⌢ ie): IETF VRF (96 bytes)
+     key = κ'[HI].kb (author bandersnatch key), ad = EU(H)
+     input = jam_ticket_seal ⌢ η'₃ ⌢ E1(ie)
+   slot: HT (integer), seal: HS (96 bytes = output||proof).
+   unsealed-header: EU(H) bytes — additional data for VRF (GP §6.4).
+   kappa-prime: κ' closure for author key lookup.
+   author-idx: HI (integer) — author index.
    Signals SAFROLE-ERROR on failure."
   (let* ((ticket   (funcall gamma-prime :seal-entry-at slot))
          ;; (6.15) iy = Y(HS)
@@ -480,64 +486,78 @@
     (unless (equalp vrf-out (getf ticket :id))
       (reject-safrole :bad-seal-ticket-mismatch
                       (format nil "Y(HS) ≠ ticket id at slot ~D" slot)))
-    ;; (6.15) HS ∈ V̂○(XT ⌢ η'₃ ⌢ ie)
-    (let* ((attempt  (getf ticket :attempt))
+    ;; (6.15) HS ∈ V̂^{EU(H)}_{HA}(XT ⌢ η'₃ ⌢ ie) — IETF VRF
+    ;; key = κ'[HI].kb, input = XT ⌢ η'₃ ⌢ E1(ie), ad = EU(H)
+    (let* ((seal-key  (funcall kappa-prime :bandersnatch-key author-idx))
+           (attempt   (getf ticket :attempt))
            (vrf-input (concatenate '(vector (unsigned-byte 8))
                                    +ctx-ticket-seal+
                                    (ensure-bytes eta-3-prime)
                                    (vector attempt)))
-           (valid-p  (jam.ffi:bandersnatch-verify-ring-vrf
-                      gamma-z vrf-input seal
-                      :ring-size (num-validators))))
-      (unless valid-p
-        (reject-safrole :bad-seal-ring-vrf
-                        "Ring VRF verification failed (tickets mode)")))))
+           (vrf-output (subseq seal 0 32))
+           (vrf-proof  (subseq seal 32)))
+      (unless seal-key
+        (reject-safrole :bad-seal-no-key
+                        (format nil "No bandersnatch key for author ~D" author-idx)))
+      (unless (jam.ffi:bandersnatch-verify-vrf
+               seal-key vrf-input vrf-output vrf-proof unsealed-header)
+        (reject-safrole :bad-seal-vrf-verify
+                        "Bandersnatch VRF verification failed (tickets mode)")))))
 
-(defun validate-seal-fallback (author-idx seal gamma-prime eta-3-prime)
+(defun validate-seal-fallback (slot seal gamma-prime eta-3-prime
+                                unsealed-header)
   "GP (6.16) — Validate seal in fallback (keys) mode.
-   - i = HA: seal key is the author's bandersnatch key
-   - HS ∈ V̂(XF ⌢ η'₃): Bandersnatch VRF with input = fallback_seal ⌢ η'₃
-   author-idx: HI (integer), seal: HS (bytes), gamma-prime: γ' closure.
+   - γ'S[HT mod E]: fallback key at timeslot position (NOT author index)
+   - HS ∈ V̂ₖᵐ(XF ⌢ η'₃) where k=γ'S[HT], m = EU(H)
+   slot: HT (integer), seal: HS (96 bytes = output||proof).
+   unsealed-header: EU(H) bytes (GP §6.4 additional data for VRF).
    Signals SAFROLE-ERROR on failure."
-  (let* (;; i = HA — the bandersnatch key at author index (via γ' message)
-         (seal-key   (funcall gamma-prime :seal-entry-at author-idx))
+  (let* (;; i = γ'S[HT mod E] — key at timeslot position in fallback sequence
+         (seal-key   (funcall gamma-prime :seal-entry-at slot))
          ;; (6.16) VRF input = XF ⌢ η'₃
          (vrf-input  (concatenate '(vector (unsigned-byte 8))
                                   +ctx-fallback-seal+
-                                  (ensure-bytes eta-3-prime))))
+                                  (ensure-bytes eta-3-prime)))
+         ;; HS = [output: 32 bytes] [proof: 64 bytes]
+         (vrf-output (subseq seal 0 32))
+         (vrf-proof  (subseq seal 32)))
     (unless seal-key
       (reject-safrole :bad-seal-no-key
-                      (format nil "No fallback key at author index ~D" author-idx)))
-    ;; Verify as Bandersnatch VRF (plain, not ring)
-    (let ((vrf-out (jam.ffi:Y seal)))
-      (unless vrf-out
-        (reject-safrole :bad-seal-vrf-output "Y(HS) extraction failed (fallback mode)"))
-      (unless (jam.ffi:bandersnatch-verify-vrf
-               seal-key vrf-input vrf-out seal)
-        (reject-safrole :bad-seal-vrf-verify
-                        "Bandersnatch VRF verification failed (fallback mode)")))))
+                      (format nil "No fallback key at slot ~D" slot)))
+    ;; Verify as Bandersnatch IETF VRF with ad = EU(H) (GP §6.4)
+    (unless (jam.ffi:bandersnatch-verify-vrf
+             seal-key vrf-input vrf-output vrf-proof unsealed-header)
+      (reject-safrole :bad-seal-vrf-verify
+                      "Bandersnatch VRF verification failed (fallback mode)"))))
 
-(defun validate-seal (slot author-idx seal gamma-prime eta-3-prime gamma-z)
+(defun validate-seal (slot author-idx seal gamma-prime eta-3-prime gamma-z
+                      unsealed-header &key kappa-prime)
   "GP (6.15)/(6.16) — Dispatch seal validation based on γ'S variant.
    slot: HT, author-idx: HI, seal: HS — raw values.
    gamma-prime: γ' closure (messages :sealing-variant, :seal-entry-at).
+   unsealed-header: EU(H) bytes — additional data for VRF (GP §6.4).
+   kappa-prime: κ' closure — needed in tickets mode for author key lookup.
    Signals SAFROLE-ERROR on failure."
-  (ecase (funcall gamma-prime :sealing-variant)
-    (:tickets  (validate-seal-tickets  slot seal gamma-prime eta-3-prime gamma-z))
-    (:keys     (validate-seal-fallback author-idx seal gamma-prime eta-3-prime))))
+  (let ((variant (funcall gamma-prime :sealing-variant)))
+    (ecase variant
+      (:tickets  (validate-seal-tickets  slot seal gamma-prime eta-3-prime gamma-z
+                                         unsealed-header kappa-prime author-idx))
+      (:keys     (validate-seal-fallback slot seal gamma-prime eta-3-prime
+                                         unsealed-header)))))
 
-(defun validate-entropy-source (seal entropy-source author-idx
-                                 gamma-prime &key kappa-prime)
+(defun validate-entropy-source (slot seal entropy-source
+                                 gamma-prime unsealed-header
+                                 &key kappa-prime author-idx)
   "GP (6.17) — Validate entropy source HV.
-   HV ∈ V̂_{HA}(XE ⌢ Y(HS))
-   The entropy source must be a valid Bandersnatch VRF with:
-     - public key: the author's bandersnatch key
-     - VRF input: jam_entropy ⌢ Y(HS)
-   In tickets mode, the author is anonymized; use κ'[HA].kb.
-   In fallback mode, use γ'S[HA].
-   seal: HS, entropy-source: HV, author-idx: HI — raw values.
+   HV ∈ V̂^[]_{HA}(XE ⌢ Y(HS))
+   Key = HA (author's bandersnatch key):
+   - fallback mode: HA = γ'S[HT mod E] (slot-indexed fallback key)
+   - tickets mode:  HA = κ'[HI].kb (author's key from validator set)
+   VRF input = XE ⌢ Y(HS), ad = [] (empty).
+   slot: HT, seal: HS, entropy-source: HV — raw values.
    gamma-prime: γ' closure (messages :sealing-variant, :seal-entry-at).
-   kappa-prime: validator closure (message :bandersnatch-key).
+   kappa-prime: κ' validator closure (message :bandersnatch-key).
+   author-idx: HI (integer) — author index (needed for tickets mode).
    Signals SAFROLE-ERROR on failure."
   (let* (;; Y(HS) — VRF output of the seal
          (seal-vrf-out    (jam.ffi:Y seal))
@@ -547,23 +567,21 @@
                                        seal-vrf-out)))
     (unless seal-vrf-out
       (reject-safrole :bad-entropy-source "Y(HS) extraction failed for entropy validation"))
-    ;; Find the author's bandersnatch key
-    (let ((author-key (ecase (funcall gamma-prime :sealing-variant)
-                        (:tickets
-                         ;; In tickets mode, author identity is anonymized by Ring VRF.
-                         ;; Use κ'[HA].kb to look up the author's bandersnatch key.
-                         (when kappa-prime
-                           (funcall kappa-prime :bandersnatch-key author-idx)))
-                        (:keys
-                         ;; In fallback mode, the key at HA in γ'S (via γ' message)
-                         (funcall gamma-prime :seal-entry-at author-idx)))))
-      (when author-key
-        (let ((entropy-vrf-out (jam.ffi:Y entropy-source)))
-          (unless entropy-vrf-out
-            (reject-safrole :bad-entropy-source "Y(HV) extraction failed"))
+    ;; Key = HA: γ'S[HT mod E] in fallback; κ'[HI].kb in tickets
+    (let ((entropy-key (ecase (funcall gamma-prime :sealing-variant)
+                         (:keys    (funcall gamma-prime :seal-entry-at slot))
+                         (:tickets (when kappa-prime
+                                     (funcall kappa-prime :bandersnatch-key
+                                              author-idx))))))
+      (when entropy-key
+        ;; HV = [output: 32 bytes] [proof: 64 bytes]
+        (let ((entropy-vrf-output (subseq entropy-source 0 32))
+              (entropy-vrf-proof  (subseq entropy-source 32)))
+          ;; GP (6.17): ad = [] (empty — no additional data for entropy VRF)
           (unless (jam.ffi:bandersnatch-verify-vrf
-                   author-key vrf-input entropy-vrf-out entropy-source)
-            (reject-safrole :bad-entropy-source "Entropy VRF verification failed")))))))
+                   entropy-key vrf-input entropy-vrf-output entropy-vrf-proof)
+            (reject-safrole :bad-entropy-source
+                            "Entropy VRF verification failed")))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; HI — AUTHOR INDEX VALIDATION (GP §5)
@@ -665,20 +683,13 @@
     ((or (null a) (null b)) nil)
     (t (equalp (funcall a :save) (funcall b :save)))))
 
-(defvar *enable-seal-vrf* nil
-  "When T, perform VRF verification of HS and HV.
-   Currently disabled because IETF VRF verification yields false negatives
-   on valid test-vector seals (ark-vrf deserialization succeeds but
-   public.verify returns Err(VerificationFailure)). Root cause under
-   investigation — see scripts/debug-seal.lisp.
-   All other safrole checks (HI, HE, HW, author mismatch) remain active.")
-
 (defun validate-header-safrole (header tau tau-prime gamma-prev eta eta-prime
                                  gamma-prime kappa-prime)
   "GP §5-6 — Validate header fields that depend on safrole state.
    Called from transition-state after computing γ'.
-   Validates: HI (author index bounds), HE (epoch mark), HW (tickets mark).
-   VRF verification of HS/HV is currently disabled (see *enable-seal-vrf*).
+   Validates: HI (author index), HS (seal VRF), HV (entropy VRF),
+   HE (epoch mark), HW (tickets mark).
+   GP G.1: VRF ad parameter = EU(H) (header without seal).
    Signals SAFROLE-ERROR on any mismatch.
 
    Boundary function: extracts raw values from closures via messages,
@@ -699,9 +710,18 @@
          (epoch-change   (funcall tau :epoch-changed? tau-prime))
          (m              (funcall tau :phase))
          (m-prime        (funcall tau-prime :phase)))
-    (declare (ignore entropy-source seal eta-3-prime gamma-z-prime))
     ;; ── HI: author index < V ──
     (validate-author-index author-idx)
+    ;; ── HS: seal VRF verification (GP §6.15/6.16) ──
+    ;; ad = EU(H) — header serialization without seal (GP §6.4)
+    (let ((unsealed-header (funcall header :save-unsealed)))
+      (validate-seal slot author-idx seal gamma-prime eta-3-prime gamma-z-prime
+                     unsealed-header :kappa-prime kappa-prime)
+      ;; ── HV: entropy source VRF verification (GP §6.17) ──
+      (validate-entropy-source slot seal entropy-source
+                               gamma-prime unsealed-header
+                               :kappa-prime kappa-prime
+                               :author-idx author-idx))
     ;; ── HE: epoch mark consistency ──
     (let ((expected-he (compute-epoch-mark epoch-change eta-0 eta-1 gamma-p-prime)))
       (unless (compare-epoch-marks actual-he expected-he)
