@@ -177,21 +177,23 @@
    Returns: (values σ' state-root)."
   (let* ((t0 (get-internal-real-time))
          (sigma-prime
-          (handler-case
-              (apply-block sigma block)
-            (guarantee-error (e)
-              (declare (ignore e))
-              sigma)
-            (assurance-error (e)
-              (declare (ignore e))
-              sigma)
-            (disputes-error (e)
-              (declare (ignore e))
-              sigma)
-            (safrole-error (e)
-              (declare (ignore e))
-              sigma)))
-         (state-root (funcall sigma-prime :state-root))
+          (prof :stf
+            (handler-case
+                (apply-block sigma block)
+              (guarantee-error (e)
+                (declare (ignore e))
+                sigma)
+              (assurance-error (e)
+                (declare (ignore e))
+                sigma)
+              (disputes-error (e)
+                (declare (ignore e))
+                sigma)
+              (safrole-error (e)
+                (declare (ignore e))
+                sigma))))
+         (state-root (prof :merkle
+                       (funcall sigma-prime :state-root)))
          (elapsed-ms (round (* 1000 (/ (- (get-internal-real-time) t0)
                                         internal-time-units-per-second)))))
     (when *chain-log-level*

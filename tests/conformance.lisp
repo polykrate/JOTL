@@ -287,7 +287,7 @@
       (handler-case
           (let ((step-path (jotl::trace-block-path dir b)))
             (multiple-value-bind (pre-sigma block-cl post-sigma pre-root post-root)
-                (jotl::load-trace-step step-path)
+                (jotl:prof :decode (jotl::load-trace-step step-path))
               (declare (ignore pre-root))
 
               ;; === CHAIN MODE ===
@@ -413,61 +413,138 @@
         (results nil)
         (grand-cp 0) (grand-cf 0)
         (grand-sp 0) (grand-sf 0)
-        (grand-err 0))
+        (grand-err 0)
+        (t-start (get-internal-real-time)))
 
     (dolist (dir dirs)
-      (let ((name (car (last (pathname-directory (pathname dir))))))
+      (let ((name (car (last (pathname-directory (pathname dir)))))
+            (jotl:*prof* (make-hash-table :test 'eq)))
         (multiple-value-bind (cp cf sp sf err)
             (run-trace dir :verbose verbose)
-          (push (list name cp cf sp sf err) results)
+          (push (list name cp cf sp sf err
+                      (jotl:prof-seconds :decode)
+                      (jotl:prof-seconds :stf)
+                      (jotl:prof-seconds :merkle)
+                      (jotl:prof-seconds :accumulate)
+                      (jotl:prof-seconds :delta-save))
+                results)
           (incf grand-cp cp) (incf grand-cf cf)
           (incf grand-sp sp) (incf grand-sf sf)
           (incf grand-err err))))
 
-    ;; ── Summary table ──
-    (format t "~%~%")
-    (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╗")
-          (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╣")
-          (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╝"))
-      ;; Header
-      (format t "~A~A~A~%" +bcyan+ border-top +reset+)
-      (format t "~A" (table-row (c +bwhite+ "Trace")
-                                (c +bwhite+ "Chain")
-                                (c +bwhite+ "Step")
-                                (c +bwhite+ "Errors")))
-      (terpri)
-      (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
+    (let ((elapsed-s (/ (- (get-internal-real-time) t-start)
+                        (float internal-time-units-per-second))))
 
-      ;; Data rows
-      (dolist (r (nreverse results))
-        (destructuring-bind (name cp cf sp sf err) r
-          (let ((ct (+ cp cf))
-                (st (+ sp sf)))
-            (format t "~A~%"
-                    (table-row name
-                               (score-cell cp ct)
-                               (score-cell sp st)
-                               (if (zerop err)
-                                   (c +dim+ "0")
-                                   (c +bred+ (format nil "~D" err))))))))
-
-      ;; Total row
-      (let ((ct (+ grand-cp grand-cf))
-            (st (+ grand-sp grand-sf)))
+      ;; ── Summary table ──
+      (format t "~%~%")
+      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╗")
+            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╣")
+            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╝"))
+        ;; Header
+        (format t "~A~A~A~%" +bcyan+ border-top +reset+)
+        (format t "~A" (table-row (c +bwhite+ "Trace")
+                                  (c +bwhite+ "Chain")
+                                  (c +bwhite+ "Step")
+                                  (c +bwhite+ "Errors")))
+        (terpri)
         (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
-        (format t "~A~%"
-                (table-row (c +bwhite+ "TOTAL")
-                           (bold-score-cell grand-cp ct)
-                           (bold-score-cell grand-sp st)
-                           (if (zerop grand-err)
-                               (c +dim+ "0")
-                               (c +bred+ (format nil "~D" grand-err)))))
-        (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
 
-    ;; Result plist
-    (list :chain-pass grand-cp :chain-fail grand-cf
-          :step-pass grand-sp :step-fail grand-sf
-          :errors grand-err)))
+        ;; Data rows (reverse results in-place once, use everywhere after)
+        (setf results (nreverse results))
+        (dolist (r results)
+          (let ((name (first r)) (cp (second r)) (cf (third r))
+                (sp (fourth r)) (sf (fifth r)) (err (sixth r)))
+            (let ((ct (+ cp cf))
+                  (st (+ sp sf)))
+              (format t "~A~%"
+                      (table-row name
+                                 (score-cell cp ct)
+                                 (score-cell sp st)
+                                 (if (zerop err)
+                                     (c +dim+ "0")
+                                     (c +bred+ (format nil "~D" err))))))))
+
+        ;; Total row
+        (let ((ct (+ grand-cp grand-cf))
+              (st (+ grand-sp grand-sf)))
+          (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
+          (format t "~A~%"
+                  (table-row (c +bwhite+ "TOTAL")
+                             (bold-score-cell grand-cp ct)
+                             (bold-score-cell grand-sp st)
+                             (if (zerop grand-err)
+                                 (c +dim+ "0")
+                                 (c +bred+ (format nil "~D" grand-err)))))
+          (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
+
+      ;; ── Timer ──
+      (format t "~%  ~A⏱  ~,2F s~A  (~D traces, ~D blocks, ~,1F ms/block)~%"
+              +bcyan+ elapsed-s +reset+
+              (length dirs) (+ grand-cp grand-cf)
+              (if (plusp (+ grand-cp grand-cf))
+                  (* 1000.0 (/ elapsed-s (+ grand-cp grand-cf)))
+                  0.0))
+
+      ;; ── Phase breakdown per trace ──
+      (let ((all-results results))
+        (format t "~%  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
+                +bcyan+ +reset+)
+        (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "Trace") 16)
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "Decode") 7)
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "STF") 7)
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "Merkle") 7)
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "Accum") 7)
+                +bcyan+ +reset+ (pad-right (c +bwhite+ "δ-save") 7)
+                +bcyan+ +reset+)
+        (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
+                +bcyan+ +reset+)
+        (let ((sum-decode 0.0) (sum-stf 0.0) (sum-merkle 0.0)
+              (sum-accum 0.0) (sum-delta 0.0))
+          (dolist (r all-results)
+            (destructuring-bind (name _cp _cf _sp _sf _err
+                                 t-decode t-stf t-merkle t-accum t-delta) r
+              (declare (ignore _cp _cf _sp _sf _err))
+              (incf sum-decode t-decode) (incf sum-stf t-stf)
+              (incf sum-merkle t-merkle) (incf sum-accum t-accum)
+              (incf sum-delta t-delta)
+              (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
+                      +bcyan+ +reset+ (pad-right name 16)
+                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-decode) 7)
+                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-stf) 7)
+                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-merkle) 7)
+                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-accum) 7)
+                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-delta) 7)
+                      +bcyan+ +reset+)))
+          (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
+                  +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ "TOTAL") 16)
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-decode)) 7)
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-stf)) 7)
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-merkle)) 7)
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-accum)) 7)
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-delta)) 7)
+                  +bcyan+ +reset+)
+          (format t "  ~A└──────────────────┴─────────┴─────────┴─────────┴─────────┴─────────┘~A~%"
+                  +bcyan+ +reset+)
+          ;; Percentages
+          (when (plusp elapsed-s)
+            (let ((other (- elapsed-s sum-decode sum-stf sum-merkle)))
+              (format t "~%  ~ADecode ~,0F%  STF ~,0F%  Merkle ~,0F%  (Accum ~,0F%  δ-save ~,0F%)  Other ~,0F%~A~%"
+                      +dim+
+                      (* 100 (/ sum-decode elapsed-s))
+                      (* 100 (/ sum-stf elapsed-s))
+                      (* 100 (/ sum-merkle elapsed-s))
+                      (* 100 (/ sum-accum elapsed-s))
+                      (* 100 (/ sum-delta elapsed-s))
+                      (* 100 (/ other elapsed-s))
+                      +reset+)))))
+
+      ;; Result plist
+      (list :chain-pass grand-cp :chain-fail grand-cf
+            :step-pass grand-sp :step-fail grand-sf
+            :errors grand-err))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; DIAGNOSE-BLOCK — deep diff for a single trace step

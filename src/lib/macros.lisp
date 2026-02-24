@@ -125,3 +125,32 @@
              `((defun ,loader-fn ,(getf decode-clause :params)
                  ,(format nil "Load ~A from bytes. Public standalone loader." name)
                  ,(getf decode-clause :body))))))))
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; PROF — lightweight phase profiler
+;;; ═══════════════════════════════════════════════════════════════
+;;; When *prof* is bound to a hash-table, (prof :phase body) accumulates
+;;; wall-clock time under the given key.  Zero overhead when *prof* is NIL.
+
+(defvar *prof* nil
+  "When bound to a hash-table, (prof :key body) accumulates timing.
+   Keys → internal-time-units (use prof-seconds to convert).")
+
+(defmacro prof (phase &body body)
+  "Accumulate wall-clock time for PHASE when *prof* is active."
+  (let ((t0 (gensym "T0")))
+    `(if *prof*
+         (let ((,t0 (get-internal-real-time)))
+           (multiple-value-prog1 (progn ,@body)
+             (let ((elapsed (- (get-internal-real-time) ,t0)))
+               (if (gethash ,phase *prof*)
+                   (incf (the integer (gethash ,phase *prof*)) elapsed)
+                   (setf (gethash ,phase *prof*) elapsed)))))
+         (progn ,@body))))
+
+(defun prof-seconds (phase)
+  "Return accumulated seconds for PHASE, or 0."
+  (if *prof*
+      (/ (gethash phase *prof* 0)
+         (float internal-time-units-per-second))
+      0.0))

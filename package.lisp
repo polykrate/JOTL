@@ -309,6 +309,10 @@
    #:*chain-log-level*
    #:*chain-log-stream*
    #:*chain-block-count*
+   ;; Profiler
+   #:*prof*
+   #:prof
+   #:prof-seconds
    
    
    ;; ═══════════════════════════════════════════

@@ -33,13 +33,13 @@
 ;;; Helpers
 ;;; ==========================================================================
 
+(declaim (inline ensure-octets))
 (defun ensure-octets (data)
   "Ensure data is a simple (unsigned-byte 8) array."
-  ;; Simplified without subtypep to avoid infinite loops
-  (let* ((len (length data))
-         (result (make-array len :element-type '(unsigned-byte 8))))
-    (dotimes (i len result)
-      (setf (aref result i) (elt data i)))))
+  (if (typep data '(simple-array (unsigned-byte 8) (*)))
+      data
+      (coerce data '(simple-array (unsigned-byte 8) (*)))))
+
 
 ;;; ==========================================================================
 ;;; Blake2b-256 (GP Appendix A.1)
@@ -51,28 +51,23 @@
   (len :size)
   (output :pointer))
 
+(declaim (inline blake2b-256))
 (defun blake2b-256 (data)
   "Hash data with Blake2b-256, returns 32 bytes.
    
    Args:
-   - data: octets (unsigned-byte 8 array)
+   - data: octets (simple-array (unsigned-byte 8) (*))
    
    Returns:
    - 32-byte hash (octets)"
-  (let* ((len (length data))
-         (input (make-array len :element-type '(unsigned-byte 8)))
+  (let* ((input (if (typep data '(simple-array (unsigned-byte 8) (*)))
+                    data
+                    (coerce data '(simple-array (unsigned-byte 8) (*)))))
+         (len (length input))
          (result (make-array 32 :element-type '(unsigned-byte 8))))
-    ;; Copy data to ensure correct type
-    (dotimes (i len)
-      (setf (aref input i) (elt data i)))
-    ;; Call FFI
-    (handler-case
-        (cffi:with-pointer-to-vector-data (in-ptr input)
-          (cffi:with-pointer-to-vector-data (out-ptr result)
-            (%blake2b-256 in-ptr len out-ptr)))
-      (error (e)
-        (warn "blake2b-256 FFI failed: ~A~%Using stub (zeros)" e)
-        (fill result 0)))
+    (cffi:with-pointer-to-vector-data (in-ptr input)
+      (cffi:with-pointer-to-vector-data (out-ptr result)
+        (%blake2b-256 in-ptr len out-ptr)))
     result))
 
 ;;; ==========================================================================
@@ -85,28 +80,25 @@
   (len :size)
   (output :pointer))
 
+(declaim (inline keccak-256))
 (defun keccak-256 (data)
   "Hash data with Keccak-256 (legacy Ethereum-style), returns 32 bytes.
    
    Used for MMR peak merging (GP Appendix E.10).
    
    Args:
-   - data: octets (unsigned-byte 8 array or any sequence)
+   - data: octets (simple-array (unsigned-byte 8) (*))
    
    Returns:
    - 32-byte hash (octets)"
-  (let* ((len (length data))
-         (input (make-array len :element-type '(unsigned-byte 8)))
+  (let* ((input (if (typep data '(simple-array (unsigned-byte 8) (*)))
+                    data
+                    (coerce data '(simple-array (unsigned-byte 8) (*)))))
+         (len (length input))
          (result (make-array 32 :element-type '(unsigned-byte 8))))
-    (dotimes (i len)
-      (setf (aref input i) (elt data i)))
-    (handler-case
-        (cffi:with-pointer-to-vector-data (in-ptr input)
-          (cffi:with-pointer-to-vector-data (out-ptr result)
-            (%keccak-256 in-ptr len out-ptr)))
-      (error (e)
-        (warn "keccak-256 FFI failed: ~A~%Using stub (zeros)" e)
-        (fill result 0)))
+    (cffi:with-pointer-to-vector-data (in-ptr input)
+      (cffi:with-pointer-to-vector-data (out-ptr result)
+        (%keccak-256 in-ptr len out-ptr)))
     result))
 
 ;;; ==========================================================================
@@ -316,24 +308,31 @@
 (defun generate-random-numbers (entropy count)
   "Generate COUNT random uint32 numbers from ENTROPY hash.
    GP Appendix F: Q_l(h)"
-  (let ((result (make-array count :element-type '(unsigned-byte 32))))
+  (let* ((elen (length entropy))
+         ;; Pre-allocate buffer: entropy ++ 4 bytes for k (reused each iteration)
+         (buf (make-array (+ elen 4) :element-type '(unsigned-byte 8)))
+         (result (make-array count :element-type '(unsigned-byte 32)))
+         (prev-k -1)
+         (hash nil))
+    ;; Copy entropy once into the buffer prefix
+    (replace buf entropy :end1 elen)
     (dotimes (i count)
-      (let* ((k (floor i 8))
-             (k-bytes (make-array 4 :element-type '(unsigned-byte 8)))
-             (_ (progn
-                  (setf (aref k-bytes 0) (ldb (byte 8 0) k))
-                  (setf (aref k-bytes 1) (ldb (byte 8 8) k))
-                  (setf (aref k-bytes 2) (ldb (byte 8 16) k))
-                  (setf (aref k-bytes 3) (ldb (byte 8 24) k))))
-             (input (concatenate '(vector (unsigned-byte 8)) entropy k-bytes))
-             (hash (blake2b-256 input))
-             (p (mod (* 4 i) 32))
-             (r-i (+ (aref hash (mod p 32))
-                     (ash (aref hash (mod (+ p 1) 32)) 8)
-                     (ash (aref hash (mod (+ p 2) 32)) 16)
-                     (ash (aref hash (mod (+ p 3) 32)) 24))))
-        (declare (ignore _))
-        (setf (aref result i) r-i)))
+      (let ((k (ash i -3)))  ; floor(i/8)
+        ;; Only recompute hash when k changes (every 8 iterations)
+        (unless (= k prev-k)
+          (setf (aref buf elen)       (logand k #xFF)
+                (aref buf (+ elen 1)) (logand (ash k -8) #xFF)
+                (aref buf (+ elen 2)) (logand (ash k -16) #xFF)
+                (aref buf (+ elen 3)) (logand (ash k -24) #xFF))
+          (setf hash (blake2b-256 buf))
+          (setf prev-k k))
+        ;; Extract 4 bytes from the hash at position p = (4*i) mod 32
+        (let ((p (logand (ash i 2) #x1F)))  ; (mod (* 4 i) 32)
+          (setf (aref result i)
+                (logior (aref hash p)
+                        (ash (aref hash (logand (+ p 1) #x1F)) 8)
+                        (ash (aref hash (logand (+ p 2) #x1F)) 16)
+                        (ash (aref hash (logand (+ p 3) #x1F)) 24))))))
     result))
 
 (defun deterministic-shuffle (sequence entropy)
