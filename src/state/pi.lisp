@@ -338,19 +338,21 @@
     (nth index (or vals-curr (make-zero-validator-stats))))
 
   ;; ── Transition: GP §13 ──────────────────────────────────────
-  ;; π' < (EG, EP, EA, ET, τ, κ', π, H, S)
+  ;; π' < (EG, EP, EA, ET, τ, κ', π, H, S, κ, λ)
   ;;
   ;; §13.4-13.5: π'_V, π'_L — validator stats (epoch rotation)
   ;; §13.2:      π'_C       — per-block core activity (fresh from E_G + E_A)
   ;; §13.2:      π'_S       — per-block service activity (fresh from E_G + E_P + S)
   (:transition (&key header tau tau-prime
                      tickets preimages assurances guarantees
-                     kappa-prime accum-stats r-star)
-    (declare (ignore kappa-prime))
+                     kappa-prime kappa lambda-prev
+                     accum-stats r-star)
     (let* ((v (num-validators))
            (e (epoch-duration))
+           (r (rotation-period))
+           (tau-prime-val (funcall tau-prime :slot))
            (epoch-old (floor (funcall tau :slot) e))
-           (epoch-new (floor (funcall tau-prime :slot) e))
+           (epoch-new (floor tau-prime-val e))
            (epoch-change-p (/= epoch-old epoch-new))
            ;; (13.4) accumulator: zeros on epoch change, else π_V
            (a (if epoch-change-p
@@ -372,31 +374,56 @@
            (assuring-validators
             (loop for assurance in (or assurances '())
                   collect (getf assurance :validator-index)))
-           ;; Reporters set G (§11.26): validator indices in guarantees
-           ;; κ'_v ∈ G ↔ validator v signed a guarantee
-           (guarantor-set
-            (let ((set (make-hash-table)))
+           ;; ── (11.26) Reporters set G — set of Ed25519 KEYS ──
+           ;; k ∈ G ⟺ ∃(r,t,a)∈E_G, ∃(v,s)∈a : k = (k_v)_e
+           ;; where (c,k) = M if ⌊τ'/R⌋=⌊t/R⌋, M* otherwise
+           ;; M uses κ; M* uses κ if same epoch, λ if different epoch.
+           (reporters-g
+            (let ((set (make-hash-table :test 'equalp)))
               (dolist (g (or guarantees '()))
-                (dolist (sig (getf g :signatures))
-                  (setf (gethash (getf sig :validator-index) set) t)))
+                (let* ((guarantee-slot (getf g :slot))
+                       ;; Select validator set: κ or λ per 11.26
+                       (same-rotation-p (= (floor tau-prime-val r)
+                                           (floor guarantee-slot r)))
+                       (validators
+                        (if same-rotation-p
+                            ;; M: use κ
+                            kappa
+                            ;; M*: same epoch → κ, different epoch → λ
+                            (if (= (floor tau-prime-val e)
+                                   (floor guarantee-slot e))
+                                kappa
+                                lambda-prev))))
+                  (dolist (sig (getf g :signatures))
+                    (let* ((vi (getf sig :validator-index))
+                           (ed-key (when validators
+                                     (funcall validators :ed25519-key vi))))
+                      (when ed-key
+                        (setf (gethash ed-key set) t))))))
               set)))
       ;; ── (13.5) Build π'_V ──
+      ;; π'_V[v].g = a[v].g + (κ'_v ∈ G)
+      ;; Check if κ'[v]'s Ed25519 key is in the reporters set G.
       (let* ((new-curr
               (loop for vi from 0 below v
                     for ai in a
                     collect
-                    (list :blocks         (+ (getf ai :blocks)
-                                             (if (= vi author) 1 0))
-                          :tickets        (+ (getf ai :tickets)
-                                             (if (= vi author) num-tickets 0))
-                          :preimages      (+ (getf ai :preimages)
-                                             (if (= vi author) num-preimages 0))
-                          :preimages-size (+ (getf ai :preimages-size)
-                                             (if (= vi author) preimage-bytes 0))
-                          :guarantees     (+ (getf ai :guarantees)
-                                             (if (gethash vi guarantor-set) 1 0))
-                          :assurances     (+ (getf ai :assurances)
-                                             (if (member vi assuring-validators) 1 0)))))
+                    (let ((kp-ed-key (when kappa-prime
+                                       (funcall kappa-prime :ed25519-key vi))))
+                      (list :blocks         (+ (getf ai :blocks)
+                                               (if (= vi author) 1 0))
+                            :tickets        (+ (getf ai :tickets)
+                                               (if (= vi author) num-tickets 0))
+                            :preimages      (+ (getf ai :preimages)
+                                               (if (= vi author) num-preimages 0))
+                            :preimages-size (+ (getf ai :preimages-size)
+                                               (if (= vi author) preimage-bytes 0))
+                            :guarantees     (+ (getf ai :guarantees)
+                                               (if (and kp-ed-key
+                                                        (gethash kp-ed-key reporters-g))
+                                                   1 0))
+                            :assurances     (+ (getf ai :assurances)
+                                               (if (member vi assuring-validators) 1 0))))))
              ;; ── (13.2) π'_C: per-block core activity ──
              (new-cores (compute-cores-statistics guarantees assurances r-star))
              ;; ── (13.2) π'_S: per-block service activity ──

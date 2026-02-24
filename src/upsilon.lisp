@@ -195,13 +195,15 @@
                                         :preimages e-p
                                         :tau-prime tau-prime))
 
-                   ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S)
+                   ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S, κ, λ)
                    (pi-prime (funcall pi-stats :transition
                                       :header h
                                       :tau tau :tau-prime tau-prime
                                       :tickets e-t :preimages e-p
                                       :assurances e-a :guarantees e-g
                                       :kappa-prime kappa-prime
+                                      :kappa kappa
+                                      :lambda-prev lambda-prev
                                       :accum-stats service-stats
                                       :r-star r-star))
 
