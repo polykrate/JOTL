@@ -73,6 +73,10 @@ and entropy source, in both fallback and tickets modes:
 # Run minifuzz self-test (from jam-conformance/fuzz-proto/)
 python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
   -d examples/0.7.2/no_forks
+
+# With forks (simple forking support)
+python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
+  -d examples/0.7.2/forks
 ```
 
 ## Architecture
