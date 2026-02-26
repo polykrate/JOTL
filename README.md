@@ -136,11 +136,17 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 ```bash
 cargo build --manifest-path crypto/jam-crypto/Cargo.toml --release
 
+# Static test vectors (1000 blocks)
 ./scripts/test.sh                    # all traces
 ./scripts/test.sh storage -v         # verbose, per-block output
 ./scripts/test.sh safrole preimages  # specific traces
 
-# Fuzzer target
+# Polkajam fuzz-reports (205 traces, 760 steps)
+./scripts/test-reports.sh                    # all traces
+./scripts/test-reports.sh 1766241867         # single trace
+NO_STOP=1 ./scripts/test-reports.sh          # don't stop on first fail
+
+# Fuzzer target (fuzz-v1 protocol)
 ./scripts/fuzz-target.sh /tmp/jam_target.sock
 ```
 
@@ -160,10 +166,15 @@ src/
 
 crypto/jam-crypto/      Rust: Blake2b, Bandersnatch, Ed25519, erasure coding
 scripts/
-├── test.sh             Trace runner (1000 blocks, colored diff)
+├── test.sh             Static test vectors (1000 blocks)
+├── test-reports.sh     Polkajam fuzz-reports traces (205 traces)
 ├── fuzz-target.sh      Launch fuzzer target server
-└── load-jotl.lisp      SBCL loader script
-tests/conformance.lisp  Trace runner entry point
+├── load-jotl.lisp      SBCL loader script
+└── diag/               Diagnostic tools (gas, delta, gamma, forks)
+tests/
+├── conformance.lisp    Static trace runner
+├── polkajam-traces.lisp  Fuzz-reports trace runner
+└── stf-safrole.lisp    Safrole STF sub-component tests (21/21)
 ```
 
 ## License

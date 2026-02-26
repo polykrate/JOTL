@@ -1,4 +1,4 @@
-;;;; test-stf-safrole.lisp — Run safrole STF sub-component tests
+;;;; stf-safrole.lisp — Run safrole STF sub-component tests
 ;;;;
 ;;;; Tests the safrole (gamma) transition in isolation using the
 ;;;; test vectors from jamtestvectors/stf/safrole/tiny/*.json
@@ -8,10 +8,10 @@
 ;;;; post_state exhaustively.
 ;;;;
 ;;;; Usage:
-;;;;   sbcl --load scripts/load-jotl.lisp --load scripts/test-stf-safrole.lisp
+;;;;   sbcl --load scripts/load-jotl.lisp --load tests/stf-safrole.lisp
 ;;;;
 ;;;; Or with a filter:
-;;;;   FILTER=padding sbcl --load scripts/load-jotl.lisp --load scripts/test-stf-safrole.lisp
+;;;;   FILTER=padding sbcl --load scripts/load-jotl.lisp --load tests/stf-safrole.lisp
 
 (ql:quickload :yason :silent t)
 

@@ -1,15 +1,13 @@
-;;;; test-polkajam-traces.lisp — Run JOTL against polkajam fuzz-reports traces
+;;;; polkajam-traces.lisp — Run JOTL against polkajam fuzz-reports traces
 ;;;;
 ;;;; Each trace step is self-contained: pre_state + block + post_state.
 ;;;; We load pre_state, apply the block, compare with expected post_state.
 ;;;; This gives us the EXACT component-level diff on failure.
 ;;;;
 ;;;; Usage:
-;;;;   TRACES_DIR=/path/to/traces sbcl --load scripts/load-jotl.lisp \
-;;;;     --load scripts/test-polkajam-traces.lisp
-;;;;
-;;;; Or test a single trace:
-;;;;   TRACE_ID=1766241867 TRACES_DIR=... sbcl ...
+;;;;   ./scripts/test-reports.sh              # all traces
+;;;;   ./scripts/test-reports.sh 1766241867   # single trace
+;;;;   NO_STOP=1 ./scripts/test-reports.sh    # don't stop on first failure
 
 (in-package #:jotl)
 
