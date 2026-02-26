@@ -30,29 +30,17 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **683** |
+| Pass | **678** |
 | Correct reject | **40** |
-| Fail | **37** |
+| Fail | **42** |
 | Errors | **0** |
 
-#### Failure typology (37 remaining)
+### Minifuzz (fuzz-v1 protocol)
 
-| Signature | Count | Root cause |
-|-----------|------:|------------|
-| `(GAMMA)` | 6 | γZ ring commitment at epoch boundary |
-| `(BETA PI THETA DELTA-KVS)` | 6 | π\_S accumulate-gas → cascade |
-| `(PI DELTA-KVS)` | 4 | π\_S → δ cascade |
-| `(IOTA PI DELTA-KVS)` | 4 | ι+π → δ cascade |
-| `(BETA GAMMA ETA KAPPA RHO TAU PI XI THETA DELTA-KVS)` | 4 | Epoch cascade (γ → all) |
-| `(BETA GAMMA ETA KAPPA RHO TAU PI XI DELTA-KVS)` | 4 | Epoch cascade (no θ) |
-| `(DELTA-KVS)` | 3 | Accumulate (pure δ divergence) |
-| `(PI)` | 2 | π\_S accumulate gas accounting |
-| Other cascades | 4 | Partial epoch/chi cascades |
-
-**3 independent root causes:**
-1. **PVM gas** — accumulate gas accounting → π\_S divergence (§13.2 / Appendix A)
-2. **γZ** — ring commitment at epoch boundary (§6)
-3. **δ** — accumulate storage divergence (§12)
+| Suite | Result |
+|-------|--------|
+| no\_forks | **102/102 ✓** |
+| forks | **101/102** (1 mismatch at last pair) |
 
 ### Fuzzer target (fuzz-v1)
 

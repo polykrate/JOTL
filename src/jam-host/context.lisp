@@ -120,7 +120,8 @@
   (staker      0 :type (unsigned-byte 32))        ; r
   (gas-map     (make-hash-table) :type hash-table) ; z — service_id → gas
   (queues      #() :type vector)                  ; q — per-core auth queues
-  (validators  #() :type vector))                 ; l — validator keys
+  (validators  #() :type vector)                  ; l — validator keys
+  (bless-called nil :type boolean))               ; T iff ΩB was called (not just ΩD)
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; JamTransfer — ΩT side-effect record

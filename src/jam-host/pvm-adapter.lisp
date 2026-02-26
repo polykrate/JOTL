@@ -465,20 +465,31 @@
     (setf provided-list (copy-list (hctx-provided-preimages ctx)))
 
     ;; Empower: empower-state struct or nil → plist
+    ;; IMPORTANT: Only include full :empower plist if ΩB was called.
+    ;; If only ΩD was called (no ΩB), include :designated-validators
+    ;; separately to avoid χ privilege corruption.
     (let ((emp (hctx-empower ctx))
-          (empower-plist nil))
+          (empower-plist nil)
+          (designated-validators nil))
       (when emp
-        (let ((gas-map-alist nil))
-          (maphash (lambda (k v) (push (cons k v) gas-map-alist))
-                   (emp-gas-map emp))
-          (setf empower-plist
-                (list :manager     (emp-manager emp)
-                      :auth-agents (coerce (emp-auth-agents emp) 'list)
-                      :validator   (emp-validator emp)
-                      :staker      (emp-staker emp)
-                      :gas-map     gas-map-alist
-                      :queues      (coerce (emp-queues emp) 'list)
-                      :validators  (coerce (emp-validators emp) 'list)))))
+        (if (emp-bless-called emp)
+            ;; ΩB was called → full empower (privilege resolution + validators)
+            (let ((gas-map-alist nil))
+              (maphash (lambda (k v) (push (cons k v) gas-map-alist))
+                       (emp-gas-map emp))
+              (setf empower-plist
+                    (list :manager     (emp-manager emp)
+                          :auth-agents (coerce (emp-auth-agents emp) 'list)
+                          :validator   (emp-validator emp)
+                          :staker      (emp-staker emp)
+                          :gas-map     gas-map-alist
+                          :queues      (coerce (emp-queues emp) 'list)
+                          :validators  (coerce (emp-validators emp) 'list))))
+            ;; Only ΩD was called → just the validator keys
+            (let ((vals (emp-validators emp)))
+              (when (and vals (plusp (length vals)))
+                (setf designated-validators
+                      (coerce vals 'list))))))
 
       ;; NOTE: transfer-plists is NOT nreversed, because hctx-transfers
       ;; is built with Lisp `push` (LIFO prepend), and the `dolist + push`
@@ -494,6 +505,7 @@
             :created          created-alist
             :upgrades         upgrade-alist
             :empower          empower-plist
+            :designated-validators designated-validators
             :provided-preimages provided-list
             :lookup           lookup-list
             :preimages        (nreverse preimages-alist)

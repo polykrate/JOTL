@@ -160,7 +160,11 @@
            (des-v (if des-empower (getf des-empower :validator) v-des))
            (new-des (privilege-resolve v-des mgr-v des-v))
            ;; i' = (Δ(v)ₑ)_i — validator keys from designate service
-           (new-iota-validators (when des-empower (getf des-empower :validators)))
+           ;; Source: :empower :validators (if ΩB was called)
+           ;;     OR: :designated-validators (if only ΩD was called)
+           (new-iota-validators
+            (or (when des-empower (getf des-empower :validators))
+                (when des-effects (getf des-effects :designated-validators))))
            ;; r' = R(r, Δ(m)ₑ.r, Δ(r)ₑ.r)
            (stk-effects (gethash r-stk delta-results))
            (stk-empower (when stk-effects (getf stk-effects :empower)))

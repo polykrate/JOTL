@@ -93,7 +93,8 @@
                      :staker r
                      :gas-map gas-map
                      :queues prev-queues
-                     :validators prev-validators))
+                     :validators prev-validators
+                     :bless-called t))
 
               (set-reg vm +a0+ +hc-ok+)
               :continue)))))))
@@ -135,11 +136,14 @@
           (return-from omega-assign :continue))
 
         ;; ── x_s ≠ (x_e).a[c] → HUH ──
-        (let ((emp (hctx-empower ctx)))
-          (unless (and emp
-                       (< c-idx (length (emp-auth-agents emp)))
+        ;; GP: x_e defaults to zero-initialized; (x_e).a = [] initially.
+        ;; If no prior ΩB, emp is nil → auth-agents is empty → always HUH.
+        (let* ((emp (hctx-empower ctx))
+               (auth (when emp (emp-auth-agents emp))))
+          (unless (and auth
+                       (< c-idx (length auth))
                        (= (hctx-service-id ctx)
-                          (aref (emp-auth-agents emp) c-idx)))
+                          (aref auth c-idx)))
             (set-reg vm +a0+ +hc-huh+)
             (return-from omega-assign :continue))
 
@@ -174,7 +178,10 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 16 omega-designate (vm ctx)
-  "ΩD: Designate validator keys."
+  "ΩD: Designate validator keys.
+   GP B.9: x_s ≠ (x_e)_v → HUH.
+   Reference behavior: ΩD requires a prior ΩB to have set x_e.
+   Without ΩB, emp is nil → HUH."
   (let* ((o       (u32 (reg vm +a0+)))
          (v-count (hctx-val-count ctx)))  ; V
 
@@ -184,6 +191,7 @@
       (unless v-raw (return-from omega-designate :fault))
 
       ;; ── x_s ≠ (x_e)_v → HUH ──
+      ;; If no prior ΩB: emp is nil → HUH (reference behavior).
       (let ((emp (hctx-empower ctx)))
         (unless (and emp
                      (= (hctx-service-id ctx) (emp-validator emp)))
