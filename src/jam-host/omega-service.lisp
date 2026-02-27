@@ -193,9 +193,13 @@
                              :footprint new-bytes
                              :creation-slot (hctx-timeslot ctx))))
 
+              ;; GP B.10: New service starts with lookup entry {((c, l) ↦ [])}
+              ;; This allows provide_preimage (Ω₂₆) to find the code hash
+              ;; and register the preimage during the same accumulation.
+              (setf (gethash (cons c l) (sa-lookup new-acct)) nil)
+
               ;; ── Determine creation path ──
               (let ((is-staker (and (hctx-empower ctx)
-                                    (emp-bless-called (hctx-empower ctx))
                                     (= (hctx-service-id ctx)
                                        (emp-staker (hctx-empower ctx))))))
 

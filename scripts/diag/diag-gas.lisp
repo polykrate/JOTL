@@ -1,41 +1,61 @@
-;;;; diag-gas.lisp — Count host calls per service and verify gas
+;;;; diag/diag-gas.lisp — Diagnose accumulate gas divergence
+;;;;
+;;;; Shows per-service gas entries from accumulate to find the Δ=62 source.
+
 (in-package :jotl)
 
-(defun diag-hc-count (trace-path)
-  (let ((bytes (alexandria:read-file-into-byte-vector trace-path)))
+(defvar *dg-trace-id* "1767895984_7922")
+(defvar *dg-step* "00000061")
+
+(defun dg-trace-dir ()
+  (merge-pathnames (format nil "../jam-conformance/fuzz-reports/0.7.2/traces/~A/"
+                           *dg-trace-id*)
+                   (truename (asdf:system-source-directory :jotl))))
+
+(defun dg-run ()
+  (format t "~%=== GAS DIAGNOSTIC ===~%")
+  (format t "Trace: ~A  Step: ~A~%" *dg-trace-id* *dg-step*)
+
+  (let* ((step-path (merge-pathnames (format nil "~A.bin" *dg-step*)
+                                     (dg-trace-dir)))
+         (bytes (alexandria:read-file-into-byte-vector step-path)))
     (multiple-value-bind (pre-sigma block-cl post-sigma pre-root post-root)
         (decode-trace-step-bin bytes)
-      (declare (ignore pre-root post-root post-sigma))
-      ;; Enable PVM trace
+      (declare (ignore pre-root post-root))
+
+      ;; Show block info
+      (let* ((header (funcall block-cl :header))
+             (ts (funcall header :timeslot)))
+        (format t "Block timeslot: ~D~%" ts))
+
+      ;; Bind *debug-pvm-trace* to trace gas details
       (let ((*debug-pvm-trace* t)
             (*debug-pvm-traces* nil)
             (*chain-log-level* nil))
+
         (handler-case
-            (multiple-value-bind (sigma-prime computed-root)
-                (import-block pre-sigma block-cl)
-              (declare (ignore sigma-prime computed-root))
-              ;; *debug-pvm-traces* holds per-service PVM trace data
-              (dolist (entry *debug-pvm-traces*)
-                (let* ((sid (getf entry :sid))
-                       (gas-limit (getf entry :gas-limit))
-                       (gas-used (getf entry :gas-used))
-                       (hc-log (getf entry :host-call-log))
-                       (hc-count (length (or hc-log nil))))
-                  (format t "  sid=~D gas-limit=~D gas-used=~D hc-count=~D~%"
-                          sid gas-limit gas-used hc-count)
-                  ;; Count by HC ID
-                  (let ((id-counts (make-hash-table)))
-                    (dolist (hc (or hc-log nil))
-                      (incf (gethash (getf hc :id) id-counts 0)))
-                    (maphash (lambda (k v) (format t "    HC[~D]: ~D calls~%" k v))
-                             id-counts)))))
-          (error (err)
-            (format t "  STF error: ~A~%" err)))))))
+            (let ((sigma-prime (import-block pre-sigma block-cl)))
+              ;; Show all collected gas traces
+              (format t "~%=== PVM TRACES (reversed) ===~%")
+              (dolist (trace (reverse *debug-pvm-traces*))
+                (format t "  sid=~D gas-limit=~D gas-used=~D outcome=~D~%"
+                        (getf trace :sid)
+                        (getf trace :gas-limit)
+                        (getf trace :gas-used)
+                        (getf trace :outcome)))
 
-(format t "~%══════ Trace 3: 1766241968 step 24 (diff=+10 for sid 0) ══════~%")
-(diag-hc-count "/home/polycrate/Projets/Jam/jam-conformance/fuzz-reports/0.7.2/traces/1766241968/00000024.bin")
+              ;; Also look at the computed gas-usage in the state
+              ;; It's stored in :gas-usage of the accum-state
 
-(format t "~%══════ Trace 1: 1767896003_7770 step 33 (diff=-3672 for sid 0) ══════~%")
-(diag-hc-count "/home/polycrate/Projets/Jam/jam-conformance/fuzz-reports/0.7.2/traces/1767896003_7770/00000033.bin")
+              ;; Compare PI
+              (let* ((computed-pi (funcall sigma-prime :segment :pi))
+                     (expected-pi (funcall post-sigma :segment :pi)))
+                (if (equalp computed-pi expected-pi)
+                    (format t "~%PI: MATCH~%")
+                    (format t "~%PI: MISMATCH (c=~D e=~D bytes)~%"
+                            (length computed-pi) (length expected-pi)))))
+          (error (e)
+            (format t "~%ERROR: ~A~%" e)))))))
 
+(dg-run)
 (sb-ext:exit :code 0)

@@ -30,9 +30,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **692** |
+| Pass | **693** |
 | Correct reject | **40** |
-| Fail | **28** |
+| Fail | **27** |
 | Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
@@ -66,6 +66,14 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
 python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
   -d examples/0.7.2/forks
 ```
+
+### Known bugs (investigation in progress)
+
+| # | Component | Status | Description |
+|---|-----------|--------|-------------|
+| 1 | `omega-new-service` (HC18) | **FIXED** | New services were created without the initial lookup entry `{((c,l) ↦ [])}` required by GP B.10. This caused `omega-provide-preimage` (HC26) to return `HUH` instead of `OK` on the newly created service, leading to a different PVM execution path and a Δ=62 gas divergence in PI stats (sid 3101749195). Fix: `(setf (gethash (cons c l) (sa-lookup new-acct)) nil)`. |
+| 2 | `sbrk` (PVM opcode 101) | **TODO** | `sbrk` does not charge `+gas-per-page+` (Z_I=10) per newly allocated memory page. GP A.5.20 specifies `ϱ_Δ = 1 + Z_I·\|p\|`. Currently only the base cost of 1 is charged. Accounts for ~10 gas of a larger Δ=-3682 divergence on service 0 (privileged, trace `1767896003_7770`). |
+| 3 | PI `ACCUM-GAS` for privileged service 0 | **INVESTIGATING** | Δ=-3682 gas divergence on service 0 (privileged — calls HC14 bless, HC18 new-service, 3×HC20 transfer). All host call gas deltas match expected (10 base + gas-limit for HC20). The gap is entirely in instruction-level gas. `sbrk` page cost (bug #2) accounts for only ~10 of 3682. Remaining source unknown — possibly related to privileged service execution context or PVM instruction model. |
 
 ## Architecture
 
