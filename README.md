@@ -30,9 +30,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **704** |
-| Correct reject | **40** |
-| Fail | **16** |
+| Pass | **705** |
+| Correct reject | **41** |
+| Fail | **14** |
 | Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
@@ -77,6 +77,7 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
 | 4 | PI `ACCUM-GAS` for privileged service 0 | **INVESTIGATING** | Δ=-3682 gas divergence on service 0 (privileged — calls HC14 bless, HC18 new-service, 3×HC20 transfer). All host call gas deltas match expected (10 base + gas-limit for HC20). The gap is entirely in instruction-level gas. Remaining source unknown — possibly related to PVM instruction model divergence. |
 | 5 | IOTA not updated (PVM PANIC → empower rollback) | **ROOT-CAUSED** | 2 traces (`1766243861_7323`, `1766479507_7943`) show IOTA+PI+DELTA-KVS divergence. **Cause**: Service 0 (privileged, χ_M=χ_V=χ_R=0) PVM exits with `PANIC` (outcome=1) instead of `HALT`. Guest hits `trap` opcode (0x00) at PC=97133 — a conditional branch earlier in execution diverges from the reference due to an upstream PVM execution difference (same root cause as bug #4). On PANIC, all empower effects are rolled back (GP B.13), including the designated validators from ΩD (HC16). Thus ι stays unchanged = pre-state. Fix depends on resolving the upstream PVM instruction-level divergence. |
 | 6 | `omega-solicit-preimage` (HC23) | **FIXED** | HC23 was checking the `FULL` condition against the *pre-mutation* state, allowing a `u32` overflow in the `footprint` calculation (when `z` was large, `footprint + 81 + z` overflowed). This caused a subsequent `omega-write-storage` (HC4) to fail with `FULL`, leading to a PVM `PANIC` instead of `HALT` and thus BETA+PI+THETA+DELTA-KVS divergences (no yield, no commitments). Fix: compute `a_t` from hypothetical *post-mutation* `items-count` and `footprint` before mutating state, returning `FULL` early if threshold exceeds balance. **+7 traces fixed** (697→704 pass). |
+| 7 | Guarantee validation: κ→κ' | **FIXED** | GP §11.26 specifies `k_g = κ'` (post-safrole kappa) for guarantee signature verification, but JOTL was using pre-state `κ`. At epoch boundaries, safrole rotates keys (κ→λ, γ→κ), so validators whose keys changed would fail signature verification with the old keyset. Fix: pass `kappa-prime` instead of `kappa` to the rho guarantee transition in `upsilon.lisp`. **+1 pass, +1 correct-reject** (704→705 pass, 40→41 reject). Note: assurance validation (§11.13) keyset (κ vs κ') needs GP verification — using κ currently. |
 
 ## Architecture
 

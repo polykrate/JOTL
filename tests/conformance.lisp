@@ -435,59 +435,13 @@
     (let ((elapsed-s (/ (- (get-internal-real-time) t-start)
                         (float internal-time-units-per-second))))
 
-      ;; ── Summary table ──
+      ;; Reverse results in-place once, use everywhere after
+      (setf results (nreverse results))
+
+      ;; ── Phase breakdown per trace (timing details first) ──
       (format t "~%~%")
-      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╗")
-            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╣")
-            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╝"))
-        ;; Header
-        (format t "~A~A~A~%" +bcyan+ border-top +reset+)
-        (format t "~A" (table-row (c +bwhite+ "Trace")
-                                  (c +bwhite+ "Chain")
-                                  (c +bwhite+ "Step")
-                                  (c +bwhite+ "Errors")))
-        (terpri)
-        (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
-
-        ;; Data rows (reverse results in-place once, use everywhere after)
-        (setf results (nreverse results))
-        (dolist (r results)
-          (let ((name (first r)) (cp (second r)) (cf (third r))
-                (sp (fourth r)) (sf (fifth r)) (err (sixth r)))
-            (let ((ct (+ cp cf))
-                  (st (+ sp sf)))
-              (format t "~A~%"
-                      (table-row name
-                                 (score-cell cp ct)
-                                 (score-cell sp st)
-                                 (if (zerop err)
-                                     (c +dim+ "0")
-                                     (c +bred+ (format nil "~D" err))))))))
-
-        ;; Total row
-        (let ((ct (+ grand-cp grand-cf))
-              (st (+ grand-sp grand-sf)))
-          (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
-          (format t "~A~%"
-                  (table-row (c +bwhite+ "TOTAL")
-                             (bold-score-cell grand-cp ct)
-                             (bold-score-cell grand-sp st)
-                             (if (zerop grand-err)
-                                 (c +dim+ "0")
-                                 (c +bred+ (format nil "~D" grand-err)))))
-          (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
-
-      ;; ── Timer ──
-      (format t "~%  ~A⏱  ~,2F s~A  (~D traces, ~D blocks, ~,1F ms/block)~%"
-              +bcyan+ elapsed-s +reset+
-              (length dirs) (+ grand-cp grand-cf)
-              (if (plusp (+ grand-cp grand-cf))
-                  (* 1000.0 (/ elapsed-s (+ grand-cp grand-cf)))
-                  0.0))
-
-      ;; ── Phase breakdown per trace ──
       (let ((all-results results))
-        (format t "~%  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
+        (format t "  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
                 +bcyan+ +reset+)
         (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
                 +bcyan+ +reset+ (pad-right (c +bwhite+ "Trace") 16)
@@ -540,6 +494,55 @@
                       (* 100 (/ sum-delta elapsed-s))
                       (* 100 (/ other elapsed-s))
                       +reset+)))))
+
+      ;; ── Timer ──
+      (format t "~%  ~A⏱  ~,2F s~A  (~D traces, ~D blocks, ~,1F ms/block)~%"
+              +bcyan+ elapsed-s +reset+
+              (length dirs) (+ grand-cp grand-cf)
+              (if (plusp (+ grand-cp grand-cf))
+                  (* 1000.0 (/ elapsed-s (+ grand-cp grand-cf)))
+                  0.0))
+
+      ;; ── Results table (at the end for easy tail) ──
+      (format t "~%")
+      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╗")
+            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╣")
+            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╝"))
+        ;; Header
+        (format t "~A~A~A~%" +bcyan+ border-top +reset+)
+        (format t "~A" (table-row (c +bwhite+ "Trace")
+                                  (c +bwhite+ "Chain")
+                                  (c +bwhite+ "Step")
+                                  (c +bwhite+ "Errors")))
+        (terpri)
+        (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
+
+        ;; Data rows
+        (dolist (r results)
+          (let ((name (first r)) (cp (second r)) (cf (third r))
+                (sp (fourth r)) (sf (fifth r)) (err (sixth r)))
+            (let ((ct (+ cp cf))
+                  (st (+ sp sf)))
+              (format t "~A~%"
+                      (table-row name
+                                 (score-cell cp ct)
+                                 (score-cell sp st)
+                                 (if (zerop err)
+                                     (c +dim+ "0")
+                                     (c +bred+ (format nil "~D" err))))))))
+
+        ;; Total row
+        (let ((ct (+ grand-cp grand-cf))
+              (st (+ grand-sp grand-sf)))
+          (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
+          (format t "~A~%"
+                  (table-row (c +bwhite+ "TOTAL")
+                             (bold-score-cell grand-cp ct)
+                             (bold-score-cell grand-sp st)
+                             (if (zerop grand-err)
+                                 (c +dim+ "0")
+                                 (c +bred+ (format nil "~D" grand-err)))))
+          (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
 
       ;; Result plist
       (list :chain-pass grand-cp :chain-fail grand-cf

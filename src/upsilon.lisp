@@ -139,11 +139,11 @@
                  (alpha (funcall sigma :load :alpha))
                  (delta (funcall sigma :load :delta))
 
-                 ;; (4.14) ρ'  < (EG, ρ‡, κ, τ', ψ', α, δ, β†, λ, η)
+                 ;; (4.14) ρ'  < (EG, ρ‡, κ', τ', ψ', α, δ, β†, λ, η')
                  (rho-prime (funcall rho-ddagger :transition
                                      :guarantees e-g
                                      :tau-prime tau-prime
-                                     :kappa kappa
+                                     :kappa kappa-prime
                                      :lambda-prev lambda-prev
                                      :eta eta-prime
                                      :psi-prime psi-prime
