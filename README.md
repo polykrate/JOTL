@@ -30,9 +30,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **695** |
+| Pass | **697** |
 | Correct reject | **40** |
-| Fail | **25** |
+| Fail | **23** |
 | Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
@@ -72,9 +72,10 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
 | # | Component | Status | Description |
 |---|-----------|--------|-------------|
 | 1 | `omega-new-service` (HC18) | **FIXED** | New services were created without the initial lookup entry `{((c,l) ↦ [])}` required by GP B.10. This caused `omega-provide-preimage` (HC26) to return `HUH` instead of `OK` on the newly created service, leading to a different PVM execution path and a Δ=62 gas divergence in PI stats (sid 3101749195). Fix: `(setf (gethash (cons c l) (sa-lookup new-acct)) nil)`. |
-| 2 | `omega-provide-preimage` (HC26) | **FIXED** | HC26 did not update the lookup entry from `[]` to `[τ']` after successfully providing a preimage (GP B.6: `a_l'[(H(i),\|i\|)] = [τ']`). This caused DELTA-KVS divergences where the lookup trie value stayed at `compact(0)` (1 byte) instead of `compact(1).E4(τ')` (5 bytes). Additionally, `delta.lisp` did not update lookup entries for cross-service provided preimages (HC26 on a newly-created service). **+2 traces fixed** (695→695 pass). |
-| 3 | PI `ACCUM-GAS` for privileged service 0 | **INVESTIGATING** | Δ=-3682 gas divergence on service 0 (privileged — calls HC14 bless, HC18 new-service, 3×HC20 transfer). All host call gas deltas match expected (10 base + gas-limit for HC20). The gap is entirely in instruction-level gas. Remaining source unknown — possibly related to PVM instruction model divergence. |
-| 4 | IOTA not updated (PVM PANIC → empower rollback) | **ROOT-CAUSED** | 2 traces (`1766243861_7323`, `1766479507_7943`) show IOTA+PI+DELTA-KVS divergence. **Cause**: Service 0 (privileged, χ_M=χ_V=χ_R=0) PVM exits with `PANIC` (outcome=1) instead of `HALT`. Guest hits `trap` opcode (0x00) at PC=97133 — a conditional branch earlier in execution diverges from the reference due to an upstream PVM execution difference (same root cause as bug #3). On PANIC, all empower effects are rolled back (GP B.13), including the designated validators from ΩD (HC16). Thus ι stays unchanged = pre-state. Fix depends on resolving the upstream PVM instruction-level divergence. |
+| 2 | `omega-provide-preimage` (HC26) | **FIXED** | HC26 did not update the lookup entry from `[]` to `[τ']` after successfully providing a preimage (GP B.6: `a_l'[(H(i),\|i\|)] = [τ']`). This caused DELTA-KVS divergences where the lookup trie value stayed at `compact(0)` (1 byte) instead of `compact(1).E4(τ')` (5 bytes). Additionally, `delta.lisp` did not update lookup entries for cross-service provided preimages (HC26 on a newly-created service). |
+| 3 | `accumulate-service` gas=0 OOG | **FIXED** | When a service received a deferred transfer with `gas=0`, the PVM was run and went OOG immediately. `last-accumulation-slot` was incorrectly updated to current timeslot. GP B.9: with gas=0, no code runs → skip PVM, credit balance, do NOT update `last-accumulation-slot`. Fix: early return with `:no-code t` when `(zerop gas-limit)`. **+2 traces fixed** (695→697 pass). |
+| 4 | PI `ACCUM-GAS` for privileged service 0 | **INVESTIGATING** | Δ=-3682 gas divergence on service 0 (privileged — calls HC14 bless, HC18 new-service, 3×HC20 transfer). All host call gas deltas match expected (10 base + gas-limit for HC20). The gap is entirely in instruction-level gas. Remaining source unknown — possibly related to PVM instruction model divergence. |
+| 5 | IOTA not updated (PVM PANIC → empower rollback) | **ROOT-CAUSED** | 2 traces (`1766243861_7323`, `1766479507_7943`) show IOTA+PI+DELTA-KVS divergence. **Cause**: Service 0 (privileged, χ_M=χ_V=χ_R=0) PVM exits with `PANIC` (outcome=1) instead of `HALT`. Guest hits `trap` opcode (0x00) at PC=97133 — a conditional branch earlier in execution diverges from the reference due to an upstream PVM execution difference (same root cause as bug #4). On PANIC, all empower effects are rolled back (GP B.13), including the designated validators from ΩD (HC16). Thus ι stays unchanged = pre-state. Fix depends on resolving the upstream PVM instruction-level divergence. |
 
 ## Architecture
 

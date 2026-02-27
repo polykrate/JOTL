@@ -198,6 +198,17 @@
                    0))
           (return-from accumulate-service (values nil 0))))
 
+    ;; Gas=0 with code → OOG immediately, no instruction ever runs.
+    ;; GP B.9: credit deferred transfer balance but do NOT update
+    ;; last-accumulation-slot (no code actually executed).
+    (when (zerop gas-limit)
+      (return-from accumulate-service
+        (values (list :balance (+ (or (getf metadata :balance) 0)
+                                  transfer-balance)
+                      :no-code t     ;; Flag: don't update last-accumulation-slot
+                      :outcome 2)    ;; OOG
+               0)))
+
     ;; ── Create PVM instance + Configure + Run + Collect ──
     ;; Now uses Lisp JamVM instead of Rust FFI
     (handler-case

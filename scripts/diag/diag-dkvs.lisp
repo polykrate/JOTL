@@ -100,7 +100,36 @@
                                         (incf diffs)
                                         (format t "~%  DIFF key=~A~%" (bytes-to-hex-string k))
                                         (format t "    exp-len=~D comp-len=~A~%"
-                                                (length v) (if cv (length cv) "MISSING"))))))
+                                                (length v) (if cv (length cv) "MISSING"))
+                                        ;; Decode key type
+                                        (cond
+                                          ((service-metadata-key-p k)
+                                           (let ((sid (service-id-from-metadata-key k)))
+                                             (format t "    TYPE: metadata for sid=~D~%" sid)
+                                             ;; Show field-level diffs
+                                             (when (and cv (= (length v) 89) (= (length cv) 89))
+                                               (let ((exp-info (load-service-info v))
+                                                     (comp-info (load-service-info cv)))
+                                                 (dolist (field '(:balance :min-accum-gas :min-memo-gas
+                                                                  :bytes :deposit-offset :items
+                                                                  :creation-slot :last-accumulation-slot
+                                                                  :parent-service))
+                                                   (unless (equal (getf exp-info field)
+                                                                  (getf comp-info field))
+                                                     (format t "      ~A: exp=~A comp=~A~%"
+                                                             field (getf exp-info field)
+                                                             (getf comp-info field))))
+                                                 (unless (equalp (getf exp-info :code-hash)
+                                                                 (getf comp-info :code-hash))
+                                                   (format t "      CODE-HASH differs~%"))))))
+                                          (t
+                                           (let ((sid (service-id-from-sub-key k)))
+                                             (format t "    TYPE: sub-key for sid=~D~%" sid))
+                                           ;; Show raw hex diff for small values
+                                           (when (and cv (<= (length v) 32) (<= (length cv) 32))
+                                             (format t "    exp=~A~%    comp=~A~%"
+                                                     (bytes-to-hex-string v)
+                                                     (bytes-to-hex-string cv)))))))))
                                 expected-ht)
                        (maphash (lambda (k v)
                                   (declare (ignore v))
@@ -116,7 +145,13 @@
                 (fdefinition 'accumulate-star) orig-accum-star
                 (fdefinition 'accumulate-service) orig-accum-svc))))))
 
-;; Run
-(dd-run "1766243315_9206" "00001065")
+;; Run all 4 DELTA-KVS only traces
+(dolist (spec '(("1766255635_2557" "00000153")
+               ("1767889897_3840" "00000710")
+               ("1767889897_2969" "00002314")
+               ("1767871405_5318" "00006875")))
+  (handler-case
+      (dd-run (first spec) (second spec))
+    (error (e) (format t "~%ERROR on ~A/~A: ~A~%" (first spec) (second spec) e))))
 
 (sb-ext:exit :code 0)
