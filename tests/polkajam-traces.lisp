@@ -5,9 +5,9 @@
 ;;;; This gives us the EXACT component-level diff on failure.
 ;;;;
 ;;;; Usage:
-;;;;   ./scripts/test-reports.sh              # all traces
+;;;;   ./scripts/test-reports.sh              # all traces (run all)
 ;;;;   ./scripts/test-reports.sh 1766241867   # single trace
-;;;;   NO_STOP=1 ./scripts/test-reports.sh    # don't stop on first failure
+;;;;   STOP=1 ./scripts/test-reports.sh       # stop on first failure
 
 (in-package #:jotl)
 
@@ -22,7 +22,7 @@
 (defvar *trace-id* (uiop:getenv "TRACE_ID"))
 (defvar *max-traces* (let ((v (uiop:getenv "MAX_TRACES")))
                        (when v (parse-integer v))))
-(defvar *stop-on-fail* (not (equal (uiop:getenv "NO_STOP") "1")))
+(defvar *stop-on-fail* (equal (uiop:getenv "STOP") "1"))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; TRACE DISCOVERY

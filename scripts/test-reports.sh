@@ -6,16 +6,16 @@
 # reporting per-component diffs on failure.
 #
 # Usage:
-#   ./scripts/test-reports.sh                    # all traces, stop on first fail
+#   ./scripts/test-reports.sh                    # all traces (run all)
 #   ./scripts/test-reports.sh 1766241867         # single trace by ID
-#   NO_STOP=1 ./scripts/test-reports.sh          # run all, don't stop on fail
+#   STOP=1 ./scripts/test-reports.sh             # stop on first failure
 #   MAX_TRACES=10 ./scripts/test-reports.sh      # first 10 traces only
 #
 # Environment:
 #   TRACES_DIR  override traces directory (default: ../jam-conformance/fuzz-reports/0.7.2/traces/)
 #   TRACE_ID    filter by trace ID substring
 #   MAX_TRACES  limit number of traces
-#   NO_STOP     set to 1 to continue after failures
+#   STOP        set to 1 to stop on first failure
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

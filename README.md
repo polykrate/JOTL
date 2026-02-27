@@ -90,7 +90,7 @@ no mutation.
 `accumulate.lisp` orchestrates §12 (R\*, PVM execution, privilege resolution).
 `import-block` is the boundary — pure below, observation above.
 
-Crypto (Blake2b, Bandersnatch, Ed25519) is Rust via CFFI.
+Crypto (Blake2b, Bandersnatch VRF, Ed25519) is Rust via CFFI (`ark-vrf` 0.2.1).
 
 PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 (GP Appendix B) in `src/jam-host/`. Arguments are mapped at `ARGS_SEGMENT`
