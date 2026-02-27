@@ -670,6 +670,13 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment(
         // Keys that are valid curve points but not in the prime-order subgroup should
         // still be used as-is in the ring (they CAN participate in VRF proofs).
         // Only truly invalid keys (not on the curve at all) get the padding point.
+        //
+        // TODO: Verify GP vs polkajam divergence — the GP says "no corresponding
+        // Bandersnatch point" which could mean either (a) not on the curve at all,
+        // or (b) not in the prime-order subgroup. polkajam uses unchecked deser
+        // (accepts curve points outside the subgroup). If the GP intended strict
+        // subgroup membership, polkajam's test vectors may need updating.
+        // Ref: GP Appendix G, Hosseini & Galassi 2024.
         let mut ring = Vec::with_capacity(num_validators);
         for i in 0..num_validators {
             let pk_bytes = &pks_bytes[i*32..(i+1)*32];
