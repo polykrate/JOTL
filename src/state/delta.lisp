@@ -791,13 +791,46 @@
 
                ;; GP B.10: Create lookup entry {((c,l)↦[])} for the code hash.
                ;; The lookup trie key is interleave(new-sid, H(E4(l).hash)[0:27]).
-               ;; The value is encode-lookup-value([]) = compact(0) = 0x00.
+               ;; Initial value is [] unless HC26 (provide-preimage) updated it to [τ'].
                (when (and code-hash (plusp (or (getf cs :code-length) 0)))
                  (let* ((code-len (getf cs :code-length))
                         (h-27    (lookup-trie-h code-hash code-len))
-                        (trie-key (interleave-sub-key new-sid h-27)))
-                   (push (cons trie-key (encode-lookup-value nil))
+                        (trie-key (interleave-sub-key new-sid h-27))
+                        ;; Check if a preimage was provided for this lookup entry
+                        ;; (HC26 during same accumulation updates lookup [] → [τ'])
+                        (provided-status
+                         (dolist (pp (getf effects :provided-preimages))
+                           (let* ((pp-sid  (first pp))
+                                  (pp-data (second pp))
+                                  (pp-len  (length pp-data)))
+                             (when (and (= pp-sid new-sid)
+                                        (= pp-len code-len)
+                                        (equalp (jam-host:blake2b-256 pp-data) code-hash))
+                               (return (list timeslot)))))))
+                   (push (cons trie-key (encode-lookup-value provided-status))
                          current-kvs)))))
+
+           ;; ── Update lookup entries for cross-service provided preimages ──
+           ;; GP B.6: When HC26 provides a preimage for an EXISTING service
+           ;; (not newly created), update that service's lookup entry [] → [τ'].
+           ;; For newly-created services, this is already handled above.
+           (dolist (pp (getf effects :provided-preimages))
+             (let* ((pp-sid  (first pp))
+                    (pp-data (second pp))
+                    (pp-hash (jam-host:blake2b-256 pp-data))
+                    (pp-len  (length pp-data))
+                    (h-27    (lookup-trie-h pp-hash pp-len))
+                    (trie-key (interleave-sub-key pp-sid h-27)))
+               ;; Skip if this is the accumulating service (handled by merge-lookup)
+               ;; or a newly-created service (handled above)
+               (unless (or (= pp-sid sid)
+                           (some (lambda (cs) (= (getf cs :id) pp-sid))
+                                 (getf effects :created-full)))
+                 ;; Remove old lookup entry and add updated one
+                 (setf current-kvs
+                       (remove-if (lambda (kv) (equalp (car kv) trie-key)) current-kvs))
+                 (push (cons trie-key (encode-lookup-value (list timeslot)))
+                       current-kvs))))
 
            ;; ── Update items/bytes from PVM-tracked values ──
            (when (and update-storage-p

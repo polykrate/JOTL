@@ -365,7 +365,9 @@
               (set-reg vm +a0+ +hc-huh+)
               (return-from omega-provide-preimage :continue))
 
-            ;; OK
+            ;; OK — GP B.6: a_l'[(H(i), |i|)] = [τ']
+            ;; Update lookup entry from [] to [timeslot]
+            (setf (gethash key lookup-ht) (list (hctx-timeslot ctx)))
             (push (list s data) (hctx-provided-preimages ctx))
             (set-reg vm +a0+ +hc-ok+)
             :continue))))))
