@@ -253,6 +253,8 @@
                :service-accounts cross-services
                :existing-services existing-services
                :accumulate-items (encode-accumulate-items items svc-transfers)
+               :designate-service (let ((chi (getf state :chi)))
+                                    (if chi (funcall chi :designate) 0))
                :debug-trace *debug-pvm-trace*)
 
             ;; ── Debug: attach host-call trace ──

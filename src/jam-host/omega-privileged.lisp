@@ -180,36 +180,55 @@
 (defomega 16 omega-designate (vm ctx)
   "ΩD: Designate validator keys.
    GP B.9: x_s ≠ (x_e)_v → HUH.
-   Strict mode: requires prior ΩB (emp must be non-nil).
-   Matches reference (polkajam) behavior."
+   Two modes:
+   a) ΩB was called → check x_s = (x_e)_v, store in emp-validators
+   b) No prior ΩB → check x_s = χ_V (designate-service), store in
+      hctx-designated-validators (separate slot, avoids χ privilege corruption)"
   (let* ((o       (u32 (reg vm +a0+)))
-         (v-count (hctx-val-count ctx)))  ; V
+         (v-count (hctx-val-count ctx))  ; V
+         (emp     (hctx-empower ctx)))
 
     ;; ── Read v: V validator keys (336 bytes each) ──
     (let* ((v-total (* v-count 336))
            (v-raw (read-guest vm o v-total)))
       (unless v-raw (return-from omega-designate :fault))
 
-      ;; ── x_s ≠ (x_e)_v → HUH ──
-      ;; If no prior ΩB: emp is nil → HUH (reference behavior).
-      (let ((emp (hctx-empower ctx)))
-        (unless (and emp
-                     (= (hctx-service-id ctx) (emp-validator emp)))
+      ;; ── Mode A: ΩB was called → use empower-state ──
+      (when emp
+        (unless (= (hctx-service-id ctx) (emp-validator emp))
           (set-reg vm +a0+ +hc-huh+)
           (return-from omega-designate :continue))
 
-        ;; Parse validator keys
+        ;; Parse and store in empower-state
         (let ((validators (make-array v-count)))
           (dotimes (i v-count)
             (let ((start (* i 336))
                   (key (make-array 336 :element-type '(unsigned-byte 8))))
               (replace key v-raw :start2 start :end2 (+ start 336))
               (setf (aref validators i) key)))
-
-          ;; ── OK: (x_e)_l = v ──
           (setf (emp-validators emp) validators)
           (set-reg vm +a0+ +hc-ok+)
-          :continue)))))
+          (return-from omega-designate :continue)))
+
+      ;; ── Mode B: No prior ΩB → check against χ_V ──
+      ;; GP default: x_e is initialized from χ, so (x_e)_v = χ_V.
+      ;; We don't create a phantom empower-state; instead we store
+      ;; validators in hctx-designated-validators to avoid corrupting
+      ;; manager/staker/auth-agent privilege resolution in χ.
+      (unless (= (hctx-service-id ctx) (hctx-designate-service ctx))
+        (set-reg vm +a0+ +hc-huh+)
+        (return-from omega-designate :continue))
+
+      ;; Parse and store in designated-validators (separate from empower)
+      (let ((validators (make-array v-count)))
+        (dotimes (i v-count)
+          (let ((start (* i 336))
+                (key (make-array 336 :element-type '(unsigned-byte 8))))
+            (replace key v-raw :start2 start :end2 (+ start 336))
+            (setf (aref validators i) key)))
+        (setf (hctx-designated-validators ctx) validators)
+        (set-reg vm +a0+ +hc-ok+)
+        :continue))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; 17 — ΩC Checkpoint

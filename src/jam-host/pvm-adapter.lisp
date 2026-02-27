@@ -305,6 +305,7 @@
                                 (core-count 2)
                                 (auth-queue-len 80)
                                 (val-count 6)
+                                (designate-service 0)
                                 (debug-trace nil))
   "Build a host-context struct from keyword args.
    STORAGE:          alist of (key-bytes . value-bytes)
@@ -334,6 +335,7 @@
               :header-hash (coerce (%ensure-hash32 header-hash) '(simple-array (unsigned-byte 8) (32)))
               :entropy-raw (coerce (or entropy #()) '(simple-array (unsigned-byte 8) (*)))
               :accumulate-items accumulate-items
+              :designate-service designate-service
               :debug-trace debug-trace
               :protocol-params (coerce (encode-gp-constants :core-count core-count
                                                             :auth-queue-len auth-queue-len
@@ -485,12 +487,16 @@
                           :gas-map     gas-map-alist
                           :queues      (coerce (emp-queues emp) 'list)
                           :validators  (coerce (emp-validators emp) 'list))))
-            ;; Only ΩD was called via empower path → just the validator keys
+            ;; ΩB was NOT called but ΩD was called via empower path
+            ;; → just the validator keys (shouldn't happen with Mode B, but safe)
             (let ((vals (emp-validators emp)))
               (when (and vals (plusp (length vals)))
                 (setf designated-validators
                       (coerce vals 'list))))))
-      ;; Note: hctx-designated-validators unused in strict ΩD mode
+      ;; Mode B: ΩD without ΩB stored validators in hctx-designated-validators
+      (when (and (null designated-validators) (hctx-designated-validators ctx))
+        (setf designated-validators
+              (coerce (hctx-designated-validators ctx) 'list)))
 
       ;; NOTE: transfer-plists is NOT nreversed, because hctx-transfers
       ;; is built with Lisp `push` (LIFO prepend), and the `dolist + push`
@@ -569,6 +575,7 @@
                                   (core-count 2)
                                   (auth-queue-len 80)
                                   (val-count 6)
+                                  (designate-service 0)
                                   (debug-trace nil))
   "Execute PVM accumulate using the Lisp JamVM.
    Returns (values effects-plist gas-used) or (values nil 0) on failure.
@@ -608,6 +615,7 @@
                 :core-count core-count
                 :auth-queue-len auth-queue-len
                 :val-count val-count
+                :designate-service designate-service
                 :debug-trace debug-trace)))
 
       ;; 3. Encode accumulate arguments and invoke

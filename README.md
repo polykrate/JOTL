@@ -30,9 +30,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **678** |
+| Pass | **686** |
 | Correct reject | **40** |
-| Fail | **42** |
+| Fail | **34** |
 | Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
@@ -40,7 +40,7 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | Suite | Result |
 |-------|--------|
 | no\_forks | **102/102 ✓** |
-| forks | **51/102** (mismatch at pair 52) |
+| forks | **78/102** (mismatch at pair 79) |
 
 ### Fuzzer target (fuzz-v1)
 
