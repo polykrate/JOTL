@@ -40,7 +40,7 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | Suite | Result |
 |-------|--------|
 | no\_forks | **102/102 ✓** |
-| forks | **101/102** (1 mismatch at last pair) |
+| forks | **51/102** (mismatch at pair 52) |
 
 ### Fuzzer target (fuzz-v1)
 
