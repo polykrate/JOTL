@@ -63,6 +63,7 @@
      :host-call  → ℏ ecalli (id in pvm-exit-arg)
      :page-fault → ∃ fault  (page-addr in pvm-exit-arg)"
   (let ((pc (pvm-pc vm)))
+    (setf *vm-last-step-pc* pc)
 
     ;; ── 1. Decode instruction at ι ──
     (multiple-value-bind (info skip args) (decode-instruction vm pc)
