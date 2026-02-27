@@ -152,41 +152,44 @@
 ;;; ── Typed reads: zero-allocation fast path when same page ──
 
 (defun mem-read-u8 (mem addr)
-  "Read unsigned 8-bit from guest memory. Returns (values val ok)."
+  "Read unsigned 8-bit from guest memory.
+   Returns (values val nil) on success, (values 0 fault-addr) on fault."
   (let ((pidx (page-index addr)))
     (when (eq (page-access mem pidx) :inaccessible)
-      (return-from mem-read-u8 (values 0 nil)))
+      (return-from mem-read-u8 (values 0 addr)))
     (let ((page (gethash pidx (mem-pages mem))))
-      (values (if page (aref page (page-offset addr)) 0) t))))
+      (values (if page (aref page (page-offset addr)) 0) nil))))
 
 (defun mem-read-u16 (mem addr)
-  "Read unsigned 16-bit LE. Zero-alloc same-page fast path."
+  "Read unsigned 16-bit LE. Zero-alloc same-page fast path.
+   Returns (values val nil) on success, (values 0 fault-addr) on fault."
   (let ((p0 (page-index addr))
         (p1 (page-index (+ addr 1))))
     (if (= p0 p1)
         ;; Same page — no allocation
         (progn
           (when (eq (page-access mem p0) :inaccessible)
-            (return-from mem-read-u16 (values 0 nil)))
+            (return-from mem-read-u16 (values 0 addr)))
           (let ((page (gethash p0 (mem-pages mem)))
                 (off  (page-offset addr)))
             (if page
-                (values (logior (aref page off) (ash (aref page (1+ off)) 8)) t)
-                (values 0 t))))
-        ;; Crosses page — fallback
-        (multiple-value-bind (data ok) (mem-read mem addr 2)
-          (if ok
-              (values (logior (aref data 0) (ash (aref data 1) 8)) t)
-              (values 0 nil))))))
+                (values (logior (aref page off) (ash (aref page (1+ off)) 8)) nil)
+                (values 0 nil))))
+        ;; Crosses page — fallback (mem-read returns (nil fault-addr) on fault)
+        (multiple-value-bind (data fault-addr) (mem-read mem addr 2)
+          (if data
+              (values (logior (aref data 0) (ash (aref data 1) 8)) nil)
+              (values 0 fault-addr))))))
 
 (defun mem-read-u32 (mem addr)
-  "Read unsigned 32-bit LE. Zero-alloc same-page fast path."
+  "Read unsigned 32-bit LE. Zero-alloc same-page fast path.
+   Returns (values val nil) on success, (values 0 fault-addr) on fault."
   (let ((p0 (page-index addr))
         (p1 (page-index (+ addr 3))))
     (if (= p0 p1)
         (progn
           (when (eq (page-access mem p0) :inaccessible)
-            (return-from mem-read-u32 (values 0 nil)))
+            (return-from mem-read-u32 (values 0 addr)))
           (let ((page (gethash p0 (mem-pages mem)))
                 (off  (page-offset addr)))
             (if page
@@ -194,40 +197,41 @@
                                 (ash (aref page (+ off 1)) 8)
                                 (ash (aref page (+ off 2)) 16)
                                 (ash (aref page (+ off 3)) 24))
-                        t)
-                (values 0 t))))
-        (multiple-value-bind (data ok) (mem-read mem addr 4)
-          (if ok
+                        nil)
+                (values 0 nil))))
+        (multiple-value-bind (data fault-addr) (mem-read mem addr 4)
+          (if data
               (values (logior (aref data 0)
                               (ash (aref data 1) 8)
                               (ash (aref data 2) 16)
                               (ash (aref data 3) 24))
-                      t)
-              (values 0 nil))))))
+                      nil)
+              (values 0 fault-addr))))))
 
 (defun mem-read-u64 (mem addr)
-  "Read unsigned 64-bit LE. Zero-alloc same-page fast path."
+  "Read unsigned 64-bit LE. Zero-alloc same-page fast path.
+   Returns (values val nil) on success, (values 0 fault-addr) on fault."
   (let ((p0 (page-index addr))
         (p1 (page-index (+ addr 7))))
     (if (= p0 p1)
         (progn
           (when (eq (page-access mem p0) :inaccessible)
-            (return-from mem-read-u64 (values 0 nil)))
+            (return-from mem-read-u64 (values 0 addr)))
           (let ((page (gethash p0 (mem-pages mem)))
                 (off  (page-offset addr)))
             (if page
                 (let ((val 0))
                   (dotimes (i 8)
                     (setf val (logior val (ash (aref page (+ off i)) (* 8 i)))))
-                  (values val t))
-                (values 0 t))))
-        (multiple-value-bind (data ok) (mem-read mem addr 8)
-          (if ok
+                  (values val nil))
+                (values 0 nil))))
+        (multiple-value-bind (data fault-addr) (mem-read mem addr 8)
+          (if data
               (let ((val 0))
                 (dotimes (i 8)
                   (setf val (logior val (ash (aref data i) (* 8 i)))))
-                (values val t))
-              (values 0 nil))))))
+                (values val nil))
+              (values 0 fault-addr))))))
 
 ;;; ── Typed writes: zero-allocation fast path when same page ──
 

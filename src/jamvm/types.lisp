@@ -113,6 +113,11 @@
                :type (simple-array (unsigned-byte 8) (*))) ; ℓ
   ;; Reusable instruction args buffer (zero allocation per step)
   (args-buf  (make-pvm-args) :type pvm-args)
+  ;; Pre-allocated register save buffer (zero allocation on fault rollback)
+  (saved-regs (make-array +num-regs+
+                :element-type '(unsigned-byte 64)
+                :initial-element 0)
+              :type (simple-array (unsigned-byte 64) (13)))
   ;; Exit state
   (status    nil  :type (or null keyword))                     ; ε
   (exit-arg  0    :type (unsigned-byte 64)))                   ; associated value

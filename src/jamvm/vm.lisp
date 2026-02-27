@@ -106,8 +106,10 @@
       ;; Gas (ϱ) stays deducted per GP: "some gas is always charged
       ;; whenever execution is attempted, even if no instruction is
       ;; effectively executed and machine state is unchanged."
+      ;; Uses pre-allocated saved-regs buffer (zero allocation).
       (let ((saved-regs (when (opi-memory-p info)
-                          (copy-seq (pvm-regs vm)))))
+                          (replace (pvm-saved-regs vm) (pvm-regs vm))
+                          (pvm-saved-regs vm))))
 
         ;; ── 4. Execute instruction ──
         (let ((result (dispatch-instruction info vm args)))
