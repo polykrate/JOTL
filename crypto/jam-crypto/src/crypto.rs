@@ -665,6 +665,11 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment(
         // GP Appendix G: "Note that in the case a key H has no corresponding 
         // Bandersnatch point when constructing the ring, then the Bandersnatch
         // padding point as stated by Hosseini and Galassi 2024 should be substituted."
+        //
+        // IMPORTANT: Use deserialize_compressed_unchecked to skip the subgroup check.
+        // Keys that are valid curve points but not in the prime-order subgroup should
+        // still be used as-is in the ring (they CAN participate in VRF proofs).
+        // Only truly invalid keys (not on the curve at all) get the padding point.
         let mut ring = Vec::with_capacity(num_validators);
         for i in 0..num_validators {
             let pk_bytes = &pks_bytes[i*32..(i+1)*32];
@@ -672,22 +677,20 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment(
             // Check if key is all zeros (offender zeroed per GP 6.14)
             let is_zero_key = pk_bytes.iter().all(|&b| b == 0);
             
-            // GP Appendix G: "Note that in the case a key H has no corresponding 
-            // Bandersnatch point when constructing the ring, then the Bandersnatch
-            // padding point as stated by Hosseini and Galassi 2024 should be substituted."
-            // 
-            // The padding point is defined in ark-vrf as RingProofParams::padding_point()
-            // which is a specific curve point, NOT the generator.
             let padding = RingProofParams::<BandersnatchSha512Ell2>::padding_point();
             
             if is_zero_key {
                 // Zero key = offender filtered by Φ(ι) per GP 6.14
                 ring.push(padding);
             } else {
-                match Public::deserialize_compressed(&pk_bytes[..]) {
+                // Use unchecked deserialization: skip subgroup check.
+                // A key may be a valid curve point without being in the
+                // prime-order subgroup — it should still be included in
+                // the ring commitment per GP Appendix G.
+                match Public::deserialize_compressed_unchecked(&pk_bytes[..]) {
                     Ok(pk) => ring.push(pk.0),
                     Err(_) => {
-                        // Invalid key - use padding point per GP Appendix G
+                        // Truly invalid (not on curve) - use padding point
                         ring.push(padding);
                     }
                 }
@@ -771,6 +774,7 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment_padded(
         let padding = RingProofParams::<BandersnatchSha512Ell2>::padding_point();
         
         // Build ring from public keys + pad to ring_size
+        // Use unchecked deserialization (skip subgroup check) per GP Appendix G
         let mut ring = Vec::with_capacity(ring_size);
         for i in 0..num_validators {
             let pk_bytes = &pks_bytes[i*32..(i+1)*32];
@@ -779,7 +783,7 @@ pub unsafe extern "C" fn bandersnatch_compute_ring_commitment_padded(
             if is_zero_key {
                 ring.push(padding);
             } else {
-                match Public::deserialize_compressed(&pk_bytes[..]) {
+                match Public::deserialize_compressed_unchecked(&pk_bytes[..]) {
                     Ok(pk) => ring.push(pk.0),
                     Err(_) => ring.push(padding),
                 }
@@ -909,6 +913,227 @@ pub unsafe extern "C" fn bandersnatch_verify_ring_vrf_signature(
             Ok(()) => true,
             Err(_) => false,
         }
+    }
+}
+
+/// Check if a 32-byte key is a valid Bandersnatch curve point
+///
+/// Returns:
+/// - 0: valid point
+/// - 1: all zeros (offender/null key)
+/// - 2: deserialization failed (not on curve)
+/// - 3: null pointer
+#[no_mangle]
+pub unsafe extern "C" fn bandersnatch_check_key(
+    key: *const u8,
+) -> u32 {
+    if key.is_null() {
+        return 3;
+    }
+    let key_bytes = std::slice::from_raw_parts(key, 32);
+    if key_bytes.iter().all(|&b| b == 0) {
+        return 1; // all zeros
+    }
+    match Public::deserialize_compressed(&key_bytes[..]) {
+        Ok(_) => 0,  // valid
+        Err(_) => 2, // invalid
+    }
+}
+
+/// Compute ring commitment with verbose per-key diagnostics
+///
+/// Returns commitment in output (144 bytes) and per-key status in key_status (num_validators bytes)
+/// key_status[i]: 0=valid, 1=zero, 2=invalid(padding used)
+#[no_mangle]
+pub unsafe extern "C" fn bandersnatch_compute_ring_commitment_verbose(
+    srs_data: *const u8,
+    srs_len: usize,
+    ring_pks: *const u8,
+    num_validators: usize,
+    output: *mut u8,
+    key_status: *mut u8,
+) -> bool {
+    #[cfg(not(feature = "ring"))]
+    {
+        let _ = (srs_data, srs_len, ring_pks, num_validators, output, key_status);
+        return false;
+    }
+    
+    #[cfg(feature = "ring")]
+    {
+        use ark_vrf::ring::RingProofParams;
+        use ark_vrf::suites::bandersnatch::PcsParams;
+        
+        if srs_data.is_null() || ring_pks.is_null() || output.is_null() || key_status.is_null() {
+            return false;
+        }
+        
+        let srs_bytes = std::slice::from_raw_parts(srs_data, srs_len);
+        let pks_bytes = std::slice::from_raw_parts(ring_pks, num_validators * 32);
+        let status = std::slice::from_raw_parts_mut(key_status, num_validators);
+        
+        let pcs_params: PcsParams = 
+            match PcsParams::deserialize_uncompressed_unchecked(&mut &srs_bytes[..]) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+        
+        let params: RingProofParams<BandersnatchSha512Ell2> = 
+            match RingProofParams::from_pcs_params(num_validators, pcs_params) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+        
+        let padding = RingProofParams::<BandersnatchSha512Ell2>::padding_point();
+        
+        // Print padding point for reference
+        let mut padding_bytes = Vec::new();
+        padding.serialize_compressed(&mut padding_bytes).unwrap();
+        eprintln!("Padding point ({} bytes): {:02x?}", padding_bytes.len(), &padding_bytes[..]);
+        
+        let mut ring = Vec::with_capacity(num_validators);
+        for i in 0..num_validators {
+            let pk_bytes = &pks_bytes[i*32..(i+1)*32];
+            let is_zero_key = pk_bytes.iter().all(|&b| b == 0);
+            
+            if is_zero_key {
+                ring.push(padding);
+                status[i] = 1; // zero key
+                eprintln!("Key {}: ZERO → padding", i);
+            } else {
+                match Public::deserialize_compressed(&pk_bytes[..]) {
+                    Ok(pk) => {
+                        ring.push(pk.0);
+                        status[i] = 0; // valid
+                        eprintln!("Key {}: VALID {:02x}{:02x}{:02x}{:02x}...", 
+                                  i, pk_bytes[0], pk_bytes[1], pk_bytes[2], pk_bytes[3]);
+                    },
+                    Err(e) => {
+                        ring.push(padding);
+                        status[i] = 2; // invalid
+                        eprintln!("Key {}: INVALID {:02x}{:02x}{:02x}{:02x}... error={:?} → padding", 
+                                  i, pk_bytes[0], pk_bytes[1], pk_bytes[2], pk_bytes[3], e);
+                    }
+                }
+            }
+        }
+        
+        let verifier_key = params.verifier_key(&ring);
+        let commitment = verifier_key.commitment();
+        
+        let mut commitment_bytes = Vec::new();
+        if commitment.serialize_compressed(&mut commitment_bytes).is_err() {
+            return false;
+        }
+        
+        if commitment_bytes.len() != 144 {
+            return false;
+        }
+        
+        std::ptr::copy_nonoverlapping(commitment_bytes.as_ptr(), output, 144);
+        true
+    }
+}
+
+/// Compute ring commitment using unchecked deserialization.
+/// Tries deserialize_compressed_unchecked instead of deserialize_compressed.
+/// This is for diagnosing whether polkajam skips the subgroup check.
+///
+/// # Safety
+/// Same as bandersnatch_compute_ring_commitment
+#[no_mangle]
+pub unsafe extern "C" fn bandersnatch_compute_ring_commitment_unchecked(
+    srs_data: *const u8,
+    srs_len: usize,
+    ring_pks: *const u8,
+    num_validators: usize,
+    output: *mut u8,
+    key_status: *mut u8,
+) -> bool {
+    #[cfg(not(feature = "ring"))]
+    {
+        let _ = (srs_data, srs_len, ring_pks, num_validators, output, key_status);
+        return false;
+    }
+    
+    #[cfg(feature = "ring")]
+    {
+        use ark_vrf::ring::RingProofParams;
+        use ark_vrf::suites::bandersnatch::PcsParams;
+        use ark_serialize::CanonicalDeserialize;
+        
+        if srs_data.is_null() || ring_pks.is_null() || output.is_null() || key_status.is_null() {
+            return false;
+        }
+        
+        let srs_bytes = std::slice::from_raw_parts(srs_data, srs_len);
+        let pks_bytes = std::slice::from_raw_parts(ring_pks, num_validators * 32);
+        let status = std::slice::from_raw_parts_mut(key_status, num_validators);
+        
+        let pcs_params: PcsParams = 
+            match PcsParams::deserialize_uncompressed_unchecked(&mut &srs_bytes[..]) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+        
+        let params: RingProofParams<BandersnatchSha512Ell2> = 
+            match RingProofParams::from_pcs_params(num_validators, pcs_params) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+        
+        let padding = RingProofParams::<BandersnatchSha512Ell2>::padding_point();
+        
+        let mut ring = Vec::with_capacity(num_validators);
+        for i in 0..num_validators {
+            let pk_bytes = &pks_bytes[i*32..(i+1)*32];
+            let is_zero_key = pk_bytes.iter().all(|&b| b == 0);
+            
+            if is_zero_key {
+                ring.push(padding);
+                status[i] = 1; // zero key
+                eprintln!("  unchecked key {}: ZERO → padding", i);
+            } else {
+                // Try unchecked deserialization first
+                match Public::deserialize_compressed_unchecked(&pk_bytes[..]) {
+                    Ok(pk) => {
+                        ring.push(pk.0);
+                        // Also check if normal deserialization would fail
+                        match Public::deserialize_compressed(&pk_bytes[..]) {
+                            Ok(_) => {
+                                status[i] = 0; // valid (both checked and unchecked)
+                                eprintln!("  unchecked key {}: VALID (checked also OK)", i);
+                            },
+                            Err(_) => {
+                                status[i] = 3; // unchecked OK but checked fails
+                                eprintln!("  unchecked key {}: UNCHECKED-ONLY (checked FAILS) → using as-is", i);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        // Even unchecked fails — truly invalid bytes
+                        ring.push(padding);
+                        status[i] = 2; // invalid even unchecked
+                        eprintln!("  unchecked key {}: INVALID-EVEN-UNCHECKED error={:?} → padding", i, e);
+                    }
+                }
+            }
+        }
+        
+        let verifier_key = params.verifier_key(&ring);
+        let commitment = verifier_key.commitment();
+        
+        let mut commitment_bytes = Vec::new();
+        if commitment.serialize_compressed(&mut commitment_bytes).is_err() {
+            return false;
+        }
+        
+        if commitment_bytes.len() != 144 {
+            return false;
+        }
+        
+        std::ptr::copy_nonoverlapping(commitment_bytes.as_ptr(), output, 144);
+        true
     }
 }
 

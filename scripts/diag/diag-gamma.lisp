@@ -177,26 +177,62 @@
                                 (unless (equalp ck ek)
                                   (format t "    validator ~D bandersnatch key DIFFERS~%" v)))))
 
+                          ;; ── PER-KEY VALIDITY CHECK ──
+                          (format t "~%── Per-key Bandersnatch validity ──~%")
+                          (let* ((e-pk (funcall e-gamma :pending-keys))
+                                 (e-bander-keys (mapcar (lambda (k) (getf k :bandersnatch)) e-pk)))
+                            (dotimes (v (length e-bander-keys))
+                              (let* ((key (nth v e-bander-keys))
+                                     (validity (jam.ffi:bandersnatch-check-key key)))
+                                (format t "  v~D: ~A  status=~A~%"
+                                        v (dg-hex key 32) validity)))
+
+                            ;; Also check pre-state iota keys
+                            (format t "~%── Pre-state ι (iota) keys ──~%")
+                            (let* ((pre-iota (funcall pre-sigma :load :iota))
+                                   (iota-vals (funcall pre-iota :count)))
+                              (dotimes (v iota-vals)
+                                (let* ((vdata (funcall pre-iota :validator-at v))
+                                       (kb (getf vdata :bandersnatch))
+                                       (ke (getf vdata :ed25519))
+                                       (validity (jam.ffi:bandersnatch-check-key kb)))
+                                  (format t "  v~D: kb=~A ke=~A status=~A~%"
+                                          v (dg-hex kb 8) (dg-hex ke 8) validity))))
+
+                            ;; Check offenders
+                            (format t "~%── Offenders (ψ'O) ──~%")
+                            (let ((pre-psi (funcall pre-sigma :load :psi)))
+                              (when pre-psi
+                                (let ((offenders (funcall pre-psi :offenders)))
+                                  (format t "  count: ~D~%" (length offenders))
+                                  (dolist (o offenders)
+                                    (format t "  offender: ~A~%" (dg-hex o 32))))))
+
                           ;; ── CRITICAL TEST: compute O(expected_keys) independently ──
                           (format t "~%── Independent O(expected_gP) test ──~%")
-                          (let* ((e-pk (funcall e-gamma :pending-keys))
-                                 (e-bander-keys (mapcar (lambda (k) (getf k :bandersnatch)) e-pk))
-                                 (recomputed-gz (jam.ffi:bandersnatch-compute-ring-commitment
-                                                 (coerce e-bander-keys 'vector))))
+                          (multiple-value-bind (recomputed-gz key-statuses)
+                              (jam.ffi:bandersnatch-compute-ring-commitment-verbose
+                               (coerce e-bander-keys 'vector))
                             (format t "  Expected gZ:    ~A~%" (dg-hex e-rc 16))
                             (format t "  Recomputed gZ:  ~A~%" (if recomputed-gz (dg-hex recomputed-gz 16) "NIL"))
                             (format t "  Our computed gZ:~A~%" (dg-hex c-rc 16))
                             (when recomputed-gz
                               (format t "  Recomputed == Expected: ~A~%" (equalp recomputed-gz e-rc))
                               (format t "  Recomputed == Ours:     ~A~%" (equalp recomputed-gz c-rc)))
+                            (format t "  Key statuses: ~A~%" key-statuses))
 
-                            ;; Print all 6 bandersnatch keys for debugging
-                            (format t "~%  Input bandersnatch keys:~%")
-                            (dotimes (v (length e-bander-keys))
-                              (let ((key (nth v e-bander-keys)))
-                                (format t "    v~D: ~A (zero=~A)~%"
-                                        v (dg-hex key 32)
-                                        (every #'zerop key))))
+                          ;; ── UNCHECKED DESERIALIZATION TEST ──
+                          (format t "~%── Unchecked deserialization test ──~%")
+                          (multiple-value-bind (unc-gz unc-statuses)
+                              (jam.ffi:bandersnatch-compute-ring-commitment-unchecked
+                               (coerce e-bander-keys 'vector))
+                            (format t "  Unchecked gZ: ~A~%" (if unc-gz (dg-hex unc-gz 16) "NIL"))
+                            (when unc-gz
+                              (format t "  Unchecked == Expected: ~A~%" (equalp unc-gz e-rc))
+                              (format t "  Unchecked == Checked:  ~A~%" (equalp unc-gz
+                                (jam.ffi:bandersnatch-compute-ring-commitment
+                                 (coerce e-bander-keys 'vector)))))
+                            (format t "  Key statuses: ~A~%" unc-statuses))
 
                             ;; ── RING SIZE SWEEP: try different domain sizes ──
                             (format t "~%── Ring size sweep ──~%")

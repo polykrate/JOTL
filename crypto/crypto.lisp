@@ -578,6 +578,101 @@
                 output
                 nil)))))))
 
+;; ── Diagnostic: key validity check ──
+
+(cffi:defcfun ("bandersnatch_check_key" %bandersnatch-check-key) :uint32
+  "Check if a 32-byte key is a valid Bandersnatch point (0=valid, 1=zero, 2=invalid, 3=null)"
+  (key :pointer))
+
+(defun bandersnatch-check-key (key)
+  "Check if KEY (32 bytes) is a valid Bandersnatch curve point.
+   Returns: :valid, :zero, :invalid, or :error."
+  (cffi:with-pointer-to-vector-data (ptr key)
+    (ecase (%bandersnatch-check-key ptr)
+      (0 :valid)
+      (1 :zero)
+      (2 :invalid)
+      (3 :error))))
+
+(cffi:defcfun ("bandersnatch_compute_ring_commitment_verbose"
+               %bandersnatch-compute-ring-commitment-verbose) :bool
+  "Compute ring commitment with per-key status diagnostics"
+  (srs-data :pointer)
+  (srs-len :size)
+  (ring-pks :pointer)
+  (num-validators :size)
+  (output :pointer)
+  (key-status :pointer))
+
+(defun bandersnatch-compute-ring-commitment-verbose (validator-keys)
+  "Compute ring commitment with per-key diagnostics.
+   Returns: (values commitment key-status-list) or NIL."
+  (let ((srs (load-bandersnatch-srs)))
+    (unless srs (return-from bandersnatch-compute-ring-commitment-verbose nil))
+    (let* ((nv (length validator-keys))
+           (ring-pks (make-array (* nv 32) :element-type '(unsigned-byte 8)))
+           (output (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0))
+           (status (make-array nv :element-type '(unsigned-byte 8) :initial-element 255)))
+      (loop for i from 0 below nv
+            for key = (elt validator-keys i)
+            do (dotimes (j 32)
+                 (setf (aref ring-pks (+ (* i 32) j)) (aref key j))))
+      (cffi:with-pointer-to-vector-data (srs-ptr srs)
+        (cffi:with-pointer-to-vector-data (pks-ptr ring-pks)
+          (cffi:with-pointer-to-vector-data (out-ptr output)
+            (cffi:with-pointer-to-vector-data (st-ptr status)
+              (if (%bandersnatch-compute-ring-commitment-verbose
+                   srs-ptr (length srs) pks-ptr nv out-ptr st-ptr)
+                  (values output
+                          (loop for i from 0 below nv
+                                collect (ecase (aref status i)
+                                          (0 :valid)
+                                          (1 :zero)
+                                          (2 :invalid))))
+                  nil))))))))
+
+;; ── Diagnostic: unchecked ring commitment ──
+
+(cffi:defcfun ("bandersnatch_compute_ring_commitment_unchecked"
+               %bandersnatch-compute-ring-commitment-unchecked) :bool
+  "Compute ring commitment using unchecked deserialization (diagnostic)"
+  (srs-data :pointer)
+  (srs-len :size)
+  (ring-pks :pointer)
+  (num-validators :size)
+  (output :pointer)
+  (key-status :pointer))
+
+(defun bandersnatch-compute-ring-commitment-unchecked (validator-keys)
+  "Compute ring commitment using unchecked deserialization.
+   Returns: (values commitment key-status-list) or NIL.
+   Status: 0=valid, 1=zero, 2=invalid-even-unchecked, 3=unchecked-only"
+  (let ((srs (load-bandersnatch-srs)))
+    (unless srs (return-from bandersnatch-compute-ring-commitment-unchecked nil))
+    (let* ((nv (length validator-keys))
+           (ring-pks (make-array (* nv 32) :element-type '(unsigned-byte 8)))
+           (output (make-array 144 :element-type '(unsigned-byte 8) :initial-element 0))
+           (status (make-array nv :element-type '(unsigned-byte 8) :initial-element 255)))
+      (loop for i from 0 below nv
+            for key = (elt validator-keys i)
+            do (dotimes (j 32)
+                 (setf (aref ring-pks (+ (* i 32) j)) (aref key j))))
+      (cffi:with-pointer-to-vector-data (srs-ptr srs)
+        (cffi:with-pointer-to-vector-data (pks-ptr ring-pks)
+          (cffi:with-pointer-to-vector-data (out-ptr output)
+            (cffi:with-pointer-to-vector-data (st-ptr status)
+              (if (%bandersnatch-compute-ring-commitment-unchecked
+                   srs-ptr (length srs) pks-ptr nv out-ptr st-ptr)
+                  (values output
+                          (loop for i from 0 below nv
+                                collect (case (aref status i)
+                                          (0 :valid)
+                                          (1 :zero)
+                                          (2 :invalid-even-unchecked)
+                                          (3 :unchecked-only)
+                                          (t :unknown))))
+                  nil))))))))
+
 (defun ticket-vrf-input (η₂ attempt)
   "Build VRF input for ticket validation.
    
