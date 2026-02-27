@@ -201,6 +201,7 @@
          :lookup             (copy-hash-table (hctx-lookup ctx))
          :preimages          (deep-copy-hash-table (hctx-preimages ctx))
          :empower            (hctx-empower ctx)  ; struct is treated as immutable snapshot
+         :designated-validators (hctx-designated-validators ctx)
          :items-count        (hctx-items-count ctx)
          :footprint          (hctx-footprint ctx)
          :balance            (hctx-balance ctx)
@@ -223,7 +224,8 @@
       :items-count ... :footprint ...)"
   (flet ((make-result (&key transfers ejected-services created-services upgrades
                             yield-output provided-preimages storage lookup
-                            preimages empower items-count footprint)
+                            preimages empower designated-validators
+                            items-count footprint)
            (list :transfers          transfers
                  :ejected-services   ejected-services
                  :created-services   created-services
@@ -235,6 +237,7 @@
                  :lookup             lookup
                  :preimages          preimages
                  :empower            empower
+                 :designated-validators designated-validators
                  :items-count        items-count
                  :footprint          footprint)))
 
@@ -254,6 +257,7 @@
               :lookup             (ckpt-lookup cp)
               :preimages          (ckpt-preimages cp)
               :empower            (ckpt-empower cp)
+              :designated-validators (ckpt-designated-validators cp)
               :items-count        (ckpt-items-count cp)
               :footprint          (ckpt-footprint cp))
              ;; No checkpoint → empty side-effects
@@ -268,6 +272,7 @@
               :lookup             (make-hash-table :test 'equalp)
               :preimages          (make-hash-table :test 'equalp)
               :empower            nil
+              :designated-validators nil
               :items-count        0
               :footprint          0))))
 
@@ -284,6 +289,7 @@
         :lookup             (hctx-lookup ctx)
         :preimages          (hctx-preimages ctx)
         :empower            (hctx-empower ctx)
+        :designated-validators (hctx-designated-validators ctx)
         :items-count        (hctx-items-count ctx)
         :footprint          (hctx-footprint ctx)))
 
@@ -300,5 +306,6 @@
         :lookup             (hctx-lookup ctx)
         :preimages          (hctx-preimages ctx)
         :empower            (hctx-empower ctx)
+        :designated-validators (hctx-designated-validators ctx)
         :items-count        (hctx-items-count ctx)
         :footprint          (hctx-footprint ctx))))))

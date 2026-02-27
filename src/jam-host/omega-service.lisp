@@ -195,6 +195,7 @@
 
               ;; ── Determine creation path ──
               (let ((is-staker (and (hctx-empower ctx)
+                                    (emp-bless-called (hctx-empower ctx))
                                     (= (hctx-service-id ctx)
                                        (emp-staker (hctx-empower ctx))))))
 

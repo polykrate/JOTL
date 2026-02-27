@@ -485,11 +485,12 @@
                           :gas-map     gas-map-alist
                           :queues      (coerce (emp-queues emp) 'list)
                           :validators  (coerce (emp-validators emp) 'list))))
-            ;; Only ΩD was called → just the validator keys
+            ;; Only ΩD was called via empower path → just the validator keys
             (let ((vals (emp-validators emp)))
               (when (and vals (plusp (length vals)))
                 (setf designated-validators
                       (coerce vals 'list))))))
+      ;; Note: hctx-designated-validators unused in strict ΩD mode
 
       ;; NOTE: transfer-plists is NOT nreversed, because hctx-transfers
       ;; is built with Lisp `push` (LIFO prepend), and the `dolist + push`
@@ -693,6 +694,7 @@
                              (setf (hctx-lookup ctx) (ckpt-lookup cp))
                              (setf (hctx-preimages ctx) (ckpt-preimages cp))
                              (setf (hctx-empower ctx) (ckpt-empower cp))
+                             (setf (hctx-designated-validators ctx) (ckpt-designated-validators cp))
                              (setf (hctx-items-count ctx) (ckpt-items-count cp))
                              (setf (hctx-footprint ctx) (ckpt-footprint cp))
                              (setf (hctx-balance ctx) (ckpt-balance cp))
@@ -711,6 +713,7 @@
                              (setf (hctx-lookup ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-preimages ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-empower ctx) nil)
+                             (setf (hctx-designated-validators ctx) nil)
                              (setf (hctx-items-count ctx) 0)
                              (setf (hctx-footprint ctx) 0)
                              (setf (hctx-balance ctx) initial-balance))))))

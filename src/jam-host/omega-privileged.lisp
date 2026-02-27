@@ -180,8 +180,8 @@
 (defomega 16 omega-designate (vm ctx)
   "ΩD: Designate validator keys.
    GP B.9: x_s ≠ (x_e)_v → HUH.
-   Reference behavior: ΩD requires a prior ΩB to have set x_e.
-   Without ΩB, emp is nil → HUH."
+   Strict mode: requires prior ΩB (emp must be non-nil).
+   Matches reference (polkajam) behavior."
   (let* ((o       (u32 (reg vm +a0+)))
          (v-count (hctx-val-count ctx)))  ; V
 

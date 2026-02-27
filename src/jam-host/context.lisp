@@ -154,6 +154,7 @@
   (lookup             (make-hash-table :test 'equalp) :type hash-table)
   (preimages          (make-hash-table :test 'equalp) :type hash-table)
   (empower            nil)
+  (designated-validators nil)   ; ΩD without ΩB — separate from empower
   (items-count        0 :type (unsigned-byte 32))
   (footprint          0 :type (unsigned-byte 64))
   (balance            0 :type integer)
@@ -281,6 +282,10 @@
 
   ;; ── Privileged outputs ──────────────────────────────
   (empower           nil)   ; empower-state or nil
+  ;; ΩD without prior ΩB: validators stored separately to avoid
+  ;; creating a phantom empower-state that corrupts omega-service checks
+  (designated-validators nil)   ; vector of 336-byte keys, or nil
+  (designate-service     0 :type (unsigned-byte 32))   ; χ_V at context creation
 
   ;; ── Debug trace ─────────────────────────────────────
   (debug-trace       nil :type boolean)

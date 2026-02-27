@@ -92,6 +92,8 @@
    #:hctx-upgrades
    #:hctx-provided-preimages
    #:hctx-empower
+   #:hctx-designated-validators
+   #:hctx-designate-service
    #:hctx-items-count
    #:hctx-footprint
    #:hctx-code-hash
