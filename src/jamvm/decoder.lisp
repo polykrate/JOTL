@@ -260,7 +260,7 @@
                 (b2 (byte-at (+ pc 2))))
            (setf (arg-ra args) (min 12 (mod b1 16))
                  (arg-rb args) (min 12 (floor b1 16))
-                 (arg-rd args) (min 12 b2))))
+                 (arg-rd args) (min 12 (mod b2 16)))))
 
         ;; ── A.5.11: three registers + immediate ──
         (:reg-reg-reg-imm
