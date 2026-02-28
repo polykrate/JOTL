@@ -382,17 +382,20 @@
             (let ((set (make-hash-table :test 'equalp)))
               (dolist (g (or guarantees '()))
                 (let* ((guarantee-slot (getf g :slot))
-                       ;; Select validator set: κ or λ per 11.26
+                       ;; Select validator set: κ' or λ per 11.26
+                       ;; Must match ρ transition which uses κ' (post-safrole)
+                       ;; for guarantee validation (upsilon.lisp passes
+                       ;; kappa-prime as :kappa to ρ).
                        (same-rotation-p (= (floor tau-prime-val r)
                                            (floor guarantee-slot r)))
                        (validators
                         (if same-rotation-p
-                            ;; M: use κ
-                            kappa
-                            ;; M*: same epoch → κ, different epoch → λ
+                            ;; M: use κ' (post-safrole)
+                            kappa-prime
+                            ;; M*: same epoch → κ', different epoch → λ
                             (if (= (floor tau-prime-val e)
                                    (floor guarantee-slot e))
-                                kappa
+                                kappa-prime
                                 lambda-prev))))
                   (dolist (sig (getf g :signatures))
                     (let* ((vi (getf sig :validator-index))

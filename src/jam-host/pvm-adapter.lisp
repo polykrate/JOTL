@@ -115,7 +115,7 @@
     (%buf-bytes buf (%ensure-hash32 auth-hash))
     ;; payload: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 payload-hash))
-    ;; gas_limit: u64 — #[codec(compact)] in WorkItemRecord
+    ;; gas_limit: GP C.32 EU — bare xg ∈ N_G → compact
     (%buf-compact buf gas-limit)
     ;; result: Result<WorkOutput, WorkError>
     (cond
@@ -180,7 +180,7 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Protocol parameters encoding — for ΩY(0) fetch
 ;;;
-;;; Format: 136 bytes LE, matching encode_gp_constants in encode.rs
+;;; Format: 134 bytes LE (GP B.2: 7×E_8 + 13×E_4 + 13×E_2)
 ;;; Uses TINY chainspec defaults.
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -219,8 +219,8 @@
                               (max-exports 3072)               ;; W_X
                               (epoch-tail-start 10))           ;; Y  (tiny=10)
   "Encode protocol parameters for ΩY fetch(kind=0).
-   Returns 136-byte octet vector."
-  (let ((buf (%make-buf 136)))
+   Returns 134-byte octet vector (7×E_8 + 13×E_4 + 13×E_2 = 56+52+26)."
+  (let ((buf (%make-buf 134)))
     ;; B_I, B_L, B_S (u64 × 3 = 24 bytes)
     (%buf-u64-le buf deposit-per-item)
     (%buf-u64-le buf deposit-per-byte)
@@ -476,16 +476,16 @@
       (when emp
         (if (emp-bless-called emp)
             ;; ΩB was called → full empower (privilege resolution + validators)
-            (let ((gas-map-alist nil))
-              (maphash (lambda (k v) (push (cons k v) gas-map-alist))
-                       (emp-gas-map emp))
-              (setf empower-plist
-                    (list :manager     (emp-manager emp)
-                          :auth-agents (coerce (emp-auth-agents emp) 'list)
-                          :validator   (emp-validator emp)
-                          :staker      (emp-staker emp)
-                          :gas-map     gas-map-alist
-                          :queues      (coerce (emp-queues emp) 'list)
+        (let ((gas-map-alist nil))
+          (maphash (lambda (k v) (push (cons k v) gas-map-alist))
+                   (emp-gas-map emp))
+          (setf empower-plist
+                (list :manager     (emp-manager emp)
+                      :auth-agents (coerce (emp-auth-agents emp) 'list)
+                      :validator   (emp-validator emp)
+                      :staker      (emp-staker emp)
+                      :gas-map     gas-map-alist
+                      :queues      (coerce (emp-queues emp) 'list)
                           :validators  (coerce (emp-validators emp) 'list))))
             ;; ΩB was NOT called but ΩD was called via empower path
             ;; → just the validator keys (shouldn't happen with Mode B, but safe)
