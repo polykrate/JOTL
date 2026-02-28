@@ -621,7 +621,17 @@
       ;; 3. Encode accumulate arguments and invoke
       (let* ((item-count (length (or accumulate-items nil)))
              (params (encode-accumulate-params timeslot service-id item-count))
-             (initial-balance (hctx-balance ctx)))  ;; save for panic/OOG revert
+             ;; Save initial state for panic/OOG revert (GP B.9: discard all
+             ;; side-effects, reverting to the state BEFORE accumulate started).
+             (initial-balance     (hctx-balance ctx))
+             (initial-storage     (deep-copy-hash-table (hctx-storage ctx)))
+             (initial-lookup      (copy-hash-table (hctx-lookup ctx)))
+             (initial-preimages   (deep-copy-hash-table (hctx-preimages ctx)))
+             (initial-items-count (hctx-items-count ctx))
+             (initial-footprint   (hctx-footprint ctx))
+             (initial-code-hash   (copy-seq (hctx-code-hash ctx)))
+             (initial-min-accum-gas (hctx-min-accum-gas ctx))
+             (initial-min-memo-gas  (hctx-min-memo-gas ctx)))
 
         ;; argument-invoke: sets gas, PC, clears regs, allocates+writes args
         (multiple-value-bind (ok invoke-reason) (argument-invoke vm gas +pc-accumulate+ params)
@@ -709,7 +719,8 @@
                              (setf (hctx-code-hash ctx) (ckpt-code-hash cp))
                              (setf (hctx-min-accum-gas ctx) (ckpt-min-accum-gas cp))
                              (setf (hctx-min-memo-gas ctx) (ckpt-min-memo-gas cp)))
-                           ;; No checkpoint → revert to initial state
+                           ;; No checkpoint → revert to initial state (GP B.9:
+                           ;; discard all side-effects, restoring pre-accumulate values)
                            (progn
                              (setf (hctx-transfers ctx) nil)
                              (setf (hctx-ejected-services ctx) nil)
@@ -717,14 +728,17 @@
                              (setf (hctx-upgrades ctx) nil)
                              (setf (hctx-yield-output ctx) nil)
                              (setf (hctx-provided-preimages ctx) nil)
-                             (setf (hctx-storage ctx) (make-hash-table :test 'equalp))
-                             (setf (hctx-lookup ctx) (make-hash-table :test 'equalp))
-                             (setf (hctx-preimages ctx) (make-hash-table :test 'equalp))
+                             (setf (hctx-storage ctx) initial-storage)
+                             (setf (hctx-lookup ctx) initial-lookup)
+                             (setf (hctx-preimages ctx) initial-preimages)
                              (setf (hctx-empower ctx) nil)
                              (setf (hctx-designated-validators ctx) nil)
-                             (setf (hctx-items-count ctx) 0)
-                             (setf (hctx-footprint ctx) 0)
-                             (setf (hctx-balance ctx) initial-balance))))))
+                             (setf (hctx-items-count ctx) initial-items-count)
+                             (setf (hctx-footprint ctx) initial-footprint)
+                             (setf (hctx-balance ctx) initial-balance)
+                             (setf (hctx-code-hash ctx) initial-code-hash)
+                             (setf (hctx-min-accum-gas ctx) initial-min-accum-gas)
+                             (setf (hctx-min-memo-gas ctx) initial-min-memo-gas))))))
 
                   ;; 7. Collect effects — always via collect-effects for normalized format
                   ;; (converts hash-tables → alists, uses correct key names)
