@@ -454,12 +454,12 @@
 
 (defun accumulate-all (r-star state)
   "GP §12.18 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
-   
-   GP formal definition is recursive (one report at a time), but all conformant
-   implementations batch all reports into a single Δ* call. This is equivalent
-   because each service appears at most once in the service-set s (set union),
-   and accumulate-service processes all items for that service together.
-   
+
+   GP defines Δ+ as recursive (one report at a time), but the GP spec note
+   (post §12.19) confirms that batching all reports into a single Δ* call is
+   equivalent and intended — each service is invoked once with its full set
+   of operand tuples collected across all reports.
+
    f (always-accumulate) is included in the first Δ* call only.
    After reports, residual deferred transfers are drained in a loop until
    no new transfers are produced.

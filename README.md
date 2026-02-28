@@ -67,18 +67,43 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
   -d examples/0.7.2/forks
 ```
 
-### Known bugs (investigation in progress)
+### Fixed bugs
 
-| # | Component | Status | Description |
-|---|-----------|--------|-------------|
-| 1 | `omega-new-service` (HC18) | **FIXED** | New services were created without the initial lookup entry `{((c,l) ↦ [])}` required by GP B.10. This caused `omega-provide-preimage` (HC26) to return `HUH` instead of `OK` on the newly created service, leading to a different PVM execution path and a Δ=62 gas divergence in PI stats (sid 3101749195). Fix: `(setf (gethash (cons c l) (sa-lookup new-acct)) nil)`. |
-| 2 | `omega-provide-preimage` (HC26) | **FIXED** | HC26 did not update the lookup entry from `[]` to `[τ']` after successfully providing a preimage (GP B.6: `a_l'[(H(i),\|i\|)] = [τ']`). This caused DELTA-KVS divergences where the lookup trie value stayed at `compact(0)` (1 byte) instead of `compact(1).E4(τ')` (5 bytes). Additionally, `delta.lisp` did not update lookup entries for cross-service provided preimages (HC26 on a newly-created service). |
-| 3 | `accumulate-service` gas=0 OOG | **FIXED** | When a service received a deferred transfer with `gas=0`, the PVM was run and went OOG immediately. `last-accumulation-slot` was incorrectly updated to current timeslot. GP B.9: with gas=0, no code runs → skip PVM, credit balance, do NOT update `last-accumulation-slot`. Fix: early return with `:no-code t` when `(zerop gas-limit)`. **+2 traces fixed** (695→697 pass). |
-| 4 | PI `ACCUM-GAS` for privileged service 0 | **INVESTIGATING** | Δ=-3682 gas divergence on service 0 (privileged — calls HC14 bless, HC18 new-service, 3×HC20 transfer). All host call gas deltas match expected (10 base + gas-limit for HC20). The gap is entirely in instruction-level gas. Remaining source unknown — possibly related to PVM instruction model divergence. |
-| 5 | IOTA not updated (PVM PANIC → empower rollback) | **ROOT-CAUSED** | 2 traces (`1766243861_7323`, `1766479507_7943`) show IOTA+PI+DELTA-KVS divergence. **Cause**: Service 0 (privileged, χ_M=χ_V=χ_R=0) PVM exits with `PANIC` (outcome=1) instead of `HALT`. Guest hits `trap` opcode (0x00) at PC=97133 — a conditional branch earlier in execution diverges from the reference due to an upstream PVM execution difference (same root cause as bug #4). On PANIC, all empower effects are rolled back (GP B.13), including the designated validators from ΩD (HC16). Thus ι stays unchanged = pre-state. Fix depends on resolving the upstream PVM instruction-level divergence. |
-| 6 | `omega-solicit-preimage` (HC23) | **FIXED** | HC23 was checking the `FULL` condition against the *pre-mutation* state, allowing a `u32` overflow in the `footprint` calculation (when `z` was large, `footprint + 81 + z` overflowed). This caused a subsequent `omega-write-storage` (HC4) to fail with `FULL`, leading to a PVM `PANIC` instead of `HALT` and thus BETA+PI+THETA+DELTA-KVS divergences (no yield, no commitments). Fix: compute `a_t` from hypothetical *post-mutation* `items-count` and `footprint` before mutating state, returning `FULL` early if threshold exceeds balance. **+7 traces fixed** (697→704 pass). |
-| 7 | Guarantee validation: κ→κ' | **FIXED** | GP §11.26 specifies `k_g = κ'` (post-safrole kappa) for guarantee signature verification, but JOTL was using pre-state `κ`. At epoch boundaries, safrole rotates keys (κ→λ, γ→κ), so validators whose keys changed would fail signature verification with the old keyset. Fix: pass `kappa-prime` instead of `kappa` to the rho guarantee transition in `upsilon.lisp`. **+1 pass, +1 correct-reject** (704→705 pass, 40→41 reject). Note: assurance validation (§11.13) keyset (κ vs κ') needs GP verification — using κ currently. |
-| 8 | PI reporters set G: κ→κ' | **FIXED** | GP §13.5 `π'_V[v].g = a[v].g + ⟨(κ'_v)_e ∈ G⟩` — the PI transition built G using `κ` (pre-safrole) to resolve signer indices to keys, but should use `κ'` (post-safrole), matching the ρ guarantee validation. At epoch boundaries when keys rotate, the wrong keyset caused `κ'[v] ∉ G` for validators whose position changed. Fix: use `kappa-prime` instead of `kappa` in `pi.lisp` reporters-G construction. **+7 pass** (705→712). |
+| # | Component | Description |
+|---|-----------|-------------|
+| 1 | `omega-new-service` (HC18) | Missing initial lookup entry `{((c,l) ↦ [])}` (GP B.10) → HC26 returned `HUH` instead of `OK` |
+| 2 | `omega-provide-preimage` (HC26) | Lookup entry not updated from `[]` to `[τ']` after preimage provision (GP B.6) |
+| 3 | `accumulate-service` gas=0 | PVM ran with gas=0 → OOG. GP B.9: skip PVM, credit balance, don't update `last-accumulation-slot` |
+| 4 | `omega-solicit-preimage` (HC23) | `FULL` checked against pre-mutation state → `u32` overflow in footprint → cascading PANIC |
+| 5 | Guarantee validation κ→κ' | GP §11.26: `k_g = κ'` (post-safrole), not `κ`. Broke at epoch boundaries |
+| 6 | PI reporters set G: κ→κ' | GP §13.5: G built with `κ'` (post-safrole), not `κ` |
+| 7 | `reg-reg-reg` r\_D decoding | GP A.3: `r_D = min(12, b₂ mod 16)`, was using raw byte |
+
+### Remaining bug — PVM instruction-level divergence (7 failures)
+
+All 7 remaining polkajam failures trace to a **single root cause**: a PVM instruction-level execution divergence for **service 0** (bootstrap/privileged) during `accumulate`.
+
+| Category | Count | Components | Mechanism |
+|----------|------:|------------|-----------|
+| PI only | 1 | `PI` | Gas-used Δ=-3682. PVM halts but consumed different gas |
+| IOTA+PI+ΔKVS | 2 | `IOTA` `PI` `DELTA-KVS` | PVM PANIC → empower rollback (ι, storage) |
+| ΔKVS only | 2 | `DELTA-KVS` | PVM PANIC → storage writes lost |
+| Epoch cascade | 2 | `BETA+ETA+RHO+TAU+PI+XI+THETA/ΔKVS` | PVM PANIC + epoch boundary → cascading divergence |
+
+#### What's verified ✅
+
+- **R\* composition**: `compute-r-star` correctly resolves 3 reports (2 from ρ‡ + 1 from ω queues), 9 items for sid=0. Matches expected ω' post-state (0 queued)
+- **AccumulateItem encoding**: Verified byte-by-byte — result-kind, gas (compact), Ok payload, auth_output. Items 6–7 contain `01 10` payload ("Panic" instruction for bootstrap service) — correct data
+- **38 HC calls traced**: HC0, HC1, HC3, HC4, HC5, HC14, HC16, HC20, HC100 — all inputs/outputs match reference up to divergence point
+- **HC1 fetch data**: kind=0 (134 bytes ✓), kind=14 (compact encoding ✓), HC5 ServiceInfo (96 bytes ✓), 42 GP constants in correct order ✓
+- **Checkpoint semantics (HC17)**: On PANIC without checkpoint → storage reverts → δ keeps pre-state (11 entries). Expected: 13 entries (2 added, 2 changed) — reference reaches HC17
+
+#### Divergence mechanism 🔴
+
+1. Service 0's code contains `ecalli 17` at PCs 41816, 45599, 45607. Reference reaches HC17 (checkpoint preserves writes on panic)
+2. **JOTL never reaches HC17** — after HC100 at PC=41213, PVM takes a different conditional branch → jumps to HC3 at PC=95085 (skips ~30K bytes including HC17)
+3. ~192 instructions between HC100 and HC3 where a branch evaluates differently → skip checkpoint → hit `trap` at PC=97133 → PANIC → empower rollback (GP B.13)
+4. Root cause: instruction-level PVM semantics difference (likely sign extension, overflow wrap, or shift masking). Need instruction-by-instruction register comparison with reference PVM
 
 ## Architecture
 
@@ -170,8 +195,7 @@ scripts/
 ├── test.sh             Static test vectors (1000 blocks)
 ├── test-reports.sh     Polkajam fuzz-reports traces (205 traces)
 ├── fuzz-target.sh      Launch fuzzer target server
-├── load-jotl.lisp      SBCL loader script
-└── diag/               Diagnostic tools (gas, delta, gamma, forks)
+└── load-jotl.lisp      SBCL loader script
 tests/
 ├── conformance.lisp    Static trace runner
 ├── polkajam-traces.lisp  Fuzz-reports trace runner
