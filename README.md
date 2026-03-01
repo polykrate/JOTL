@@ -30,9 +30,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **712** |
+| Pass | **715** |
 | Correct reject | **41** |
-| Fail | **7** |
+| Fail | **4** |
 | Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
@@ -67,7 +67,7 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
   -d examples/0.7.2/forks
 ```
 
-### Fixed bugs
+### Fixed bugs (earlier)
 
 | # | Component | Description |
 |---|-----------|-------------|
@@ -79,31 +79,22 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
 | 6 | PI reporters set G: κ→κ' | GP §13.5: G built with `κ'` (post-safrole), not `κ` |
 | 7 | `reg-reg-reg` r\_D decoding | GP A.3: `r_D = min(12, b₂ mod 16)`, was using raw byte |
 
-### Remaining bug — PVM instruction-level divergence (7 failures)
+### Fixed bugs (recent session)
 
-All 7 remaining polkajam failures trace to a **single root cause**: a PVM instruction-level execution divergence for **service 0** (bootstrap/privileged) during `accumulate`.
+| # | Component | Description |
+|---|-----------|-------------|
+| 8 | `lisp-pvm-run-accumulate` | Panic reversion used empty hash-tables instead of initial state for storage/lookup/preimages |
+| 9 | `absorb-delta-effects` | Missing `items_count` and `footprint` updates from PVM final state |
+| 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not implemented — all reports processed regardless of gas budget (GP §12.18) |
 
-| Category | Count | Components | Mechanism |
-|----------|------:|------------|-----------|
-| PI only | 1 | `PI` | Gas-used Δ=-3682. PVM halts but consumed different gas |
-| IOTA+PI+ΔKVS | 2 | `IOTA` `PI` `DELTA-KVS` | PVM PANIC → empower rollback (ι, storage) |
-| ΔKVS only | 2 | `DELTA-KVS` | PVM PANIC → storage writes lost |
-| Epoch cascade | 2 | `BETA+ETA+RHO+TAU+PI+XI+THETA/ΔKVS` | PVM PANIC + epoch boundary → cascading divergence |
+### Remaining failures (4 steps across 205 traces)
 
-#### What's verified ✅
-
-- **R\* composition**: `compute-r-star` correctly resolves 3 reports (2 from ρ‡ + 1 from ω queues), 9 items for sid=0. Matches expected ω' post-state (0 queued)
-- **AccumulateItem encoding**: Verified byte-by-byte — result-kind, gas (compact), Ok payload, auth_output. Items 6–7 contain `01 10` payload ("Panic" instruction for bootstrap service) — correct data
-- **38 HC calls traced**: HC0, HC1, HC3, HC4, HC5, HC14, HC16, HC20, HC100 — all inputs/outputs match reference up to divergence point
-- **HC1 fetch data**: kind=0 (134 bytes ✓), kind=14 (compact encoding ✓), HC5 ServiceInfo (96 bytes ✓), 42 GP constants in correct order ✓
-- **Checkpoint semantics (HC17)**: On PANIC without checkpoint → storage reverts → δ keeps pre-state (11 entries). Expected: 13 entries (2 added, 2 changed) — reference reaches HC17
-
-#### Divergence mechanism 🔴
-
-1. Service 0's code contains `ecalli 17` at PCs 41816, 45599, 45607. Reference reaches HC17 (checkpoint preserves writes on panic)
-2. **JOTL never reaches HC17** — after HC100 at PC=41213, PVM takes a different conditional branch → jumps to HC3 at PC=95085 (skips ~30K bytes including HC17)
-3. ~192 instructions between HC100 and HC3 where a branch evaluates differently → skip checkpoint → hit `trap` at PC=97133 → PANIC → empower rollback (GP B.13)
-4. Root cause: instruction-level PVM semantics difference (likely sign extension, overflow wrap, or shift masking). Need instruction-by-instruction register comparison with reference PVM
+| Trace | Step | Components |
+|-------|------|------------|
+| `1766255635_2557` | 153 | `DELTA-KVS` |
+| `1766565819_2010` | 225 | `BETA ETA RHO TAU PI XI THETA` |
+| `1767871405_1375` | 34 | `BETA ETA RHO TAU PI XI DELTA-KVS` |
+| `1767889897_3840` | 710 | `DELTA-KVS` |
 
 ## Architecture
 
@@ -114,7 +105,7 @@ no mutation.
 
 **Uniform `:transition` protocol** — every closure follows the same contract:
 
-- `:transition` returns the **new closure**, period.
+- `:transition` returns the **new closure**.
 - Side-data computed during transition (e.g. R\* from ω, emitted validators
   from χ) is stored as **transient fields** queryable on the returned closure.
 - Multi-stage transitions use `:transition-dagger` / `:transition-ddagger`

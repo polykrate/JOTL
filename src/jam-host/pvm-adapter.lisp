@@ -720,7 +720,16 @@
                              (setf (hctx-min-accum-gas ctx) (ckpt-min-accum-gas cp))
                              (setf (hctx-min-memo-gas ctx) (ckpt-min-memo-gas cp)))
                            ;; No checkpoint → revert to initial state (GP B.9:
-                           ;; discard all side-effects, restoring pre-accumulate values)
+                           ;; discard all side-effects, restoring pre-accumulate values).
+                           ;;
+                           ;; IMPORTANT: storage/lookup/preimages must be EMPTY hash-tables
+                           ;; (not initial copies) so collect-effects produces NIL alists,
+                           ;; causing absorb-delta-effects to SKIP the storage update
+                           ;; (via the update-storage-p guard).  This leaves delta-kvs
+                           ;; completely unchanged — the correct semantic.
+                           ;;
+                           ;; Metadata fields (balance, code-hash, etc.) are set to initial
+                           ;; values so that absorb-delta-effects writes them back correctly.
                            (progn
                              (setf (hctx-transfers ctx) nil)
                              (setf (hctx-ejected-services ctx) nil)
@@ -728,11 +737,13 @@
                              (setf (hctx-upgrades ctx) nil)
                              (setf (hctx-yield-output ctx) nil)
                              (setf (hctx-provided-preimages ctx) nil)
-                             (setf (hctx-storage ctx) initial-storage)
-                             (setf (hctx-lookup ctx) initial-lookup)
-                             (setf (hctx-preimages ctx) initial-preimages)
+                             ;; EMPTY — signals "no storage changes" to absorb-delta-effects
+                             (setf (hctx-storage ctx) (make-hash-table :test 'equalp))
+                             (setf (hctx-lookup ctx) (make-hash-table :test 'equalp))
+                             (setf (hctx-preimages ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-empower ctx) nil)
                              (setf (hctx-designated-validators ctx) nil)
+                             ;; Metadata → initial values (written through to metadata by absorb-delta-effects)
                              (setf (hctx-items-count ctx) initial-items-count)
                              (setf (hctx-footprint ctx) initial-footprint)
                              (setf (hctx-balance ctx) initial-balance)

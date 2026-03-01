@@ -651,7 +651,15 @@
               (when (and effects (getf effects :final-min-accum-gas))
                 (setf (getf info :min-accum-gas) (getf effects :final-min-accum-gas)))
               (when (and effects (getf effects :final-min-memo-gas))
-                (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas))))
+                (setf (getf info :min-memo-gas) (getf effects :final-min-memo-gas)))
+              ;; Update items-count and footprint (bytes) — GP §9.1: a_i, a_o
+              ;; These are tracked by the PVM during HC4 (write-storage) calls.
+              ;; On panic/OOG without checkpoint: values are reverted to initial.
+              ;; On halt: values reflect the final PVM storage state.
+              (when (getf effects :items-count)
+                (setf (getf info :items) (getf effects :items-count)))
+              (when (getf effects :footprint)
+                (setf (getf info :bytes) (getf effects :footprint))))
              (setf (cdr meta-entry) (encode-service-info info)))))
 
        ;; Apply side-effects if present (skip for :no-code services)

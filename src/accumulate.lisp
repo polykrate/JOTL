@@ -452,58 +452,85 @@
             (nreverse commitments)
             (nreverse gas-usage))))  ;; closes values, let*, let, defun
 
-(defun accumulate-all (r-star state)
-  "GP §12.18 Δ+(g, t, R*, e, f): Sequential accumulation of all work-reports.
+(defun find-report-cutoff (gas-limit reports)
+  "GP §12.18: Find max index i such that cumulative report gas ≤ gas-limit.
+   Returns i — the number of reports that fit within the gas budget."
+  (let ((cumulative 0))
+    (loop for report in reports
+          for i from 0
+          do (let ((report-gas (reduce #'+ (or (getf report :results) nil)
+                                        :key (lambda (r) (or (getf r :accumulate-gas) 0))
+                                        :initial-value 0)))
+               (when (> (+ cumulative report-gas) gas-limit)
+                 (return-from find-report-cutoff i))
+               (incf cumulative report-gas)))
+    (length reports)))
 
-   GP defines Δ+ as recursive (one report at a time), but the GP spec note
-   (post §12.19) confirms that batching all reports into a single Δ* call is
-   equivalent and intended — each service is invoked once with its full set
-   of operand tuples collected across all reports.
+(defun accumulate-all (r-star state)
+  "GP §12.18 Δ+(g, t, R*, e, f): Sequential accumulation with report-level gas cutoff.
+
+   Implements the recursive structure of Δ+:
+   1. Find cutoff index i — how many reports fit within gas budget
+   2. Call Δ*(e, t, R*[0..i), X, f) — process reports that fit + transfers
+   3. Update gas: g' = g - u + Σ(transfer gas from new transfers)
+   4. Recurse: Δ+(g', t, R*[i..], X', {})
 
    f (always-accumulate) is included in the first Δ* call only.
-   After reports, residual deferred transfers are drained in a loop until
-   no new transfers are produced.
 
    STATE is the mutable accumulation state (includes χ fields, f).
    Returns: updated STATE with :commitments, :gas-usage, :pending-transfers populated."
   (let ((all-commitments nil)
         (all-gas-usage nil)
-        (pending-transfers (getf state :pending-transfers))
+        (transfers (getf state :pending-transfers))
         (free-accum (funcall (getf state :chi) :always-accum))
-        (n (length r-star)))
+        (n (length r-star))
+        (reports r-star))
 
-    ;; ── First call: Δ*(e, t, R*, f) — all reports + free-accum ──
-    (when (and (plusp (getf state :remaining-gas))
-               (or r-star pending-transfers free-accum))
-      (multiple-value-bind (state* new-transfers commitments gas-usage)
-          (accumulate-star state
-                          pending-transfers
-                          r-star        ;; all reports at once
-                          free-accum)   ;; f = free-accum (first call only)
-        (setf state state*
-              pending-transfers new-transfers)
-        (setf all-commitments (nconc all-commitments commitments))
-        (setf all-gas-usage (nconc all-gas-usage gas-usage))))
+    (loop
+      ;; GP: n = |X| + i + |R*|  — terminate when nothing to process
+      (let* ((gas-limit (getf state :remaining-gas))
+             (i (if (plusp gas-limit)
+                    (find-report-cutoff gas-limit reports)
+                    0))
+             (n-items (+ (length transfers) i (length reports))))
 
-    ;; ── Drain residual deferred transfers ──
-    ;; Continue until no more deferred transfers emerge.
-    ;; f = {} in subsequent rounds (no free-accum re-invocation).
-    (loop while (and (plusp (getf state :remaining-gas))
-                     pending-transfers)
-          do (multiple-value-bind (state* new-transfers commitments gas-usage)
-                 (accumulate-star state
-                                 pending-transfers
-                                 nil   ;; no reports
-                                 nil)  ;; f = {} in recursion
-               (setf state state*
-                     pending-transfers new-transfers)
-               (setf all-commitments (nconc all-commitments commitments))
-               (setf all-gas-usage (nconc all-gas-usage gas-usage))))
+        ;; Termination: nothing to process
+        (when (zerop n-items) (return))
+
+        ;; Guard: if no reports fit and no transfers, avoid infinite loop
+        (when (and (zerop i) (null transfers) (null free-accum))
+          (return))
+
+        ;; Batch: reports[0..i) + current transfers + free-accum
+        (let ((batch-reports (subseq reports 0 i)))
+          (multiple-value-bind (state* new-transfers commitments gas-usage)
+              (accumulate-star state transfers batch-reports free-accum)
+            (setf state state*)
+            (setf all-commitments (nconc all-commitments commitments))
+            (setf all-gas-usage (nconc all-gas-usage gas-usage))
+
+            ;; GP §12.18: g' = g - u + Σ(transfer gas)
+            ;; Note: accumulate-star already decremented (getf state :remaining-gas) by gas-used.
+            ;; We need to ADD back the transfer gas from new deferred transfers.
+            (let ((xfer-gas (reduce #'+ (or new-transfers nil)
+                                      :key (lambda (x) (or (getf x :gas-limit) 0))
+                                      :initial-value 0)))
+              (when (plusp xfer-gas)
+                (let ((new-remaining (+ (getf state :remaining-gas) xfer-gas)))
+                  ;; Clamp to u64 max
+                  (when (> new-remaining (1- (ash 1 64)))
+                    (setf new-remaining (1- (ash 1 64))))
+                  (setf (getf state :remaining-gas) new-remaining))))
+
+            ;; Advance: remaining reports, new transfers, f = {} (no more free-accum)
+            (setf reports (subseq reports i)
+                  transfers new-transfers
+                  free-accum nil)))))
 
     ;; Store results back in state
     (setf (getf state :commitments) all-commitments
           (getf state :gas-usage) all-gas-usage
-          (getf state :pending-transfers) pending-transfers
+          (getf state :pending-transfers) transfers
           (getf state :n-accumulated) n)
     state))
 
