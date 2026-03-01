@@ -20,12 +20,6 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | fuzzy | 200/200 ✓ | 200/200 ✓ | 0 |
 | **TOTAL** | **1000/1000** | **1000/1000** | **0** |
 
-### STF sub-component tests
-
-| Suite | Result |
-|-------|--------|
-| safrole (tiny, 21 tests) | **21/21 ✓** — τ η κ λ ι γP γZ γS γA offenders |
-
 ### polkajam-fuzz traces (205 traces, 760 steps)
 
 | Metric | Value |
@@ -33,7 +27,6 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | Pass | **715** |
 | Correct reject | **41** |
 | Fail | **4** |
-| Errors | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
 
@@ -42,60 +35,30 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | no\_forks | **102/102 ✓** |
 | forks | **102/102 ✓** |
 
-### Fuzzer target (fuzz-v1)
+### Remaining failures (4 steps)
 
-JOTL implements a **fuzz-v1 protocol server** for real-time conformance testing
-via the [jam-conformance](https://github.com/davxy/jam-conformance) fuzzer.
-
-VRF verification is **fully enabled** — Bandersnatch IETF VRF for both seal
-and entropy source, in both fallback and tickets modes:
-- Seal VRF: `ad = EU(H)` (header without seal, GP §6.4)
-- Entropy VRF: `ad = []` (empty, GP §6.17)
-- Fallback mode key: `γ'S[HT mod E]` (GP §6.16)
-- Tickets mode key: `κ'[HI].kb` (GP §6.15)
-
-```bash
-# Launch fuzzer target
-./scripts/fuzz-target.sh /tmp/jam_target.sock
-
-# Run minifuzz self-test (from jam-conformance/fuzz-proto/)
-python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
-  -d examples/0.7.2/no_forks
-
-# With forks (simple forking support)
-python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
-  -d examples/0.7.2/forks
-```
-
-### Fixed bugs (earlier)
-
-| # | Component | Description |
-|---|-----------|-------------|
-| 1 | `omega-new-service` (HC18) | Missing initial lookup entry `{((c,l) ↦ [])}` (GP B.10) → HC26 returned `HUH` instead of `OK` |
-| 2 | `omega-provide-preimage` (HC26) | Lookup entry not updated from `[]` to `[τ']` after preimage provision (GP B.6) |
-| 3 | `accumulate-service` gas=0 | PVM ran with gas=0 → OOG. GP B.9: skip PVM, credit balance, don't update `last-accumulation-slot` |
-| 4 | `omega-solicit-preimage` (HC23) | `FULL` checked against pre-mutation state → `u32` overflow in footprint → cascading PANIC |
-| 5 | Guarantee validation κ→κ' | GP §11.26: `k_g = κ'` (post-safrole), not `κ`. Broke at epoch boundaries |
-| 6 | PI reporters set G: κ→κ' | GP §13.5: G built with `κ'` (post-safrole), not `κ` |
-| 7 | `reg-reg-reg` r\_D decoding | GP A.3: `r_D = min(12, b₂ mod 16)`, was using raw byte |
-
-### Fixed bugs (recent session)
-
-| # | Component | Description |
-|---|-----------|-------------|
-| 8 | `lisp-pvm-run-accumulate` | Panic reversion used empty hash-tables instead of initial state for storage/lookup/preimages |
-| 9 | `absorb-delta-effects` | Missing `items_count` and `footprint` updates from PVM final state |
-| 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not implemented — all reports processed regardless of gas budget (GP §12.18) |
-| 11 | `integrate-preimages` / `absorb-delta-effects` | `copy-list` → `copy-alist`: shallow copy mutated parent sigma's delta-kvs cons cells, corrupting state for fork scenarios |
-
-### Remaining failures (4 steps across 205 traces)
-
-| Trace | Step | Components |
-|-------|------|------------|
+| Trace | Step | Divergent components |
+|-------|------|----------------------|
 | `1766255635_2557` | 153 | `DELTA-KVS` |
 | `1766565819_2010` | 225 | `BETA ETA RHO TAU PI XI THETA` |
 | `1767871405_1375` | 34 | `BETA ETA RHO TAU PI XI DELTA-KVS` |
 | `1767889897_3840` | 710 | `DELTA-KVS` |
+
+### Fixed bugs
+
+| # | Component | Description |
+|---|-----------|-------------|
+| 1 | `omega-new-service` (HC18) | Missing initial lookup entry `{((c,l) ↦ [])}` (GP B.10) |
+| 2 | `omega-provide-preimage` (HC26) | Lookup entry not updated `[] → [τ']` after provision (GP B.6) |
+| 3 | `accumulate-service` gas=0 | PVM ran with gas=0 → OOG. GP B.9: skip PVM, credit balance |
+| 4 | `omega-solicit-preimage` (HC23) | `FULL` checked vs pre-mutation → u32 overflow → PANIC |
+| 5 | Guarantee validation κ→κ' | GP §11.26: `k_g = κ'` (post-safrole), not `κ` |
+| 6 | PI reporters set G: κ→κ' | GP §13.5: G built with `κ'`, not `κ` |
+| 7 | `reg-reg-reg` r\_D decoding | GP A.3: `r_D = min(12, b₂ mod 16)` |
+| 8 | `lisp-pvm-run-accumulate` | Panic reversion: empty hash-tables instead of initial state |
+| 9 | `absorb-delta-effects` | Missing `items_count` / `footprint` updates from PVM |
+| 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not implemented (GP §12.18) |
+| 11 | `integrate-preimages` / `absorb-delta-effects` | `copy-list` → `copy-alist`: shallow copy corrupted parent state on forks |
 
 ## Architecture
 
