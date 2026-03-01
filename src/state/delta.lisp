@@ -474,15 +474,42 @@
 
 ;; bytes< is defined in lib/types.lisp
 
+(defun validate-ep-ordering (preimages)
+  "GP §12.36 -- EP = [i ∈ EP __ i]
+   EP must be sorted ascending by (service-index, blob-data) with no duplicates.
+   Signals preimages-error if violated."
+  (loop for (p1 p2) on preimages while p2 do
+    (let ((s1 (getf p1 :requester))
+          (s2 (getf p2 :requester))
+          (b1 (ensure-bytes (getf p1 :blob)))
+          (b2 (ensure-bytes (getf p2 :blob))))
+      (cond ((< s1 s2)) ;; OK: ascending by service index
+            ((> s1 s2)
+             (error 'preimages-error
+                    :code :ep-not-sorted
+                    :detail (format nil "EP not sorted: sid ~D before ~D" s1 s2)))
+            ;; Same service index — check blob ordering
+            ((bytes< b1 b2)) ;; OK: ascending by blob
+            ((equalp b1 b2)
+             (error 'preimages-error
+                    :code :ep-duplicate
+                    :detail (format nil "EP duplicate entry for service ~D" s1)))
+            (t
+             (error 'preimages-error
+                    :code :ep-not-sorted
+                    :detail (format nil "EP not sorted by blob for service ~D" s1)))))))
+
 (defun integrate-preimages (raw-kvs preimages timeslot)
   "GP S9.2 / S4.18 -- Integrate EP preimages into delta's raw key-value pairs.
    For each (s, d) in EP:
      h = H(d), l = |d|
+     0. Validate: EP is sorted and without duplicates (GP §12.36)
      1. Validate: service s exists, lookup (h,l) exists with even-length status
      2. Store preimage blob: C(s, preimage-trie-h(h)) -> d
      3. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
-   Note: ordering of EP is checked during block validation, not here.
    Returns: new raw-kvs list."
+  ;; GP §12.36: EP must be sorted ascending by (s, d) with no duplicates
+  (validate-ep-ordering preimages)
   ;; -- Annotate: compute hashes --
   (let ((annotated
          (mapcar (lambda (p)

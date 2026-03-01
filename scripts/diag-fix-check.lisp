@@ -1,0 +1,28 @@
+(in-package #:jotl)
+
+(defun run-fix-check (trace-id step-num)
+  (let* ((base (asdf:system-source-directory :jotl))
+         (trace-dir (merge-pathnames (format nil "../jam-conformance/fuzz-reports/0.7.2/traces/~A/" trace-id) base))
+         (step-path (merge-pathnames (format nil "~8,'0D.bin" step-num) trace-dir)))
+    (format t "~&=== ~A step ~D ===~%" trace-id step-num)
+    (multiple-value-bind (pre-sigma block-cl post-sigma pre-root post-root)
+        (load-trace-step step-path)
+      (declare (ignore post-sigma))
+      (format t "  Pre root:  ~A~%" (bytes-to-hex-string pre-root))
+      (format t "  Post root: ~A~%" (bytes-to-hex-string post-root))
+      (format t "  Rejected by ref? ~A~%" (equalp pre-root post-root))
+      (handler-case
+          (multiple-value-bind (sigma-prime computed-root)
+              (import-block pre-sigma block-cl)
+            (declare (ignore sigma-prime))
+            (format t "  Got root:  ~A~%" (bytes-to-hex-string computed-root))
+            (format t "  Root match? ~A~%" (equalp computed-root post-root))
+            (if (equalp computed-root post-root)
+                (format t "  -> PASS~%")
+                (format t "  -> FAIL~%")))
+        (error (e)
+          (format t "  Error: ~A~%" e))))))
+
+;; Family B traces
+(run-fix-check "1766565819_2010" 225)
+(run-fix-check "1767871405_1375" 34)

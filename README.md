@@ -24,9 +24,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **715** |
-| Correct reject | **41** |
-| Fail | **4** |
+| Pass | **733** |
+| Correct reject | **25** |
+| Fail | **2** |
 
 ### Minifuzz (fuzz-v1 protocol)
 
@@ -35,20 +35,14 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | no\_forks | **102/102 ✓** |
 | forks | **102/102 ✓** |
 
-### Remaining failures (4 steps)
+### Remaining failures (2 steps)
 
 | Trace | Step | Root cause | Status |
 |-------|------|-----------|--------|
 | `1766255635_2557` | 153 | `DELTA-KVS` sub-key mismatch | investigating |
-| `1766565819_2010` | 225 | HR mismatch → block should be rejected | **fixed** (bug #12) |
-| `1767871405_1375` | 34 | Block rejected by ref (HR ok, unknown validation) | investigating |
 | `1767889897_3840` | 710 | `DELTA-KVS` sub-key mismatch | investigating |
 
-**Observations:**
-- **Family A** (traces 1 & 4): single `DELTA-KVS` diff — likely an encoding or sub-key computation issue.
-- **Family B** (traces 2 & 3): reference rejects the block (`pre_root == post_root`) but JOTL accepts it.
-  - Trace 2: `H_r` in header ≠ `state_root(σ)` → now rejected (bug #12).
-  - Trace 3: `H_r` matches, `preimages-error` handler added (bug #13), but another validation still missing.
+Both are a single `DELTA-KVS` diff — likely an encoding or sub-key computation issue.
 
 ### Fixed bugs
 
@@ -67,6 +61,7 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | 11 | `integrate-preimages` / `absorb-delta-effects` | `copy-list` → `copy-alist`: shallow copy corrupted parent state on forks |
 | 12 | `import-block` HR check | Missing `H_r ≡ Mr(σ)` pre-STF validation (GP §5.1) |
 | 13 | `import-block` preimages-error | `preimages-error` not caught → unhandled condition instead of rejection |
+| 14 | `integrate-preimages` EP ordering | Missing EP ordering validation `EP = [i ∈ EP __ i]` (GP §12.36) |
 
 ## Architecture
 
