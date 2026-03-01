@@ -40,7 +40,7 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | Suite | Result |
 |-------|--------|
 | no\_forks | **102/102 ✓** |
-| forks | **78/102** (mismatch at pair 79) |
+| forks | **102/102 ✓** |
 
 ### Fuzzer target (fuzz-v1)
 
@@ -86,6 +86,7 @@ python minifuzz/minifuzz.py --target-sock /tmp/jam_target.sock \
 | 8 | `lisp-pvm-run-accumulate` | Panic reversion used empty hash-tables instead of initial state for storage/lookup/preimages |
 | 9 | `absorb-delta-effects` | Missing `items_count` and `footprint` updates from PVM final state |
 | 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not implemented — all reports processed regardless of gas budget (GP §12.18) |
+| 11 | `integrate-preimages` / `absorb-delta-effects` | `copy-list` → `copy-alist`: shallow copy mutated parent sigma's delta-kvs cons cells, corrupting state for fork scenarios |
 
 ### Remaining failures (4 steps across 205 traces)
 

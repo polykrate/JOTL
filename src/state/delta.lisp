@@ -494,7 +494,10 @@
 
     ;; -- Validate necessity + Integrate --
     ;; Build key→cons-cell index for O(1) lookup/replace
-    (let ((new-kvs (copy-list raw-kvs))
+    ;; copy-alist (not copy-list!) so that replace-kv-val mutates only
+    ;; our copies of the cons cells, not the parent sigma's delta-kvs.
+    ;; Without this, fork scenarios corrupt the parent state.
+    (let ((new-kvs (copy-alist raw-kvs))
           (kv-index (make-hash-table :test 'equalp :size (length raw-kvs))))
       ;; Index all entries
       (dolist (kv new-kvs)
@@ -624,7 +627,10 @@
    TIMESLOT: current timeslot for last-accumulation-slot updates
    Returns: new raw-kvs list.
    Optimized: metadata-index for O(1) lookup, hash-table scope membership."
-  (let ((current-kvs (copy-list raw-kvs))
+  ;; copy-alist (not copy-list!) so that (setf (cdr meta-entry) ...) only
+  ;; mutates our copies, not the parent sigma's delta-kvs.
+  ;; Without this, fork scenarios corrupt the parent state.
+  (let ((current-kvs (copy-alist raw-kvs))
         ;; Pre-build metadata index: sid → kv cons cell for O(1) lookup
         (meta-index (make-hash-table :test 'eql)))
     ;; One pass to index all metadata entries
