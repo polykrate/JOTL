@@ -37,12 +37,18 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 ### Remaining failures (4 steps)
 
-| Trace | Step | Divergent components |
-|-------|------|----------------------|
-| `1766255635_2557` | 153 | `DELTA-KVS` |
-| `1766565819_2010` | 225 | `BETA ETA RHO TAU PI XI THETA` |
-| `1767871405_1375` | 34 | `BETA ETA RHO TAU PI XI DELTA-KVS` |
-| `1767889897_3840` | 710 | `DELTA-KVS` |
+| Trace | Step | Root cause | Status |
+|-------|------|-----------|--------|
+| `1766255635_2557` | 153 | `DELTA-KVS` sub-key mismatch | investigating |
+| `1766565819_2010` | 225 | HR mismatch → block should be rejected | **fixed** (bug #12) |
+| `1767871405_1375` | 34 | Block rejected by ref (HR ok, unknown validation) | investigating |
+| `1767889897_3840` | 710 | `DELTA-KVS` sub-key mismatch | investigating |
+
+**Observations:**
+- **Family A** (traces 1 & 4): single `DELTA-KVS` diff — likely an encoding or sub-key computation issue.
+- **Family B** (traces 2 & 3): reference rejects the block (`pre_root == post_root`) but JOTL accepts it.
+  - Trace 2: `H_r` in header ≠ `state_root(σ)` → now rejected (bug #12).
+  - Trace 3: `H_r` matches, `preimages-error` handler added (bug #13), but another validation still missing.
 
 ### Fixed bugs
 
@@ -59,6 +65,8 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | 9 | `absorb-delta-effects` | Missing `items_count` / `footprint` updates from PVM |
 | 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not implemented (GP §12.18) |
 | 11 | `integrate-preimages` / `absorb-delta-effects` | `copy-list` → `copy-alist`: shallow copy corrupted parent state on forks |
+| 12 | `import-block` HR check | Missing `H_r ≡ Mr(σ)` pre-STF validation (GP §5.1) |
+| 13 | `import-block` preimages-error | `preimages-error` not caught → unhandled condition instead of rejection |
 
 ## Architecture
 

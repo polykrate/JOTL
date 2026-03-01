@@ -169,6 +169,7 @@
 (defun import-block (sigma block)
   "M1 Block Import: Υ(σ, B) → (σ', state-root).
    Applies the STF and computes the Merkle root of σ'.
+   Pre-STF check: HR (parent state root in header) must match σ's state root.
    If any extrinsic validation fails (guarantee-error, assurance-error,
    disputes-error, safrole-error), the block is treated as invalid:
    the pre-state is returned unchanged (GP: invalid blocks are simply
@@ -176,24 +177,36 @@
    Emits chain logs when *chain-log-level* is set.
    Returns: (values σ' state-root)."
   (let* ((t0 (get-internal-real-time))
+         ;; Pre-STF check: HR ≡ Mr(σ) — GP §5.1
+         ;; The header's parent state root must match σ's actual state root.
+         ;; If not, the block is invalid → return σ unchanged.
+         (header-sr (funcall (funcall block :header) :state-root))
+         (sigma-sr  (funcall sigma :state-root))
          (sigma-prime
-          (prof :stf
-            (handler-case
-                (apply-block sigma block)
-              (guarantee-error (e)
-                (declare (ignore e))
-                sigma)
-              (assurance-error (e)
-                (declare (ignore e))
-                sigma)
-              (disputes-error (e)
-                (declare (ignore e))
-                sigma)
-              (safrole-error (e)
-                (declare (ignore e))
-                sigma))))
+          (if (not (equalp header-sr sigma-sr))
+              sigma ;; HR mismatch → block invalid, return σ unchanged
+              (prof :stf
+                (handler-case
+                    (apply-block sigma block)
+                  (guarantee-error (e)
+                    (declare (ignore e))
+                    sigma)
+                  (assurance-error (e)
+                    (declare (ignore e))
+                    sigma)
+                  (disputes-error (e)
+                    (declare (ignore e))
+                    sigma)
+                  (safrole-error (e)
+                    (declare (ignore e))
+                    sigma)
+                  (preimages-error (e)
+                    (declare (ignore e))
+                    sigma)))))
          (state-root (prof :merkle
-                       (funcall sigma-prime :state-root)))
+                       (if (eq sigma-prime sigma)
+                           sigma-sr ;; Reuse pre-computed root when block rejected
+                           (funcall sigma-prime :state-root))))
          (elapsed-ms (round (* 1000 (/ (- (get-internal-real-time) t0)
                                         internal-time-units-per-second)))))
     (when *chain-log-level*
