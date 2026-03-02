@@ -159,13 +159,14 @@
 
 (defun reg (vm i)
   "Read register φ_i. Returns 0 for out-of-range."
-  (declare (type pvm vm) (type (integer 0 12) i))
-  (aref (pvm-regs vm) i))
+  (declare (type pvm vm) (type fixnum i))
+  (aref (the (simple-array (unsigned-byte 64) (13)) (pvm-regs vm)) i))
 
 (defun set-reg (vm i val)
   "Write register φ'_i ← val (mod 2^64)."
-  (declare (type pvm vm) (type (integer 0 12) i))
-  (setf (aref (pvm-regs vm) i) (logand val +u64-max+)))
+  (declare (type pvm vm) (type fixnum i) (type (unsigned-byte 64) val))
+  (setf (aref (the (simple-array (unsigned-byte 64) (13)) (pvm-regs vm)) i)
+        (logand val +u64-max+)))
 
 (defsetf reg set-reg)
 
