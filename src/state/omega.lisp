@@ -107,17 +107,13 @@
    QUEUE:    list of (:report r :deps (h1 h2 ...))
    HASH-SET: list of 32-byte hash vectors (accumulated package hashes)
    Returns: edited queue."
-  (let ((filtered (remove-if (lambda (entry)
-                               (let ((pkg-hash (getf (getf (getf entry :report)
-                                                           :package-spec) :hash)))
-                                 (member pkg-hash hash-set :test #'equalp)))
-                             queue)))
-    (mapcar (lambda (entry)
-              (list :report (getf entry :report)
-                    :deps (remove-if (lambda (d)
-                                       (member d hash-set :test #'equalp))
-                                     (getf entry :deps))))
-            filtered)))
+  (loop for entry in queue
+        for pkg-hash = (getf (getf (getf entry :report) :package-spec) :hash)
+        unless (member pkg-hash hash-set :test #'equalp)
+        collect (list :report (getf entry :report)
+                      :deps (remove-if (lambda (d)
+                                         (member d hash-set :test #'equalp))
+                                       (getf entry :deps)))))
 
 ;;; ── Q(q) — Priority queue ordering (GP 12.8) ───────────────
 
@@ -126,12 +122,13 @@
    from a dependency queue. Returns: ordered list of work-reports."
   (if (null queue)
       nil
-      (let* ((ready    (remove-if-not (lambda (e)
-                                        (null (getf e :deps)))
-                                      queue))
-             (pending  (remove-if (lambda (e)
-                                    (null (getf e :deps)))
-                                  queue)))
+      (let ((ready nil) (pending nil))
+        (loop for e in queue
+              if (null (getf e :deps))
+                do (push e ready)
+              else
+                do (push e pending))
+        (setf ready (nreverse ready) pending (nreverse pending))
         (if (null ready)
             nil
             (let* ((ready-reports (mapcar (lambda (e) (getf e :report)) ready))
@@ -176,21 +173,16 @@
          (p-r-bang (accum-package-hashes r-bang)))
 
     (let ((q-slots (make-array e :initial-element nil))
-          (w-slots (make-array e :initial-element nil)))
+          (w-slots (make-array e :initial-element nil))
+          (combined-hashes (append xi-flattened p-r-bang)))
       (loop for i from 0 below e do
           (setf (aref q-slots i)
-              (accum-edit
-               (accum-edit (or (nth i omega-queues) nil) xi-flattened)
-               p-r-bang)))
+              (accum-edit (or (nth i omega-queues) nil) combined-hashes)))
       (loop for i from 0 below e do
           (setf (aref w-slots i)
-              (accum-edit
-               (accum-edit (or (nth i cleared-queues) nil) xi-flattened)
-               p-r-bang)))
+              (accum-edit (or (nth i cleared-queues) nil) combined-hashes)))
 
-      (let ((r-deferred-edited (accum-edit
-                                (accum-edit r-deferred xi-flattened)
-                                p-r-bang)))
+      (let ((r-deferred-edited (accum-edit r-deferred combined-hashes)))
         (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
         (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
 
@@ -205,15 +197,12 @@
              (resolved-hashes (accum-package-hashes ordered-resolved))
              (all-done-hashes (append p-r-bang resolved-hashes)))
 
-        (let ((new-omega-queues (make-list e :initial-element nil)))
-          (loop for i from 0 below e do
-            (setf (nth i new-omega-queues)
-                  (remove-if (lambda (entry)
-                               (let ((pkg-hash (getf (getf (getf entry :report)
-                                                           :package-spec)
-                                                     :hash)))
-                                 (member pkg-hash all-done-hashes :test #'equalp)))
-                             (aref w-slots i))))
+        (let ((new-omega-queues
+               (loop for i from 0 below e
+                     collect (remove-if (lambda (entry)
+                                          (let ((pkg-hash (getf (getf (getf entry :report) :package-spec) :hash)))
+                                            (member pkg-hash all-done-hashes :test #'equalp)))
+                                        (aref w-slots i)))))
           (values r-star new-omega-queues accumulated-hashes))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
