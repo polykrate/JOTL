@@ -43,7 +43,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; C × Q × hash32  (fixed-size, no compact prefix)
-  (:save :memo
+  (:encode :memo
     (let ((c (num-cores))
           (q +auth-queue-size+))
       (let ((buf (make-array (* c q 32) :element-type '(unsigned-byte 8)

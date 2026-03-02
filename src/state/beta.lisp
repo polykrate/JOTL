@@ -178,7 +178,7 @@
                       (ensure-bytes wp-hash))
           (return-from self rp)))))
 
-  (:save :memo
+  (:encode :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-sequence history #'encode-block-info)
                  (encode-sequence (coerce mmr-peaks 'list) #'encode-mmr-peak)))

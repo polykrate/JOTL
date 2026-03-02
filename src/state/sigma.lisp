@@ -15,10 +15,10 @@
 ;;;; Lazy decoding protocol:
 ;;;;   1. σ stores raw byte vectors for each component.
 ;;;;   2. The transition loads on demand:
-;;;;        (funcall sigma :load :tau) → τ closure
+;;;;        (funcall sigma :decode-segment :tau) → τ closure
 ;;;;      σ fetches its bytes, calls the component's decoder, returns the closure.
 ;;;;   3. After transitions, closures are re-encoded:
-;;;;        (make-sigma-state :tau (funcall tau-prime :save) ...)
+;;;;        (make-sigma-state :tau (funcall tau-prime :encode) ...)
 ;;;;
 ;;;; Encoding flow (σ → Merkle):
 ;;;;   σ pairs C(n) + raw bytes for each non-nil field → Merkle KV
@@ -62,23 +62,23 @@
   "Dispatch load for segment keyword KW on raw BYTES.
    Returns the loaded closure, or signals error for unknown KW."
   (ecase kw
-    (:tau    (load-tau-state bytes 0))
-    (:eta    (load-eta-state bytes 0))
-    (:kappa  (load-kappa-state bytes 0))
-    (:lambda (load-lambda-state bytes 0))
-    (:iota   (load-iota-state bytes 0))
-    (:beta   (load-beta-state bytes 0))
-    (:psi    (load-psi-state bytes 0))
-    (:rho    (load-rho-state bytes 0))
-    (:gamma  (load-gamma-state bytes 0))
-    (:pi     (load-pi-state bytes 0))
+    (:tau    (decode-tau-state bytes 0))
+    (:eta    (decode-eta-state bytes 0))
+    (:kappa  (decode-kappa-state bytes 0))
+    (:lambda (decode-lambda-state bytes 0))
+    (:iota   (decode-iota-state bytes 0))
+    (:beta   (decode-beta-state bytes 0))
+    (:psi    (decode-psi-state bytes 0))
+    (:rho    (decode-rho-state bytes 0))
+    (:gamma  (decode-gamma-state bytes 0))
+    (:pi     (decode-pi-state bytes 0))
     ;; Codec-only closures (no :transition — modified by accumulate.lisp):
-    (:alpha  (load-alpha-state bytes 0))
-    (:phi    (load-phi-state bytes 0))
-    (:chi    (load-chi-state bytes 0))
-    (:omega  (load-omega-state bytes 0))
-    (:xi     (load-xi-state bytes 0))
-    (:theta  (load-theta-state bytes 0))
+    (:alpha  (decode-alpha-state bytes 0))
+    (:phi    (decode-phi-state bytes 0))
+    (:chi    (decode-chi-state bytes 0))
+    (:omega  (decode-omega-state bytes 0))
+    (:xi     (decode-xi-state bytes 0))
+    (:theta  (decode-theta-state bytes 0))
     ;; δ is loaded via :load special case (uses delta-kvs, not segment).
     ))
 
@@ -125,11 +125,11 @@
       (:theta   theta)
       (otherwise nil)))
 
-  ;; ── Load — lazy decode from bytes ───────────────────────────
-  ;; (funcall sigma :load :tau) → τ closure (or NIL if no bytes)
-  ;; σ fetches raw bytes and dispatches to the right load-NAME loader.
+  ;; ── Decode segment — lazy decode from bytes ─────────────────
+  ;; (funcall sigma :decode-segment :tau) → τ closure (or NIL if no bytes)
+  ;; σ fetches raw bytes and dispatches to the right decode-NAME decoder.
   ;; δ is special: built from delta-kvs (multi-key), not from a segment.
-  (:load (component-kw)
+  (:decode-segment (component-kw)
     (if (eq component-kw :delta)
         (when delta-kvs (make-delta-state :raw-kvs delta-kvs))
         (let ((bytes (self :segment component-kw)))

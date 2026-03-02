@@ -466,7 +466,7 @@
   ;; Not encoded (not part of C(10)), carried in memory for accumulate.
   ;; Accessible via auto-generated :reported field accessor.
 
-  (:save :memo
+  (:encode :memo
     (apply #'concatenate '(vector (unsigned-byte 8))
            (mapcar #'encode-rho-assignment assignments)))
 

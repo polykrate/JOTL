@@ -587,7 +587,7 @@
                     :iota             iota     ;; ι closure — sovereign
                     :phi              phi      ;; ϕ closure — sovereign
                     :timeslot         timeslot
-                    :entropy          (when eta (funcall eta :save))
+                    :entropy          (when eta (funcall eta :encode))
                     :header-hash      (when header (funcall header :hash))
                     ;; GP (12.25): g = max(G_T, G_A·C + Σ_{x∈V(χ_Z)}(x))
                     :remaining-gas    (max (max-block-gas)

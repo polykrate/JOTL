@@ -34,7 +34,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; C × (compact-len, hash32*)
-  (:save :memo
+  (:encode :memo
     (let ((c (num-cores)))
       (let ((bufs (loop for core-idx below c
                         for pool = (when (< core-idx (length pools))

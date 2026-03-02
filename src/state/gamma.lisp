@@ -341,7 +341,7 @@
     (nth (seal-key-index slot) (getf sealing :data)))
 
   ;; ── Codec ──────────────────────────────────────────────────
-  (:save :memo
+  (:encode :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-full-validator-sequence pending-keys)
                  (if ring-commitment
@@ -672,7 +672,7 @@
   (cond
     ((and (null a) (null b)) t)
     ((or (null a) (null b)) nil)
-    (t (equalp (funcall a :save) (funcall b :save)))))
+    (t (equalp (funcall a :encode) (funcall b :encode)))))
 
 (defun compare-tickets-marks (a b)
   "Compare two tickets marks (closures or nil).
@@ -681,7 +681,7 @@
   (cond
     ((and (null a) (null b)) t)
     ((or (null a) (null b)) nil)
-    (t (equalp (funcall a :save) (funcall b :save)))))
+    (t (equalp (funcall a :encode) (funcall b :encode)))))
 
 (defun validate-header-safrole (header tau tau-prime gamma-prev eta eta-prime
                                  gamma-prime kappa-prime)
@@ -714,7 +714,7 @@
     (validate-author-index author-idx)
     ;; ── HS: seal VRF verification (GP §6.15/6.16) ──
     ;; ad = EU(H) — header serialization without seal (GP §6.4)
-    (let ((unsealed-header (funcall header :save-unsealed)))
+    (let ((unsealed-header (funcall header :encode-unsealed)))
       (validate-seal slot author-idx seal gamma-prime eta-3-prime gamma-z-prime
                      unsealed-header :kappa-prime kappa-prime)
       ;; ── HV: entropy source VRF verification (GP §6.17) ──

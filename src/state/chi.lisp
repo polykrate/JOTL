@@ -118,7 +118,7 @@
    (emitted-queues nil))       ;; transient — new ϕ queues from :transition
 
   ;; ── Codec ──────────────────────────────────────────────────
-  (:save raw)
+  (:encode raw)
 
   (:decode (bytes offset)
     (let ((segment-bytes (subseq bytes offset)))

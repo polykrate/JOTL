@@ -6,8 +6,8 @@
 ;;;; A closure is a deterministic, immutable, message-dispatching object:
 ;;;;   - Holds immutable data (fields)
 ;;;;   - Derives lazy/memoized computed properties
-;;;;   - Saves itself to bytes (:save)
-;;;;   - Loads from bytes via top-level load-NAME function
+;;;;   - Encodes itself to bytes (:encode)
+;;;;   - Decodes from bytes via top-level decode-NAME function
 ;;;;   - Answers semantic queries via method messages
 ;;;;   - Optionally transforms itself into its prime via :transition
 ;;;;
@@ -24,13 +24,13 @@
 
    Generates:
      (make-NAME &key field1 field2 ...) → closure   [internal constructor]
-     (load-NAME bytes offset)           → (values closure consumed)  [when :decode present]
+     (decode-NAME bytes offset)           → (values closure consumed)  [when :decode present]
 
    FIELD-SPECS: (PARAM DEFAULT) or (PARAM DEFAULT :key MSG-KEY)
    EXTRA-CLAUSES:
      (:key BODY)                    — computed on every access
      (:key :memo BODY)              — lazy-cached
-     (:decode (BYTES OFFSET) BODY)  — loader (generates top-level load-NAME)
+     (:decode (BYTES OFFSET) BODY)  — decoder (generates top-level decode-NAME)
      (:key (PARAMS) BODY)           — method with positional args
      (:transition (&key ...) BODY)  — STF: (funcall obj :transition :k v ...)
      (:transition-NAME (&key ...) BODY) — multi-stage STF"
@@ -90,7 +90,7 @@
     (setf transition-clauses (nreverse transition-clauses))
     ;; ── Generate ──
     (let ((constructor (intern (format nil "MAKE-~A" name)))
-          (loader-fn (when decode-clause (intern (format nil "LOAD-~A" name))))
+          (decoder-fn (when decode-clause (intern (format nil "DECODE-~A" name))))
           (memo-vars (loop for mc in memo-clauses
                            collect (gensym (format nil "MEMO-~A-" (getf mc :key))))))
       `(progn
@@ -122,8 +122,8 @@
                              (error ,(format nil "Unknown ~A message: ~~a" name) msg))))))
                #'self)))
          ,@(when decode-clause
-             `((defun ,loader-fn ,(getf decode-clause :params)
-                 ,(format nil "Load ~A from bytes. Public standalone loader." name)
+             `((defun ,decoder-fn ,(getf decode-clause :params)
+                 ,(format nil "Decode ~A from bytes. Public standalone decoder." name)
                  ,(getf decode-clause :body))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════

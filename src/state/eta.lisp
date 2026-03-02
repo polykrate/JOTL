@@ -29,7 +29,7 @@
   (:seal-entropy        eta-3)   ;; η₃: seal validation entropy
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:save :memo
+  (:encode :memo
     (concatenate '(vector (unsigned-byte 8))
                  (or eta-0 +zero-hash+)
                  (or eta-1 +zero-hash+)

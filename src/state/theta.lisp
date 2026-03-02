@@ -41,7 +41,7 @@
               (make-array 1 :element-type '(unsigned-byte 8)
                             :initial-element 0))))
 
-  (:save raw)
+  (:encode raw)
 
   (:decode (bytes offset)
     (values (make-theta-state :raw (subseq bytes offset))

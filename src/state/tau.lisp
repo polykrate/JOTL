@@ -25,7 +25,7 @@
   ((slot 0))
 
   ;; ── Codec ────────────────────────────────────────────────────
-  (:save :memo (E4 slot))
+  (:encode :memo (E4 slot))
   (:decode (bytes offset)
     (multiple-value-bind (val consumed) (decode-u32 bytes offset)
       (values (make-tau-state :slot val) consumed)))

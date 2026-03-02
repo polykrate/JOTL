@@ -897,7 +897,7 @@
 
   ;; δ's :save returns the multi-key Merkle pairs — σ stores them as delta-kvs.
   ;; Unlike segment components (single byte vector), δ is a list of (key . bytes).
-  (:save raw-kvs)
+  (:encode raw-kvs)
 
   ;; ── Lazy SID index — O(1) lookups instead of O(N) scans ──
   (:sid-index :memo

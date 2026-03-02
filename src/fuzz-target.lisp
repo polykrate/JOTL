@@ -110,8 +110,8 @@
       ;; ── Initialize ──
       (#.+fuzz-initialize+
        (let ((pos 1))
-         ;; Decode header (reuse existing load-header)
-         (multiple-value-bind (header h-consumed) (load-header bytes pos)
+         ;; Decode header (reuse existing decode-header)
+         (multiple-value-bind (header h-consumed) (decode-header bytes pos)
            (incf pos h-consumed)
            ;; Decode KVs
            (multiple-value-bind (kvs kv-consumed) (decode-fuzz-kvs bytes pos)
@@ -130,7 +130,7 @@
 
       ;; ── ImportBlock ──
       (#.+fuzz-import-block+
-       (multiple-value-bind (block _consumed) (load-block bytes 1)
+       (multiple-value-bind (block _consumed) (decode-block bytes 1)
          (declare (ignore _consumed))
          (values :import-block block)))
 

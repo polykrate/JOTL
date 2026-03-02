@@ -284,7 +284,7 @@
    (services-raw nil))
 
   ;; ── Codec ────────────────────────────────────────────────────
-  (:save :memo
+  (:encode :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-validators-statistics
                   (or vals-curr (make-zero-validator-stats)))

@@ -241,7 +241,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, queue-entry*)
-  (:save :memo
+  (:encode :memo
     (let ((bufs (mapcar (lambda (queue)
                           (encode-sequence (or queue '())
                                           #'encode-omega-queue-entry))

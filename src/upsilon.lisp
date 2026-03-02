@@ -7,7 +7,7 @@
 ;;;; σ is the meta-closure (pure byte store). Its :transition message
 ;;;; delegates here: (funcall sigma :transition :block B) calls
 ;;;; transition-state(σ, B), which loads components lazily via
-;;;; (funcall sigma :load :kw) and re-encodes them back to bytes for σ'.
+;;;; (funcall sigma :decode-segment :kw) and re-encodes them back to bytes for σ'.
 ;;;;
 ;;;; Dependency graph from GP §4.2.1:
 ;;;;
@@ -61,7 +61,7 @@
 (defun transition-state (sigma block)
   "Υ-inner: σ → σ' — Pure state transition following GP dependency graph.
    σ is a byte store. Components are loaded lazily per wave via
-   (funcall sigma :load :kw), then re-encoded back into σ' bytes."
+   (funcall sigma :decode-segment :kw), then re-encoded back into σ' bytes."
   (let* (;; ── Block is a message, not an actor ──
          ;; H is a closure (sovereignty: hash, EU(H), genesis).
          ;; Extrinsics are raw data — consumed directly by closures.
@@ -75,19 +75,19 @@
     ;; ═══════════════════════════════════════════════════════════
     ;; WAVE 0 — τ' < (H)
     ;; ═══════════════════════════════════════════════════════════
-    (let* ((tau       (funcall sigma :load :tau))
+    (let* ((tau       (funcall sigma :decode-segment :tau))
            (tau-prime (funcall tau :transition :header h)))
 
       ;; ═══════════════════════════════════════════════════════════
       ;; WAVE 1 — independent, all depend on prior σ + B only
       ;; ═══════════════════════════════════════════════════════════
-      (let* ((beta        (funcall sigma :load :beta))
-             (eta         (funcall sigma :load :eta))
-             (kappa       (funcall sigma :load :kappa))
-             (lambda-prev (funcall sigma :load :lambda))
-             (gamma       (funcall sigma :load :gamma))
-             (psi         (funcall sigma :load :psi))
-             (rho         (funcall sigma :load :rho))
+      (let* ((beta        (funcall sigma :decode-segment :beta))
+             (eta         (funcall sigma :decode-segment :eta))
+             (kappa       (funcall sigma :decode-segment :kappa))
+             (lambda-prev (funcall sigma :decode-segment :lambda))
+             (gamma       (funcall sigma :decode-segment :gamma))
+             (psi         (funcall sigma :decode-segment :psi))
+             (rho         (funcall sigma :decode-segment :rho))
              ;; (4.6)  β†H < (H, βH)
              (beta-dagger  (funcall beta :transition-dagger :header h))
              ;; (4.8)  η'  < (H, τ, η)
@@ -112,7 +112,7 @@
         ;; ═══════════════════════════════════════════════════════════
         ;; WAVE 2 — depends on Wave 1
         ;; ═══════════════════════════════════════════════════════════
-        (let* ((iota (funcall sigma :load :iota))
+        (let* ((iota (funcall sigma :decode-segment :iota))
                ;; (4.7)  γ'  < (H, T, ET, γ, ι, η', κ', ψ')
                (gamma-prime (funcall gamma :transition
                                      :tau tau :tau-prime tau-prime
@@ -136,8 +136,8 @@
           ;; WAVE 3 — depends on Wave 2
           ;; ═══════════════════════════════════════════════════════════
           (let* (;; Load closures needed by Wave 3
-                 (alpha (funcall sigma :load :alpha))
-                 (delta (funcall sigma :load :delta))
+                 (alpha (funcall sigma :decode-segment :alpha))
+                 (delta (funcall sigma :decode-segment :delta))
 
                  ;; (4.14) ρ'  < (EG, ρ‡, κ', τ', ψ', α, δ, β†, λ, η')
                  (rho-prime (funcall rho-ddagger :transition
@@ -153,10 +153,10 @@
 
                  ;; (4.16) (ω', ξ', δ†, χ', ι', ϕ', θ', S) < (R*, ω, ξ, δ, χ, ι, ϕ, τ, τ')
                  (r-star (funcall rho-ddagger :reported))
-                 (omega  (funcall sigma :load :omega))
-                 (xi     (funcall sigma :load :xi))
-                 (chi    (funcall sigma :load :chi))
-                 (phi    (funcall sigma :load :phi))
+                 (omega  (funcall sigma :decode-segment :omega))
+                 (xi     (funcall sigma :decode-segment :xi))
+                 (chi    (funcall sigma :decode-segment :chi))
+                 (phi    (funcall sigma :decode-segment :phi))
                 (accum  (prof :accumulate
                          (transition-accumulate
                           r-star omega xi delta chi iota phi
@@ -177,7 +177,7 @@
             ;; ═══════════════════════════════════════════════════════════
             ;; WAVE 4 — merge / join
             ;; ═══════════════════════════════════════════════════════════
-            (let* ((pi-stats (funcall sigma :load :pi))
+            (let* ((pi-stats (funcall sigma :decode-segment :pi))
 
                    ;; (4.19) α' < (H, EC, ϕ', α)
                    ;; ρ travels through the transition — ask it directly.
@@ -215,22 +215,22 @@
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
               (make-sigma-state
-               :alpha   (funcall alpha-prime :save)
-               :beta    (funcall beta-prime :save)
-               :gamma   (funcall gamma-prime :save)
+               :alpha   (funcall alpha-prime :encode)
+               :beta    (funcall beta-prime :encode)
+               :gamma   (funcall gamma-prime :encode)
                ;; no :delta segment — δ uses multi-key delta-kvs
-               :eta     (funcall eta-prime :save)
-               :iota    (funcall iota-prime :save)
-               :kappa   (funcall kappa-prime :save)
-               :lambda* (funcall lambda-prime :save)
-               :rho     (funcall rho-prime :save)
-               :tau     (funcall tau-prime :save)
-               :phi     (funcall phi-prime :save)
-               :chi     (funcall chi-prime :save)
-               :psi     (funcall psi-prime :save)
-               :pi*     (funcall pi-prime :save)
-               :omega   (funcall omega-prime :save)
-               :xi      (funcall xi-prime :save)
-               :theta   (funcall theta-prime :save)
+               :eta     (funcall eta-prime :encode)
+               :iota    (funcall iota-prime :encode)
+               :kappa   (funcall kappa-prime :encode)
+               :lambda* (funcall lambda-prime :encode)
+               :rho     (funcall rho-prime :encode)
+               :tau     (funcall tau-prime :encode)
+               :phi     (funcall phi-prime :encode)
+               :chi     (funcall chi-prime :encode)
+               :psi     (funcall psi-prime :encode)
+               :pi*     (funcall pi-prime :encode)
+               :omega   (funcall omega-prime :encode)
+               :xi      (funcall xi-prime :encode)
+               :theta   (funcall theta-prime :encode)
                :delta-kvs (prof :delta-save
-                            (funcall delta-prime :save))))))))))
+                            (funcall delta-prime :encode))))))))))

@@ -82,7 +82,7 @@
             collect (getf (nth idx validators) :bandersnatch))))
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:save :memo (encode-full-validator-sequence validators))
+  (:encode :memo (encode-full-validator-sequence validators))
 
   (:decode (bytes offset)
     (multiple-value-bind (vals consumed)

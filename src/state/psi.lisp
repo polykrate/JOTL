@@ -281,7 +281,7 @@
   ;; Not encoded (not part of C(5)), just carried in memory.
   ;; Accessible via auto-generated :v-list field accessor.
 
-  (:save :memo
+  (:encode :memo
     (concatenate '(vector (unsigned-byte 8))
                  (encode-sequence good #'encode-hash-32)
                  (encode-sequence bad #'encode-hash-32)

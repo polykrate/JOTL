@@ -62,7 +62,7 @@
 
   ;; ── Codec ────────────────────────────────────────────────
   ;; E × (compact-len, hash32*)
-  (:save :memo
+  (:encode :memo
     (let ((bufs (mapcar (lambda (slot)
                           (encode-sequence (or slot '())
                                           (lambda (h) h)))  ;; hash is already 32 bytes
