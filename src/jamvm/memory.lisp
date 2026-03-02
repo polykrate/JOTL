@@ -38,9 +38,9 @@
    Pages are 4096 bytes, indexed by page number (address / Z_P).
    Access modes tracked per page. Unallocated pages are :inaccessible."
   ;; page-index → (simple-array (unsigned-byte 8) (4096))
-  (pages   (make-hash-table :test 'eql) :type hash-table)
-  ;; page-index → :read-only | :read-write
-  (access  (make-hash-table :test 'eql) :type hash-table)
+  (pages   (make-array 1048576 :initial-element nil) :type simple-vector)
+  ;; page-index → :read-only | :read-write | :inaccessible
+  (access  (make-array 1048576 :initial-element :inaccessible) :type simple-vector)
   ;; Heap tracking
   (heap-base 0 :type (unsigned-byte 32))  ; start of heap region
   (heap-top  0 :type (unsigned-byte 32))  ; current sbrk pointer
@@ -64,19 +64,19 @@
 
 (defun page-access (mem page-idx)
   "Get access mode for page PAGE-IDX. Returns :inaccessible if unmapped."
-  (gethash page-idx (mem-access mem) :inaccessible))
+  (aref (mem-access mem) page-idx))
 
 (defun (setf page-access) (mode mem page-idx)
   "Set access mode for page PAGE-IDX."
-  (setf (gethash page-idx (mem-access mem)) mode))
+  (setf (aref (mem-access mem) page-idx) mode))
 
 (defun ensure-page (mem page-idx)
   "Return the page data array for PAGE-IDX, creating if needed."
-  (or (gethash page-idx (mem-pages mem))
+  (or (aref (mem-pages mem) page-idx)
       (let ((page (make-array +page-size+
                     :element-type '(unsigned-byte 8)
                     :initial-element 0)))
-        (setf (gethash page-idx (mem-pages mem)) page)
+        (setf (aref (mem-pages mem) page-idx) page)
         page)))
 
 (defun page-mapped-p (mem page-idx)
@@ -103,7 +103,7 @@
           (progn
             (when (eq (page-access mem p0) :inaccessible)
               (return-from mem-read (values nil address)))
-            (let ((page (gethash p0 (mem-pages mem))))
+            (let ((page (aref (mem-pages mem) p0)))
               (if page
                   (let ((off (page-offset address)))
                     (dotimes (i length)
@@ -119,7 +119,7 @@
                 (let ((mode (page-access mem pidx)))
                   (when (eq mode :inaccessible)
                     (return-from mem-read (values nil addr))))
-                (let ((page (gethash pidx (mem-pages mem))))
+                (let ((page (aref (mem-pages mem) pidx)))
                   (if page
                       (setf (aref result i) (aref page poff))
                       (setf (aref result i) 0))))))))))  ; mapped but no data → 0
@@ -157,7 +157,7 @@
   (let ((pidx (page-index addr)))
     (when (eq (page-access mem pidx) :inaccessible)
       (return-from mem-read-u8 (values 0 addr)))
-    (let ((page (gethash pidx (mem-pages mem))))
+    (let ((page (aref (mem-pages mem) pidx)))
       (values (if page (aref page (page-offset addr)) 0) nil))))
 
 (defun mem-read-u16 (mem addr)
@@ -170,7 +170,7 @@
         (progn
           (when (eq (page-access mem p0) :inaccessible)
             (return-from mem-read-u16 (values 0 addr)))
-          (let ((page (gethash p0 (mem-pages mem)))
+          (let ((page (aref (mem-pages mem) p0))
                 (off  (page-offset addr)))
             (if page
                 (values (logior (aref page off) (ash (aref page (1+ off)) 8)) nil)
@@ -190,7 +190,7 @@
         (progn
           (when (eq (page-access mem p0) :inaccessible)
             (return-from mem-read-u32 (values 0 addr)))
-          (let ((page (gethash p0 (mem-pages mem)))
+          (let ((page (aref (mem-pages mem) p0))
                 (off  (page-offset addr)))
             (if page
                 (values (logior (aref page off)
@@ -217,7 +217,7 @@
         (progn
           (when (eq (page-access mem p0) :inaccessible)
             (return-from mem-read-u64 (values 0 addr)))
-          (let ((page (gethash p0 (mem-pages mem)))
+          (let ((page (aref (mem-pages mem) p0))
                 (off  (page-offset addr)))
             (if page
                 (let ((val 0))
@@ -345,4 +345,8 @@
 
 (defun mem-page-count (mem)
   "Number of mapped pages."
-  (hash-table-count (mem-pages mem)))
+  (let ((count 0))
+    (dotimes (i 1048576)
+      (when (aref (mem-pages mem) i)
+        (incf count)))
+    count))

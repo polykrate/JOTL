@@ -84,11 +84,21 @@
      :host-call  → ℏ ecalli (id in pvm-exit-arg)
      :page-fault → ∃ fault  (page-addr in pvm-exit-arg)"
   (let ((pc (pvm-pc vm)))
+    (declare (type (unsigned-byte 32) pc))
     (setf *vm-last-step-pc* pc)
 
-    ;; ── 1. Decode instruction at ι ──
-    (multiple-value-bind (info skip args) (decode-instruction vm pc)
-      (unless info
+    ;; ── 1. Fetch pre-decoded instruction at ι ──
+    (let* ((decoded (pvm-decoded-code vm))
+           (instr (if (< pc (length (the simple-vector decoded)))
+                      (let ((cached (aref (the simple-vector decoded) pc)))
+                        (if cached
+                            cached
+                            (let ((new-instr (decode-single-instr vm pc)))
+                              (setf (aref (the simple-vector decoded) pc) new-instr)
+                              new-instr)))
+                      nil)))
+
+      (unless instr
         ;; ── Trap diagnostic logging ──
         (when *vm-trap-log*
           (let ((raw-byte (if (< pc (length (pvm-code vm)))
@@ -97,129 +107,128 @@
             (push (list :pc pc :raw-opcode raw-byte :bitmask-bit bm-bit
                         :effective (pvm-opcode vm pc))
                   *vm-trap-log*)))
-        ;; Unknown opcode / out of bounds → ♯ panic
+        ;; Out of bounds → ♯ panic
         (setf (pvm-status vm) +exit-panic+)
         (return-from vm-step :panic))
 
-      ;; ── Opcode counting / trace logging (skip when disabled) ──
-      (when (or *vm-opcode-counts* *vm-trace-stream*)
-        (let ((raw-byte (if (< pc (length (pvm-code vm)))
-                            (aref (pvm-code vm) pc) 0)))
-          (when *vm-opcode-counts*
-            (incf (aref *vm-opcode-counts* raw-byte)))
-          (when *vm-trace-stream*
-            (incf *vm-step-counter*)
-            (format *vm-trace-stream*
-                    "~D ~D ~D ~D~{ ~D~}~%"
-                    *vm-step-counter* pc raw-byte (pvm-gas vm)
-                    (coerce (pvm-regs vm) 'list)))))
+      (locally (declare (type pvm-instr instr))
+        (let ((handler (instr-handler instr))
+              (skip (instr-skip instr))
+              (cost (instr-gas-cost instr))
+              (memory-p (instr-memory-p instr)))
 
-      ;; ── 2. Charge gas: ϱ' = ϱ − ϱ_Δ ──
-      (let ((cost (opi-gas-cost info)))
+        (unless handler
+          ;; Unknown opcode → ♯ panic
+          (setf (pvm-status vm) +exit-panic+)
+          (return-from vm-step :panic))
+
+        ;; ── Opcode counting / trace logging (skip when disabled) ──
+        (when (or *vm-opcode-counts* *vm-trace-stream*)
+          (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                              (aref (pvm-code vm) pc) 0)))
+            (when *vm-opcode-counts*
+              (incf (aref *vm-opcode-counts* raw-byte)))
+            (when *vm-trace-stream*
+              (incf *vm-step-counter*)
+              (format *vm-trace-stream*
+                      "~D ~D ~D ~D~{ ~D~}~%"
+                      *vm-step-counter* pc raw-byte (pvm-gas vm)
+                      (coerce (pvm-regs vm) 'list)))))
+
+        ;; ── 2. Charge gas: ϱ' = ϱ − ϱ_Δ ──
         (decf (pvm-gas vm) cost)
         ;; If ϱ' < 0 → ∞ (out of gas).  Gas is always deducted.
         (when (minusp (pvm-gas vm))
           (setf (pvm-status vm) +exit-oog+)
-          (return-from vm-step :oog)))
+          (return-from vm-step :oog))
 
-      ;; ── 3. Save registers for fault rollback (A.8) ──
-      ;; Only needed for memory instructions that can fault.
-      ;; Non-memory instructions (ALU, control) never produce :fault.
-      ;; Gas (ϱ) stays deducted per GP: "some gas is always charged
-      ;; whenever execution is attempted, even if no instruction is
-      ;; effectively executed and machine state is unchanged."
-      ;; Uses pre-allocated saved-regs buffer (zero allocation).
-      (let ((saved-regs (when (opi-memory-p info)
-                          (replace (pvm-saved-regs vm) (pvm-regs vm))
-                          (pvm-saved-regs vm))))
+        ;; ── 3. Save registers for fault rollback (A.8) ──
+        (let ((saved-regs (when memory-p
+                            (replace (pvm-saved-regs vm) (pvm-regs vm))
+                            (pvm-saved-regs vm))))
 
-        ;; ── 4. Execute instruction ──
-        (let ((result (dispatch-instruction info vm args)))
-          (case result
-            ;; ► Continue → advance PC: ι' = ι + 1 + skip(ι)
-            (:continue
-             (setf (pvm-pc vm) (u32 (+ pc 1 skip)))
-             nil)
+          ;; ── 4. Execute instruction ──
+          ;; instr is both the pvm-instr and a pvm-args struct
+          (let ((result (funcall handler vm instr)))
+            (case result
+              ;; ► Continue → advance PC: ι' = ι + 1 + skip(ι)
+              (:continue
+               (setf (pvm-pc vm) (u32 (+ pc 1 skip)))
+               nil)
 
-            ;; ► Branch → ι' = target (stored in pvm-exit-arg by do-branch/do-djump)
-            (:branch
-             (setf (pvm-pc vm) (u32 (pvm-exit-arg vm)))
-             nil)
+              ;; ► Branch → ι' = target (stored in pvm-exit-arg by do-branch/do-djump)
+              (:branch
+               (setf (pvm-pc vm) (u32 (pvm-exit-arg vm)))
+               nil)
 
-            ;; ■ Halt
-            (:halt
-             (setf (pvm-status vm) +exit-halt+
-                   (pvm-pc vm) 0)
-             :halt)
+              ;; ■ Halt
+              (:halt
+               (setf (pvm-status vm) +exit-halt+
+                     (pvm-pc vm) 0)
+               :halt)
 
-            ;; ♯ Trap/Panic
-            ((:trap :panic)
-             (setf (pvm-status vm) +exit-panic+
-                   (pvm-pc vm) 0)
-             :panic)
+              ;; ♯ Trap/Panic
+              ((:trap :panic)
+               (setf (pvm-status vm) +exit-panic+
+                     (pvm-pc vm) 0)
+               :panic)
 
-            ;; ℏ Host call → ε = ℏ, exit-arg = id (stored by ecalli handler), PC unchanged
-            (:host-call
-             (setf (pvm-status vm) +exit-host-call+
-                   (pvm-pc vm) pc)          ; PC stays at ecalli
-             :host-call)
+              ;; ℏ Host call → ε = ℏ, exit-arg = id (stored by ecalli handler), PC unchanged
+              (:host-call
+               (setf (pvm-status vm) +exit-host-call+
+                     (pvm-pc vm) pc)          ; PC stays at ecalli
+               :host-call)
 
-            ;; ∃ Page fault (A.8) — ROLLBACK (ι, φ), KEEP ϱ' charged
-            ;; Fault address already in pvm-exit-arg (set by do-load/do-store)
-            (:fault
-             (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
+              ;; ∃ Page fault (A.8) — ROLLBACK (ι, φ), KEEP ϱ' charged
+              (:fault
+               (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
+                 ;; Rollback: restore (ι, φ) to pre-instruction values
+                 (replace (pvm-regs vm) saved-regs)
+                 (setf (pvm-pc  vm) pc)
 
-               ;; Rollback: restore (ι, φ) to pre-instruction values
-               ;; Gas (ϱ') stays deducted — GP: gas always charged on attempt
-               (replace (pvm-regs vm) saved-regs)
-               (setf (pvm-pc  vm) pc)
+                 (cond
+                   ;; (A.8) min(x) mod 2³² < 2¹⁶ → ♯ panic
+                   ((< fault-addr #x10000)
+                    (setf (pvm-status vm) +exit-panic+)
+                    :panic)
 
-               (cond
-                 ;; (A.8) min(x) mod 2³² < 2¹⁶ → ♯ panic
-                 ((< fault-addr #x10000)
-                  (setf (pvm-status vm) +exit-panic+)
-                  :panic)
+                   ;; (A.8) otherwise → ∃ with page-aligned address
+                   (t
+                    (let ((page-addr (logand fault-addr (lognot #xFFF))))
+                      (setf (pvm-status vm) +exit-page-fault+
+                            (pvm-exit-arg vm) page-addr)
+                      :page-fault)))))
 
-                 ;; (A.8) otherwise → ∃ with page-aligned address
-                 (t
-                  (let ((page-addr (logand fault-addr (lognot #xFFF))))
-                    (setf (pvm-status vm) +exit-page-fault+
-                          (pvm-exit-arg vm) page-addr)
-                    :page-fault)))))
+              ;; ∃ Partial fault (memset) — NO ROLLBACK, preserve partial progress
+              (:partial-fault
+               (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
+                 (setf (pvm-pc vm) pc)
+                 (cond
+                   ((< fault-addr #x10000)
+                    (setf (pvm-status vm) +exit-panic+)
+                    :panic)
+                   (t
+                    (let ((page-addr (logand fault-addr (lognot #xFFF))))
+                      (setf (pvm-status vm) +exit-page-fault+
+                            (pvm-exit-arg vm) page-addr)
+                      :page-fault)))))
 
-            ;; ∃ Partial fault (memset) — NO ROLLBACK, preserve partial progress
-            ;; Fault address already in pvm-exit-arg
-            (:partial-fault
-             (let* ((fault-addr (logand (pvm-exit-arg vm) +u32-max+)))
-               ;; Keep current registers/gas (partial progress)
-               ;; Only restore PC to current instruction
-               (setf (pvm-pc vm) pc)
-               (cond
-                 ((< fault-addr #x10000)
-                  (setf (pvm-status vm) +exit-panic+)
-                  :panic)
-                 (t
-                  (let ((page-addr (logand fault-addr (lognot #xFFF))))
-                    (setf (pvm-status vm) +exit-page-fault+
-                          (pvm-exit-arg vm) page-addr)
-                    :page-fault)))))
+              ;; ∞ OOG from instruction (e.g. sbrk page allocation)
+              (:oog
+               (setf (pvm-status vm) +exit-oog+)
+               :oog)
 
-            ;; ∞ OOG from instruction (e.g. sbrk page allocation)
-            (:oog
-             (setf (pvm-status vm) +exit-oog+)
-             :oog)
+              ;; ∞ Partial OOG (memset) — NO ROLLBACK, preserve partial progress
+              (:partial-oog
+               (setf (pvm-pc vm) pc
+                     (pvm-status vm) +exit-oog+)
+               :oog)
 
-            ;; ∞ Partial OOG (memset) — NO ROLLBACK, preserve partial progress
-            (:partial-oog
-             (setf (pvm-pc vm) pc
-                   (pvm-status vm) +exit-oog+)
-             :oog)
-
-            ;; Unknown → ♯ panic
-            (otherwise
-             (setf (pvm-status vm) +exit-panic+
-                   (pvm-pc vm) 0)
-             :panic)))))))
+              ;; Unknown → ♯ panic
+              (otherwise
+               (setf (pvm-status vm) +exit-panic+
+                     (pvm-pc vm) 0)
+               :panic)))))))))
 
 
 ;;; ═══════════════════════════════════════════════════════════════════

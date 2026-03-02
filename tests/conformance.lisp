@@ -248,7 +248,7 @@
 (defun run-trace (dir &key (verbose t))
   "Run a single trace directory: chain mode with step-mode fallback.
 
-   Returns (values chain-pass chain-fail step-pass step-fail errors)."
+   Returns (values chain-pass chain-fail step-pass step-fail errors (times vector) max-time-step)."
   (let* ((max-block (jotl::count-trace-blocks dir))
          (genesis-path (jotl::trace-genesis-path dir))
          (chain-pass 0) (chain-fail 0)
@@ -256,7 +256,10 @@
          (errors 0)
          (sigma nil)
          (chain-ok t)
-         (trace-name (car (last (pathname-directory (pathname dir))))))
+         (trace-name (car (last (pathname-directory (pathname dir)))))
+         (times (make-array max-block :element-type 'single-float :fill-pointer 0))
+         (max-time-step 0)
+         (max-time 0.0))
 
     (when verbose
       (format t "~%~A━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━~A~%"
@@ -280,7 +283,7 @@
         (when verbose
           (format t "  ~AGenesis FATAL~A ~A~%" +bred+ +reset+ e))
         (return-from run-trace
-          (values 0 max-block 0 0 1))))
+          (values 0 max-block 0 0 1 times 0))))
 
     ;; Process blocks
     (loop for b from 1 to max-block do
@@ -295,33 +298,40 @@
                 (handler-case
                     (let ((jotl::*chain-log-level* nil))
                       (declare (special jotl::*chain-log-level*))
-                      (multiple-value-bind (sigma-prime computed-root)
-                          (jotl::import-block sigma block-cl)
-                        (if (equalp computed-root post-root)
-                            (progn
-                              (incf chain-pass)
-                              (setf sigma sigma-prime)
-                              (when verbose
-                                (format t "  ~A#~3D~A  chain ✓  ~Aroot=~A…~A~%"
-                                        +dim+ b +reset+
-                                        +green+
-                                        (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
-                                        +reset+)))
-                            (progn
-                              (incf chain-fail)
-                              (setf chain-ok nil)
-                              (when verbose
-                                (format t "  ~A#~3D  chain ✗~A~%"
-                                        +bred+ b +reset+)
-                                (format t "    ~Aexp~A ~A~%"
-                                        +dim+ +reset+
-                                        (subseq (jotl::bytes-to-hex-string post-root) 0 16))
-                                (format t "    ~Agot~A ~A~%"
-                                        +red+ +reset+
-                                        (subseq (jotl::bytes-to-hex-string computed-root) 0 16))
-                                ;; Show which components differ
-                                (let ((diff (component-diff sigma-prime post-sigma)))
-                                  (print-component-diff diff)))))))
+                      (let ((t-start (get-internal-real-time)))
+                        (multiple-value-bind (sigma-prime computed-root)
+                            (jotl::import-block sigma block-cl)
+                          (let* ((t-end (get-internal-real-time))
+                                 (dt-ms (coerce (* 1000.0 (/ (- t-end t-start) internal-time-units-per-second)) 'single-float)))
+                            (vector-push dt-ms times)
+                            (when (> dt-ms max-time)
+                              (setf max-time dt-ms
+                                    max-time-step b))
+                            (if (equalp computed-root post-root)
+                                (progn
+                                  (incf chain-pass)
+                                  (setf sigma sigma-prime)
+                                  (when verbose
+                                    (format t "  ~A#~3D~A  chain ✓  ~Aroot=~A…~A~%"
+                                            +dim+ b +reset+
+                                            +green+
+                                            (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
+                                            +reset+)))
+                                (progn
+                                  (incf chain-fail)
+                                  (setf chain-ok nil)
+                                  (when verbose
+                                    (format t "  ~A#~3D  chain ✗~A~%"
+                                            +bred+ b +reset+)
+                                    (format t "    ~Aexp~A ~A~%"
+                                            +dim+ +reset+
+                                            (subseq (jotl::bytes-to-hex-string post-root) 0 16))
+                                    (format t "    ~Agot~A ~A~%"
+                                            +red+ +reset+
+                                            (subseq (jotl::bytes-to-hex-string computed-root) 0 16))
+                                    ;; Show which components differ
+                                    (let ((diff (component-diff sigma-prime post-sigma)))
+                                      (print-component-diff diff)))))))))
                   (error (e)
                     (incf errors)
                     (setf chain-ok nil)
@@ -337,36 +347,43 @@
                   (let ((jotl::*chain-log-level* nil))
                     (declare (special jotl::*chain-log-level*))
                     (handler-case
-                        (multiple-value-bind (sigma-prime computed-root)
-                            (jotl::import-block pre-sigma block-cl)
-                          (if (equalp computed-root post-root)
-                              (progn
-                                (incf step-pass)
-                                (when verbose
-                                  (format t "  ~A#~3D~A  step  ✓  ~Aroot=~A…~A~%"
-                                          +dim+ b +reset+
-                                          +green+
-                                          (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
-                                          +reset+)))
-                              (progn
-                                (incf step-fail)
-                                (when verbose
-                                  (format t "  ~A#~3D  step  ✗~A" +yellow+ b +reset+)
-                                  ;; Show diverging components inline
-                                  (let* ((diff (component-diff sigma-prime post-sigma))
-                                         (bad (remove-if (lambda (r)
-                                                           (eq (second r) :match))
-                                                         diff)))
-                                    (if bad
-                                        (progn
-                                          (format t "  →")
-                                          (dolist (r bad)
-                                            (format t " ~A~A~A"
-                                                    +red+
-                                                    (string-downcase (symbol-name (first r)))
-                                                    +reset+))
-                                          (format t "~%"))
-                                        (format t "~%")))))))
+                        (let ((t-start (get-internal-real-time)))
+                          (multiple-value-bind (sigma-prime computed-root)
+                              (jotl::import-block pre-sigma block-cl)
+                            (let* ((t-end (get-internal-real-time))
+                                   (dt-ms (coerce (* 1000.0 (/ (- t-end t-start) internal-time-units-per-second)) 'single-float)))
+                              (vector-push dt-ms times)
+                              (when (> dt-ms max-time)
+                                (setf max-time dt-ms
+                                      max-time-step b))
+                              (if (equalp computed-root post-root)
+                                  (progn
+                                    (incf step-pass)
+                                    (when verbose
+                                      (format t "  ~A#~3D~A  step  ✓  ~Aroot=~A…~A~%"
+                                              +dim+ b +reset+
+                                              +green+
+                                              (subseq (jotl::bytes-to-hex-string computed-root) 0 16)
+                                              +reset+)))
+                                  (progn
+                                    (incf step-fail)
+                                    (when verbose
+                                      (format t "  ~A#~3D  step  ✗~A" +yellow+ b +reset+)
+                                      ;; Show diverging components inline
+                                      (let* ((diff (component-diff sigma-prime post-sigma))
+                                             (bad (remove-if (lambda (r)
+                                                               (eq (second r) :match))
+                                                             diff)))
+                                        (if bad
+                                            (progn
+                                              (format t "  →")
+                                              (dolist (r bad)
+                                                (format t " ~A~A~A"
+                                                        +red+
+                                                        (string-downcase (symbol-name (first r)))
+                                                        +reset+))
+                                              (format t "~%"))
+                                            (format t "~%")))))))))
                       (error (e)
                         (incf step-fail)
                         (incf errors)
@@ -389,7 +406,21 @@
                  (format nil "~D/~D" step-pass max-block))
               errors))
 
-    (values chain-pass chain-fail step-pass step-fail errors)))
+    (values chain-pass chain-fail step-pass step-fail errors times max-time-step)))
+
+(defun percentile (arr p)
+  "Calculate the Pth percentile (0-100) of a single-float vector ARR."
+  (let* ((len (length arr))
+         (sorted (sort (copy-seq arr) #'<)))
+    (if (zerop len)
+        0.0
+        (let* ((idx (* (/ p 100.0) (1- len)))
+               (i (floor idx))
+               (frac (- idx i)))
+          (if (= i (1- len))
+              (aref sorted i)
+              (+ (* (- 1.0 frac) (aref sorted i))
+                 (* frac (aref sorted (1+ i)))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; RUN-ALL — aggregate all traces with summary table
@@ -419,15 +450,23 @@
     (dolist (dir dirs)
       (let ((name (car (last (pathname-directory (pathname dir)))))
             (jotl:*prof* (make-hash-table :test 'eq)))
-        (multiple-value-bind (cp cf sp sf err)
+        (multiple-value-bind (cp cf sp sf err times max-time-step)
             (run-trace dir :verbose verbose)
-          (push (list name cp cf sp sf err
-                      (jotl:prof-seconds :decode)
-                      (jotl:prof-seconds :stf)
-                      (jotl:prof-seconds :merkle)
-                      (jotl:prof-seconds :accumulate)
-                      (jotl:prof-seconds :delta-save))
-                results)
+          (let* ((n (length times))
+                 (mean (if (plusp n) (/ (loop for x across times sum x) n) 0.0))
+                 (p50 (percentile times 50))
+                 (p90 (percentile times 90))
+                 (p99 (percentile times 99))
+                 (pmax (if (plusp n) (reduce #'max times) 0.0))
+                 (pmin (if (plusp n) (reduce #'min times) 0.0)))
+            (push (list name cp cf sp sf err
+                        pmin pmax mean p50 p90 p99 max-time-step
+                        (jotl:prof-seconds :decode)
+                        (jotl:prof-seconds :stf)
+                        (jotl:prof-seconds :merkle)
+                        (jotl:prof-seconds :accumulate)
+                        (jotl:prof-seconds :delta-save))
+                  results))
           (incf grand-cp cp) (incf grand-cf cf)
           (incf grand-sp sp) (incf grand-sf sf)
           (incf grand-err err))))
@@ -457,8 +496,9 @@
               (sum-accum 0.0) (sum-delta 0.0))
           (dolist (r all-results)
             (destructuring-bind (name _cp _cf _sp _sf _err
+                                 pmin pmax mean p50 p90 p99 max-time-step
                                  t-decode t-stf t-merkle t-accum t-delta) r
-              (declare (ignore _cp _cf _sp _sf _err))
+              (declare (ignore _cp _cf _sp _sf _err pmin pmax mean p50 p90 p99 max-time-step))
               (incf sum-decode t-decode) (incf sum-stf t-stf)
               (incf sum-merkle t-merkle) (incf sum-accum t-accum)
               (incf sum-delta t-delta)
@@ -533,7 +573,7 @@
 
         ;; Total row
         (let ((ct (+ grand-cp grand-cf))
-              (st (+ grand-sp grand-sf)))
+          (st (+ grand-sp grand-sf)))
           (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
           (format t "~A~%"
                   (table-row (c +bwhite+ "TOTAL")
@@ -543,6 +583,37 @@
                                  (c +dim+ "0")
                                  (c +bred+ (format nil "~D" grand-err)))))
           (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
+
+      ;; ── Fuzz-Perf Stats Table ──
+      (format t "~%  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
+              +bcyan+ +reset+)
+      (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "Trace (ms)") 16)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "min") 7)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "mean") 7)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "p50") 7)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "p90") 7)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "p99") 7)
+              +bcyan+ +reset+ (pad-right (c +bwhite+ "max") 7)
+              +bcyan+ +reset+)
+      (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
+              +bcyan+ +reset+)
+      (dolist (r results)
+        (destructuring-bind (name _cp _cf _sp _sf _err
+                             pmin pmax mean p50 p90 p99 max-time-step
+                             &rest rest) r
+          (declare (ignore _cp _cf _sp _sf _err max-time-step rest))
+          (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right name 16)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" pmin) 7)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" mean) 7)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p50) 7)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p90) 7)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p99) 7)
+                  +bcyan+ +reset+ (pad-right (format nil "~,2F" pmax) 7)
+                  +bcyan+ +reset+)))
+      (format t "  ~A└──────────────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘~A~%"
+              +bcyan+ +reset+)
 
       ;; Result plist
       (list :chain-pass grand-cp :chain-fail grand-cf

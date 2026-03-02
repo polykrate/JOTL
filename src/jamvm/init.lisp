@@ -302,6 +302,8 @@
         (setf (pvm-basic-blocks vm) (compute-basic-block-starts vm))
         ;; Precompute skip-distance table for O(1) lookups
         (setf (pvm-skip-table vm) (build-skip-table vm))
+        ;; AOT lazy instruction decoding cache
+        (setf (pvm-decoded-code vm) (make-array (length code) :initial-element nil))
         vm))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

@@ -111,6 +111,8 @@
   ;; Avoids bitmask scanning on every step.
   (skip-table   (make-array 0 :element-type '(unsigned-byte 8))
                :type (simple-array (unsigned-byte 8) (*))) ; ℓ
+  ;; AOT pre-decoded instructions for fast execution
+  (decoded-code #() :type simple-vector)
   ;; Reusable instruction args buffer (zero allocation per step)
   (args-buf  (make-pvm-args) :type pvm-args)
   ;; Pre-allocated register save buffer (zero allocation on fault rollback)
@@ -139,6 +141,13 @@
   (imm1   0 :type integer)     ; first immediate (imm-imm, reg-imm-imm, etc.)
   (imm2   0 :type integer)     ; second immediate
   (offset 0 :type integer))    ; PC-relative offset (resolved to absolute)
+
+(defstruct (pvm-instr (:include pvm-args) (:conc-name instr-))
+  "AOT decoded instruction."
+  (handler nil :type (or null function))
+  (skip 0 :type fixnum)
+  (gas-cost 0 :type fixnum)
+  (memory-p nil :type boolean))
 
 (declaim (inline arg-ra arg-rb arg-rc arg-rd arg-imm arg-imm1 arg-imm2 arg-offset))
 

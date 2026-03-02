@@ -147,6 +147,30 @@
         (decode-arguments info code pc skip args)
         (values info skip args)))))
 
+(defun decode-single-instr (vm pc)
+  "AOT decode a single instruction at PC.
+   Returns a pvm-instr."
+  (let* ((code (pvm-code vm))
+         (instr (make-pvm-instr)))
+    (let* ((effective (pvm-opcode vm pc))
+           (info (lookup-opcode effective)))
+      (if info
+          (let* ((skip-tbl (pvm-skip-table vm))
+                 (skip (if (< pc (length skip-tbl))
+                           (aref skip-tbl pc)
+                           (skip-distance vm pc))))
+            (decode-arguments info code pc skip instr)
+            (setf (instr-handler instr) (opi-handler info)
+                  (instr-skip instr) skip
+                  (instr-gas-cost instr) (opi-gas-cost info)
+                  (instr-memory-p instr) (opi-memory-p info)))
+          (let ((trap-info (lookup-opcode 0)))
+            (setf (instr-handler instr) (opi-handler trap-info)
+                  (instr-skip instr) 0
+                  (instr-gas-cost instr) 1
+                  (instr-memory-p instr) nil))))
+    instr))
+
 (defun decode-arguments (info code pc skip args)
   "Decode instruction arguments into the pre-allocated pvm-args struct ARGS.
    No allocation — struct slots are set in-place."
