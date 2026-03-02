@@ -337,10 +337,7 @@
         (unless data (return-from omega-provide-preimage :fault))
 
         ;; Compute H(i)
-        (let* ((digest (ironclad:make-digest :blake2/256))
-               (_ (ironclad:update-digest digest data))
-               (hash (ironclad:produce-digest digest)))
-          (declare (ignore _))
+        (let* ((hash (jam.ffi:blake2b-256 data)))
 
           ;; Look up service account
           (let* ((is-self (= s (hctx-service-id ctx)))

@@ -50,8 +50,7 @@ FULL (production, must match Gray Paper):
       (:max-refine-gas (getf specs :max-refine-gas))
       (:all specs)  ; Return all specs as plist
       (otherwise (error "Unknown chainspec key: ~A" key)))))
-
-;;; Define the two chainspecs
+ 
 
 (defparameter +tiny-chainspec+
   (make-chainspec
@@ -68,7 +67,7 @@ FULL (production, must match Gray Paper):
      :num-ec-pieces-per-segment 1026
      :max-block-gas 20000000
      :max-refine-gas 1000000000))
-  "TINY chainspec - for development and testing")
+  "TINY chainspec - development and testing")
 
 (defparameter +full-chainspec+
   (make-chainspec

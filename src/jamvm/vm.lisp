@@ -24,6 +24,27 @@
   "Gas cost per page allocation. GP §A: memory pages are charged.")
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Diagnostic instrumentation (declared early to avoid forward-reference warnings)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *vm-last-step-pc* nil
+  "PC of the last instruction before vm-step executed.
+   Useful for diagnosing panics (vm-step sets pc=0 on panic).")
+
+(defvar *vm-opcode-counts* nil
+  "When non-NIL, a 256-element vector counting executions of each opcode.
+   Set to (make-array 256 :initial-element 0) to enable.")
+
+(defvar *vm-trap-log* nil
+  "When non-NIL, a list collecting (PC raw-opcode bitmask-bit) for each trap.")
+
+(defvar *vm-trace-stream* nil
+  "When non-NIL, a stream to log (step# PC opcode gas R0..R12) per instruction.")
+
+(defvar *vm-step-counter* 0
+  "Current step number, incremented by vm-step when tracing is active.")
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Ψ₁ — Single-step state transition (GP A.4 / A.6–A.9)
 ;;;
 ;;; (A.6) (c,k,j,ι,ϱ,φ,μ) ↦ (ε*,ι*,ϱ*,φ*,μ*)
@@ -214,29 +235,8 @@
   "Callback for host calls: (funcall handler vm id) → T to continue, NIL to stop.
    If NIL, host calls cause the VM to yield back to the caller.")
 
-(defvar *vm-last-step-pc* nil
-  "PC of the last instruction before vm-step executed.
-   Useful for diagnosing panics (vm-step sets pc=0 on panic).")
-
 (defvar *max-steps* nil
   "Maximum number of steps before forced yield. NIL = unlimited.")
-
-;;; ═══════════════════════════════════════════════════════════════════
-;;; Diagnostic instrumentation
-;;; ═══════════════════════════════════════════════════════════════════
-
-(defvar *vm-opcode-counts* nil
-  "When non-NIL, a 256-element vector counting executions of each opcode.
-   Set to (make-array 256 :initial-element 0) to enable.")
-
-(defvar *vm-trap-log* nil
-  "When non-NIL, a list collecting (PC raw-opcode bitmask-bit) for each trap.")
-
-(defvar *vm-trace-stream* nil
-  "When non-NIL, a stream to log (step# PC opcode gas R0..R12) per instruction.")
-
-(defvar *vm-step-counter* 0
-  "Current step number, incremented by vm-step when tracing is active.")
 
 (defvar *vm-page-fault-count* 0
   "Counter for page faults encountered during vm-run.

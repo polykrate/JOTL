@@ -194,7 +194,10 @@
         (setf (aref q-slots m) (append (aref q-slots m) r-deferred-edited))
         (setf (aref w-slots m) (append (aref w-slots m) r-deferred-edited)))
 
-      (let* ((all-queued (loop for i from 0 below e
+      ;; GP §12.7: q = q_{m+1} ⌢ q_{m+2} ⌢ ... ⌢ q_{m+E}
+      ;; Scan from slot (m+1) wrapping around through slot m (oldest first).
+      (let* ((all-queued (loop for k from 1 to e
+                               for i = (mod (+ m k) e)
                                nconc (copy-list (aref q-slots i))))
              (ordered-resolved (accum-priority-queue all-queued))
              (r-star (append r-bang ordered-resolved))

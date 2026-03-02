@@ -344,6 +344,12 @@
 ;;; TEST RUNNER — all tests
 ;;; ═══════════════════════════════════════════════════════════════
 
+(defun safrole-pad-right (str width)
+  "Pad STR with spaces on the right to WIDTH visible characters."
+  (if (>= (length str) width)
+      str
+      (concatenate 'string str (make-string (- width (length str)) :initial-element #\Space))))
+
 (defun list-safrole-tests ()
   "List all safrole test JSON files, sorted by name."
   (sort (directory (merge-pathnames "*.json" *safrole-test-dir*))
@@ -377,7 +383,7 @@
            (padded-name (if (> (length name) 50)
                             (subseq name 0 50)
                             name)))
-      (format t "  ~A " (jotl/test::pad-right padded-name 50))
+      (format t "  ~A " (safrole-pad-right padded-name 50))
       (force-output)
       (handler-case
           (multiple-value-bind (pass-p diffs error-type)

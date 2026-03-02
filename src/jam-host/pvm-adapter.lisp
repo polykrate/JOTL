@@ -65,14 +65,14 @@
 ;;;   0 = WorkItem(WorkItemRecord)
 ;;;   1 = Transfer(TransferRecord)
 ;;;
-;;; WorkItemRecord fields (in order):
-;;;   package:        [u8; 32]
-;;;   exports_root:   [u8; 32]
-;;;   authorizer_hash:[u8; 32]
-;;;   payload:        [u8; 32]
-;;;   gas_limit:      u64
-;;;   result:         Result<WorkOutput, WorkError>
-;;;   auth_output:    Vec<u8> (compact-prefixed)
+;;; WorkItemRecord fields (in order — GP §12.13):
+;;;   package:        [u8; 32]     (h)
+;;;   exports_root:   [u8; 32]     (e)
+;;;   authorizer_hash:[u8; 32]     (a)
+;;;   payload:        [u8; 32]     (y)
+;;;   gas_limit:      u64          (g — compact encoded)
+;;;   result:         Result<WorkOutput, WorkError>  (d)
+;;;   auth_output:    Vec<u8>      (o — compact-prefixed)
 ;;;
 ;;; Result encoding (CompactRefineResult — NOT standard Result<T,E>):
 ;;;   Ok(WorkOutput(data)):      0x00 + compact(len) + data
@@ -101,23 +101,25 @@
                                 gas-limit result-kind result-data
                                 &optional auth-output)
   "Encode AccumulateItem::WorkItem in JAM codec.
+   Field order follows GP §12.13 / TypeBerry Operand.Codec:
+     h, e, a, y(=payload), g, d(=result), o(=auth-output)
    RESULT-KIND: 0=Ok, 1=OutOfGas, 2=Panic, 3=BadExports,
                 4=OutputOversize, 5=BadCode, 6=CodeOversize.
    Returns octet vector."
   (let ((buf (%make-buf 256)))
     ;; Enum discriminant: 0 = WorkItem
     (%buf-u8 buf 0)
-    ;; package: [u8; 32]
+    ;; h — package: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 package-hash))
-    ;; exports_root: [u8; 32]
+    ;; e — exports_root: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 exports-root))
-    ;; authorizer_hash: [u8; 32]
+    ;; a — authorizer_hash: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 auth-hash))
-    ;; payload: [u8; 32]
+    ;; y — payload: [u8; 32]
     (%buf-bytes buf (%ensure-hash32 payload-hash))
-    ;; gas_limit: GP C.32 EU — bare xg ∈ N_G → compact
+    ;; g — gas_limit: compact
     (%buf-compact buf gas-limit)
-    ;; result: Result<WorkOutput, WorkError>
+    ;; d — result: Result<WorkOutput, WorkError>
     (cond
       ((zerop result-kind)
        ;; Ok(WorkOutput(data))
@@ -129,7 +131,7 @@
        ;; WorkError variants: 1=OutOfGas, 2=Panic, 3=BadExports, etc.
        ;; NO separate "Err" tag — just the variant index.
        (%buf-u8 buf result-kind)))
-    ;; auth_output: Vec<u8>
+    ;; o — auth_output: Vec<u8> (compact-prefixed)
     (let ((ao (or auth-output #())))
       (%buf-blob buf ao))
     (%buf-finalize buf)))
@@ -209,7 +211,7 @@
                               (availability-timeout 5)  ;; U   (tiny=5)
                               (val-count 6)             ;; V
                               (max-authorizer-code 64000)      ;; W_A (tiny=64000)
-                              (max-input 13794305)             ;; W_B (tiny=13794305)
+                              (max-input 13791360)             ;; W_B (GP 0.7.2=13791360)
                               (max-service-code 4000000)       ;; W_C (tiny=4000000)
                               (basic-piece-len 4)              ;; W_E (tiny=4)
                               (max-imports 3072)               ;; W_M (tiny=3072)
@@ -267,14 +269,15 @@
     (%buf-finalize buf)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; blake2b-256 — using ironclad (replaces jam.ffi:blake2b-256)
+;;; blake2b-256 — delegates to jam.ffi:blake2b-256 (Rust FFI)
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun blake2b-256 (data)
   "Compute Blake2b-256 hash of DATA (octet vector). Returns 32-byte vector."
-  (let ((d (ironclad:make-digest :blake2/256)))
-    (ironclad:update-digest d (coerce data '(simple-array (unsigned-byte 8) (*))))
-    (ironclad:produce-digest d)))
+  (jam.ffi:blake2b-256
+   (if (typep data '(simple-array (unsigned-byte 8) (*)))
+       data
+       (coerce data '(simple-array (unsigned-byte 8) (*))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; populate-host-context — fill host-context from accumulate-service args

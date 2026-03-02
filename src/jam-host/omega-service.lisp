@@ -98,15 +98,12 @@
     ;; compact(H_T) — timeslot
     (replace preimage enc-ts :start1 pos)
     ;; H(...) = blake2b-256
-    (let* ((digest (ironclad:make-digest :blake2/256))
-           (_ (ironclad:update-digest digest preimage))
-           (hash (ironclad:produce-digest digest))
+    (let* ((hash (jam.ffi:blake2b-256 preimage))
            ;; E₄⁻¹ = first 4 bytes as u32 LE
            (raw (+ (aref hash 0)
                    (ash (aref hash 1) 8)
                    (ash (aref hash 2) 16)
                    (ash (aref hash 3) 24))))
-      (declare (ignore _))
       (+ (mod raw +service-id-modulus+) +service-index-min+))))
 
 (defun compute-next-service-id (service-id entropy-0 timeslot ctx)

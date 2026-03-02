@@ -24,9 +24,9 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 | Metric | Value |
 |--------|-------|
-| Pass | **733** |
+| Pass | **735** |
 | Correct reject | **25** |
-| Fail | **2** |
+| Fail | **0** |
 
 ### Minifuzz (fuzz-v1 protocol)
 
@@ -34,15 +34,6 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 |-------|--------|
 | no\_forks | **102/102 ✓** |
 | forks | **102/102 ✓** |
-
-### Remaining failures (2 steps)
-
-| Trace | Step | Root cause | Status |
-|-------|------|-----------|--------|
-| `1766255635_2557` | 153 | `DELTA-KVS` sub-key mismatch | investigating |
-| `1767889897_3840` | 710 | `DELTA-KVS` sub-key mismatch | investigating |
-
-Both are a single `DELTA-KVS` diff — likely an encoding or sub-key computation issue.
 
 ### Fixed bugs
 
@@ -62,6 +53,8 @@ Both are a single `DELTA-KVS` diff — likely an encoding or sub-key computation
 | 12 | `import-block` HR check | Missing `H_r ≡ Mr(σ)` pre-STF validation (GP §5.1) |
 | 13 | `import-block` preimages-error | `preimages-error` not caught → unhandled condition instead of rejection |
 | 14 | `integrate-preimages` EP ordering | Missing EP ordering validation `EP = [i ∈ EP __ i]` (GP §12.36) |
+| 15 | `omega-ext-log` (HC100) | Returned `0` in r7 instead of `WHAT` (2⁶⁴−2) per JIP-1 |
+| 16 | `encode-gp-constants` W\_B | Used pre-0.7.2 value 13794305 instead of GP 0.7.2 value 13791360 |
 
 ## Architecture
 
@@ -96,22 +89,21 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 
 | | Code | Comments | Total |
 |-|-----:|---------:|------:|
-| **Lisp** | 12 907 | 4 242 | 19 314 |
-| **Rust** | 1 525 | 422 | 2 277 |
-| **All** | **14 432** | **4 664** | **21 591** |
+| **Lisp** | 11 806 | 4 394 | 18 217 |
+| **Rust** | 1 700 | 459 | 2 518 |
+| **All** | **13 506** | **4 853** | **20 735** |
 
 <details><summary>Lisp breakdown</summary>
 
 | Module | Code | Comments |
 |--------|-----:|---------:|
-| State (17 components) | 3 055 | 1 224 |
-| Host calls (GP B) | 2 365 | 820 |
-| PVM interpreter (GP A) | 2 105 | 975 |
-| Tests & scripts | 1 768 | 245 |
-| Orchestration (Υ, §12, import) | 1 140 | 316 |
-| Library (codecs, Merkle) | 1 137 | 364 |
-| Block/extrinsics | 845 | 231 |
-| Crypto FFI bindings | 492 | 67 |
+| State (17 components) | 3 092 | 1 269 |
+| Host calls (GP B) | 2 353 | 916 |
+| PVM interpreter (GP A) | 2 141 | 1 054 |
+| Orchestration (Υ, §12, import) | 1 175 | 328 |
+| Library (codecs, Merkle) | 1 133 | 367 |
+| Tests & scripts | 1 072 | 224 |
+| Block/extrinsics | 840 | 236 |
 
 </details>
 

@@ -1,7 +1,7 @@
 ;;;; omega-storage.lisp — Ω₃ (ΩR) Read-storage + Ω₄ (ΩW) Write-storage
 ;;;;
 ;;;; Implements GP Appendix B.3–B.4 (storage read/write).
-;;;; Uses blake2b via ironclad for storage key hashing (GP Appendix D).
+;;;; Uses blake2b via jam.ffi (Rust FFI) for storage key hashing (GP Appendix D).
 
 (in-package #:jam-host)
 
@@ -55,9 +55,7 @@
                     (f (min offset data-len))
                     (l (min out-len (- data-len f))))
                (when (hctx-debug-trace ctx)
-                 (let ((val-hash (let ((d (ironclad:make-digest :blake2/256)))
-                                   (ironclad:update-digest d value)
-                                   (ironclad:produce-digest d))))
+                 (let ((val-hash (jam.ffi:blake2b-256 value)))
                    (format *error-output*
                            "~&[HC3-READ] sid=~D key(~D)=~{~2,'0X~} val-len=~D read=~D first-8: ~{~2,'0X~} blake2=~{~2,'0X~}~%"
                            (hctx-service-id ctx) (length key) (coerce key 'list)
@@ -132,16 +130,20 @@
           ;; ── Debug trace ΩW ──────────────────────────────
           (when (hctx-debug-trace ctx)
             (let ((val-hash (when new-value
-                              (let ((d (ironclad:make-digest :blake2/256)))
-                                (ironclad:update-digest d new-value)
-                                (ironclad:produce-digest d)))))
+                              (jam.ffi:blake2b-256 new-value))))
               (format *error-output*
                       "~&[HC4-WRITE] sid=~D key(~D)=~{~2,'0X~} old-len=~A new-len=~A first-8: ~{~2,'0X~} blake2=~{~2,'0X~}~%"
                       (hctx-service-id ctx) key-sz (coerce key 'list)
                       (if old-val (length old-val) "NIL")
                       (if new-value (length new-value) "DEL")
                       (if new-value (coerce (subseq new-value 0 (min 8 (length new-value))) 'list) nil)
-                      (if val-hash (coerce (subseq val-hash 0 (min 16 (length val-hash))) 'list) nil))))
+                      (if val-hash (coerce (subseq val-hash 0 (min 16 (length val-hash))) 'list) nil))
+              ;; Full hex dump for values ≤ 128 bytes
+              (when (and new-value (<= (length new-value) 128))
+                (format *error-output*
+                        "~&[HC4-FULL] sid=~D key(~D)=~{~2,'0X~} val(~D)=~{~2,'0X~}~%"
+                        (hctx-service-id ctx) key-sz (coerce key 'list)
+                        (length new-value) (coerce new-value 'list)))))
 
           ;; FULL check passed — apply actual mutation
           (cond

@@ -72,17 +72,13 @@
 (defun storage-hash-key (raw-key)
   "Compute the 27-byte trie sub-key hash for a storage entry.
    GP D.1: H(E₄(2³²−1) ⌢ k)[0:27].
-   Requires ironclad for blake2b."
-  (let* ((prefix (make-array 4 :element-type '(unsigned-byte 8)
-                               :initial-contents '(#xFF #xFF #xFF #xFF)))
-         (input (make-array (+ 4 (length raw-key))
-                            :element-type '(unsigned-byte 8)))
-         (digest (ironclad:make-digest :blake2/256)))
-    (replace input prefix)
+   Uses jam.ffi:blake2b-256 (Rust FFI)."
+  (let* ((input (make-array (+ 4 (length raw-key))
+                            :element-type '(unsigned-byte 8))))
+    (setf (aref input 0) #xFF (aref input 1) #xFF
+          (aref input 2) #xFF (aref input 3) #xFF)
     (replace input raw-key :start1 4)
-    (ironclad:update-digest digest input)
-    (let ((hash (ironclad:produce-digest digest)))
-      (subseq hash 0 27))))
+    (subseq (jam.ffi:blake2b-256 input) 0 27)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; LE encoding helpers (for building response buffers)

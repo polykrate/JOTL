@@ -37,7 +37,7 @@
   :author "Polycrate"
   :license "GPL-3.0"
   :version "0.1.0"
-  :depends-on (#:ironclad)
+  :depends-on (#:jam-crypto)
   :serial t
   :components ((:module "jamvm"
                 :pathname "src/jamvm"

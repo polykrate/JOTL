@@ -35,5 +35,7 @@
          (data (read-guest vm text-ptr text-len)))
     (when data
       (push data (hctx-logs ctx)))
-    (set-reg vm +a0+ 0)  ; Rust always returns 0 in A0 for ext_log
+    ;; JIP-1 (GP 0.7.2): φ₇′ = WHAT always, so service behaviour is the
+    ;; same whether or not this host call is implemented.
+    (set-reg vm +a0+ +hc-what+)
     :continue))
