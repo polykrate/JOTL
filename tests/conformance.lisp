@@ -89,13 +89,18 @@
         str
         (concatenate 'string (make-string (- width visible-len) :initial-element #\Space) str))))
 
-(defun table-row (name chain-cell step-cell err-cell)
+(defun table-row (name chain-cell step-cell err-cell p50 p90 mean p99 std-dev)
   "Build one table row with cyan borders."
-  (format nil "~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A"
+  (format nil "~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A"
           +bcyan+ +reset+ (pad-right name 16)
           +bcyan+ +reset+ (pad-right chain-cell 9)
           +bcyan+ +reset+ (pad-right step-cell 9)
           +bcyan+ +reset+ (pad-right err-cell 6)
+          +bcyan+ +reset+ (pad-right p50 8)
+          +bcyan+ +reset+ (pad-right p90 8)
+          +bcyan+ +reset+ (pad-right mean 8)
+          +bcyan+ +reset+ (pad-right p99 8)
+          +bcyan+ +reset+ (pad-right std-dev 8)
           +bcyan+ +reset+))
 
 (defun score-cell (pass total)
@@ -560,22 +565,32 @@
 
       ;; ── Results table (at the end for easy tail) ──
       (format t "~%")
-      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╗")
-            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╣")
-            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╝"))
+      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╦══════════╦══════════╦══════════╦══════════╦══════════╗")
+            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╬══════════╬══════════╬══════════╬══════════╬══════════╣")
+            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╩══════════╩══════════╩══════════╩══════════╩══════════╝"))
         ;; Header
         (format t "~A~A~A~%" +bcyan+ border-top +reset+)
         (format t "~A" (table-row (c +bwhite+ "Trace")
                                   (c +bwhite+ "Chain")
                                   (c +bwhite+ "Step")
-                                  (c +bwhite+ "Errors")))
+                                  (c +bwhite+ "Errors")
+                                  (c +bwhite+ "P50 (ms)")
+                                  (c +bwhite+ "P90 (ms)")
+                                  (c +bwhite+ "Mean(ms)")
+                                  (c +bwhite+ "P99 (ms)")
+                                  (c +bwhite+ "StdDev")))
         (terpri)
         (format t "~A~A~A~%" +bcyan+ border-mid +reset+)
 
         ;; Data rows
         (dolist (r results)
-          (let ((name (first r)) (cp (second r)) (cf (third r))
-                (sp (fourth r)) (sf (fifth r)) (err (sixth r)))
+          (let ((name (nth 0 r)) (cp (nth 1 r)) (cf (nth 2 r))
+                (sp (nth 3 r)) (sf (nth 4 r)) (err (nth 5 r))
+                (mean (nth 8 r))
+                (p50 (nth 9 r))
+                (p90 (nth 11 r))
+                (p99 (nth 12 r))
+                (std-dev (nth 13 r)))
             (let ((ct (+ cp cf))
                   (st (+ sp sf)))
               (format t "~A~%"
@@ -584,7 +599,12 @@
                                  (score-cell sp st)
                                  (if (zerop err)
                                      (c +dim+ "0")
-                                     (c +bred+ (format nil "~D" err))))))))
+                                     (c +bred+ (format nil "~D" err)))
+                                 (format nil "~,2F" p50)
+                                 (format nil "~,2F" p90)
+                                 (format nil "~,2F" mean)
+                                 (format nil "~,2F" p99)
+                                 (format nil "~,2F" std-dev))))))
 
         ;; Total row
         (let ((ct (+ grand-cp grand-cf))
@@ -596,7 +616,8 @@
                              (bold-score-cell grand-sp st)
                              (if (zerop grand-err)
                                  (c +dim+ "0")
-                                 (c +bred+ (format nil "~D" grand-err)))))
+                                 (c +bred+ (format nil "~D" grand-err)))
+                             "" "" "" "" ""))
           (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
 
       ;; ── Parity Performance Ranking ──
