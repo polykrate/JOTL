@@ -5,10 +5,6 @@
 ;;;;   validate-block(B)  — intrinsic checks (HX, HO).  Called by Υ.
 ;;;;   validate-block-env — environmental checks (wall-clock, parent hash).
 ;;;;                        Called by import-block (node layer).
-;;;;
-;;;; TODO [M2]: Add HS (seal) validation via Bandersnatch VRF verify
-;;;;            against γS sealing keys (GP §6.24). Required for full
-;;;;            block authorship verification in production nodes.
 
 (in-package #:jotl)
 
