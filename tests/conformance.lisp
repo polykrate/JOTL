@@ -93,8 +93,8 @@
   "Build one table row with cyan borders."
   (format nil "~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A ~A ~A║~A"
           +bcyan+ +reset+ (pad-right name 16)
-          +bcyan+ +reset+ (pad-right chain-cell 9)
-          +bcyan+ +reset+ (pad-right step-cell 9)
+          +bcyan+ +reset+ (pad-right chain-cell 12)
+          +bcyan+ +reset+ (pad-right step-cell 12)
           +bcyan+ +reset+ (pad-right err-cell 6)
           +bcyan+ +reset+ (pad-right p50 11)
           +bcyan+ +reset+ (pad-right p90 10)
@@ -565,9 +565,9 @@
 
       ;; ── Results table (at the end for easy tail) ──
       (format t "~%")
-      (let ((border-top  "╔══════════════════╦═══════════╦═══════════╦════════╦═════════════╦════════════╦═══════════╦════════════╦═════════════╗")
-            (border-mid  "╠══════════════════╬═══════════╬═══════════╬════════╬═════════════╬════════════╬═══════════╬════════════╬═════════════╣")
-            (border-bot  "╚══════════════════╩═══════════╩═══════════╩════════╩═════════════╩════════════╩═══════════╩════════════╩═════════════╝"))
+      (let ((border-top  "╔══════════════════╦══════════════╦══════════════╦════════╦═════════════╦════════════╦═══════════╦════════════╦═════════════╗")
+            (border-mid  "╠══════════════════╬══════════════╬══════════════╬════════╬═════════════╬════════════╬═══════════╬════════════╬═════════════╣")
+            (border-bot  "╚══════════════════╩══════════════╩══════════════╩════════╩═════════════╩════════════╩═══════════╩════════════╩═════════════╝"))
         ;; Header
         (format t "~A~A~A~%" +bcyan+ border-top +reset+)
         (format t "~A" (table-row (c +bwhite+ "Trace")
@@ -623,18 +623,25 @@
       ;; ── Parity Performance Ranking ──
       (let ((local-score (compute-parity-score results :hardware-factor 1.0)))
         (when local-score
-          (format t "~%  ~A┌──────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 56) +bcyan+ +reset+)
-          (format t "  ~A├──────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right "Local Hardware" 56) +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F (P50: ~,2Fms | P90: ~,2Fms)"
-                                                     (getf local-score :score)
-                                                     (getf local-score :p50)
-                                                     (getf local-score :p90)) 56) +bcyan+ +reset+)
-          (format t "  ~A└──────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+)))
+          (let* ((score (getf local-score :score))
+                 (p50 (getf local-score :p50))
+                 (p90 (getf local-score :p90))
+                 (details (format nil "  Score: ~,1F (Geometric Mean of 4 traces)" score))
+                 (p50-str (format nil "  Aggregated P50: ~,2Fms" p50))
+                 (p90-str (format nil "  Aggregated P90: ~,2Fms" p90)))
+            (format t "~%  ~A┌──────────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 60) +bcyan+ +reset+)
+            (format t "  ~A├──────────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right "Local Hardware" 60) +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right details 60) +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right p50-str 60) +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right p90-str 60) +bcyan+ +reset+)
+            (format t "  ~A└──────────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+))))
 
       ;; Result plist
       (list :chain-pass grand-cp :chain-fail grand-cf
