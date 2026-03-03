@@ -624,11 +624,7 @@
       (let ((local-score (compute-parity-score results :hardware-factor 1.0)))
         (when local-score
           (let* ((score (getf local-score :score))
-                 (p50 (getf local-score :p50))
-                 (p90 (getf local-score :p90))
-                 (details (format nil "  Score: ~,1F (Geometric Mean of 4 traces)" score))
-                 (p50-str (format nil "  Aggregated P50: ~,2Fms" p50))
-                 (p90-str (format nil "  Aggregated P90: ~,2Fms" p90)))
+                 (details (format nil "  Score: ~,1F (Geometric Mean of 4 traces)" score)))
             (format t "~%  ~A┌──────────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
                     +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 60) +bcyan+ +reset+)
@@ -637,10 +633,6 @@
                     +bcyan+ +reset+ (pad-right "Local Hardware" 60) +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
                     +bcyan+ +reset+ (pad-right details 60) +bcyan+ +reset+)
-            (format t "  ~A│~A ~A ~A│~A~%"
-                    +bcyan+ +reset+ (pad-right p50-str 60) +bcyan+ +reset+)
-            (format t "  ~A│~A ~A ~A│~A~%"
-                    +bcyan+ +reset+ (pad-right p90-str 60) +bcyan+ +reset+)
             (format t "  ~A└──────────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+))))
 
       ;; Result plist
