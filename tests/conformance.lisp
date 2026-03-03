@@ -623,16 +623,15 @@
       ;; ── Parity Performance Ranking ──
       (let ((local-score (compute-parity-score results :hardware-factor 1.0)))
         (when local-score
-          (let* ((score (getf local-score :score))
-                 (details (format nil "  Score: ~,1F (Geometric Mean of safrole, fallback, storage, storage_light)" score)))
+          (let* ((score (getf local-score :score)))
             (format t "~%  ~A┌──────────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
                     +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 60) +bcyan+ +reset+)
             (format t "  ~A├──────────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
-                    +bcyan+ +reset+ (pad-right "Local Hardware" 60) +bcyan+ +reset+)
+                    +bcyan+ +reset+ (pad-right "Traces: safrole, fallback, storage, storage_light" 60) +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
-                    +bcyan+ +reset+ (pad-right details 60) +bcyan+ +reset+)
+                    +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F" score) 60) +bcyan+ +reset+)
             (format t "  ~A└──────────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+))))
 
       ;; Result plist
