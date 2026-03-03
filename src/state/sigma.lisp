@@ -131,7 +131,7 @@
   ;; δ is special: built from delta-kvs (multi-key), not from a segment.
   (:decode-segment (component-kw)
     (if (eq component-kw :delta)
-        (when delta-kvs (make-delta-state :raw-kvs delta-kvs))
+        (when delta-kvs (decode-delta-state delta-kvs))
         (let ((bytes (self :segment component-kw)))
           (when bytes
             (sigma-decode-segment component-kw bytes)))))

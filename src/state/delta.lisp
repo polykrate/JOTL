@@ -934,11 +934,6 @@
     (make-delta-state
      :raw-kvs (absorb-delta-effects raw-kvs delta-results timeslot)))
 
-  (:decode (bytes offset)
-    ;; δ is not decoded from segment bytes — loaded via σ :load :delta.
-    ;; This fallback exists for macro completeness only.
-    (values (make-delta-state :raw-kvs nil) (- (length bytes) offset)))
-
   ;; -- Transition: delta' < (EP, delta-dagger, tau') -- GP S4.18 + S9.2
   (:transition (&key preimages tau-prime)
     (let ((timeslot (when tau-prime (funcall tau-prime :slot))))
@@ -947,3 +942,13 @@
           (make-delta-state
            :raw-kvs (integrate-preimages raw-kvs preimages timeslot))))))
 
+
+;;; ═══════════════════════════════════════════════════════════════
+;;; CUSTOM DECODER FOR DELTA
+;;; ═══════════════════════════════════════════════════════════════
+
+(defun decode-delta-state (raw-kvs)
+  "Decode δ from a list of multi-key Merkle pairs (delta-kvs).
+   This serves as the public constructor for the orchestrator (σ),
+   replacing the standard byte-array decoder."
+  (make-delta-state :raw-kvs raw-kvs))
