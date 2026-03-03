@@ -624,7 +624,7 @@
       (let ((local-score (compute-parity-score results :hardware-factor 1.0)))
         (when local-score
           (let* ((score (getf local-score :score))
-                 (details (format nil "  Score: ~,1F (Geometric Mean of 4 traces)" score)))
+                 (details (format nil "  Score: ~,1F (Geometric Mean of safrole, fallback, storage, storage_light)" score)))
             (format t "~%  ~A┌──────────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
                     +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 60) +bcyan+ +reset+)
