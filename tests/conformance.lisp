@@ -429,6 +429,37 @@
         0.0
         (sqrt (/ (loop for x across arr sum (expt (- x mean) 2)) n)))))
 
+(defun compute-parity-score (results &key (hardware-factor 1.0))
+  "Calculate Parity performance score from the results list."
+  (let ((target-tests '("safrole" "fallback" "storage" "storage_light"))
+        (scaling-factor 1.75)
+        (scores nil)
+        (p50s nil)
+        (p90s nil))
+    (dolist (test target-tests)
+      (let ((r (find test results :key #'car :test #'string=)))
+        (when r
+          ;; name cp cf sp sf err pmin pmax mean p50 p90 p99 std-dev
+          (destructuring-bind (name cp cf sp sf err pmin pmax mean p50 p90 p99 std-dev &rest rest) r
+            (declare (ignore name cp cf sp sf err pmin pmax rest))
+            (let ((score (+ (* p50 0.35)
+                            (* p90 0.25)
+                            (* mean 0.20)
+                            (* p99 0.10)
+                            (* std-dev 0.10))))
+              (push score scores)
+              (push p50 p50s)
+              (push p90 p90s))))))
+    (if (= (length scores) (length target-tests))
+        (let* ((product (reduce #'* scores))
+               (raw-final (expt product (/ 1.0 (length target-tests))))
+               (avg-p50 (/ (reduce #'+ p50s) (length p50s)))
+               (avg-p90 (/ (reduce #'+ p90s) (length p90s))))
+          (list :score (/ (* raw-final scaling-factor) hardware-factor)
+                :p50 (/ avg-p50 hardware-factor)
+                :p90 (/ avg-p90 hardware-factor)))
+        nil)))
+
 (defun export-json-report (dir name steps imported min mean max p50 p75 p90 p99 std-dev max-step)
   "Export Parity fuzz-perf JSON report."
   (ensure-directories-exist dir)
@@ -503,7 +534,7 @@
                                   pmin mean pmax p50 p75 p90 p99 std-dev max-time-step))
             
             (push (list name cp cf sp sf err
-                        pmin pmax mean p50 p90 p99 max-time-step
+                        pmin pmax mean p50 p90 p99 std-dev max-time-step
                         (jotl:prof-seconds :decode)
                         (jotl:prof-seconds :stf)
                         (jotl:prof-seconds :merkle)
@@ -519,64 +550,6 @@
 
       ;; Reverse results in-place once, use everywhere after
       (setf results (nreverse results))
-
-      ;; ── Phase breakdown per trace (timing details first) ──
-      (format t "~%~%")
-      (let ((all-results results))
-        (format t "  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
-                +bcyan+ +reset+)
-        (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "Trace") 16)
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "Decode") 7)
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "STF") 7)
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "Merkle") 7)
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "Accum") 7)
-                +bcyan+ +reset+ (pad-right (c +bwhite+ "δ-save") 7)
-                +bcyan+ +reset+)
-        (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
-                +bcyan+ +reset+)
-        (let ((sum-decode 0.0) (sum-stf 0.0) (sum-merkle 0.0)
-              (sum-accum 0.0) (sum-delta 0.0))
-          (dolist (r all-results)
-            (destructuring-bind (name _cp _cf _sp _sf _err
-                                 pmin pmax mean p50 p90 p99 max-time-step
-                                 t-decode t-stf t-merkle t-accum t-delta) r
-              (declare (ignore _cp _cf _sp _sf _err pmin pmax mean p50 p90 p99 max-time-step))
-              (incf sum-decode t-decode) (incf sum-stf t-stf)
-              (incf sum-merkle t-merkle) (incf sum-accum t-accum)
-              (incf sum-delta t-delta)
-              (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
-                      +bcyan+ +reset+ (pad-right name 16)
-                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-decode) 7)
-                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-stf) 7)
-                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-merkle) 7)
-                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-accum) 7)
-                      +bcyan+ +reset+ (pad-right (format nil "~,2Fs" t-delta) 7)
-                      +bcyan+ +reset+)))
-          (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
-                  +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ "TOTAL") 16)
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-decode)) 7)
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-stf)) 7)
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-merkle)) 7)
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-accum)) 7)
-                  +bcyan+ +reset+ (pad-right (c +bwhite+ (format nil "~,2Fs" sum-delta)) 7)
-                  +bcyan+ +reset+)
-          (format t "  ~A└──────────────────┴─────────┴─────────┴─────────┴─────────┴─────────┘~A~%"
-                  +bcyan+ +reset+)
-          ;; Percentages
-          (when (plusp elapsed-s)
-            (let ((other (- elapsed-s sum-decode sum-stf sum-merkle)))
-              (format t "~%  ~ADecode ~,0F%  STF ~,0F%  Merkle ~,0F%  (Accum ~,0F%  δ-save ~,0F%)  Other ~,0F%~A~%"
-                      +dim+
-                      (* 100 (/ sum-decode elapsed-s))
-                      (* 100 (/ sum-stf elapsed-s))
-                      (* 100 (/ sum-merkle elapsed-s))
-                      (* 100 (/ sum-accum elapsed-s))
-                      (* 100 (/ sum-delta elapsed-s))
-                      (* 100 (/ other elapsed-s))
-                      +reset+)))))
 
       ;; ── Timer ──
       (format t "~%  ~A⏱  ~,2F s~A  (~D traces, ~D blocks, ~,1F ms/block)~%"
@@ -627,36 +600,30 @@
                                  (c +bred+ (format nil "~D" grand-err)))))
           (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
 
-      ;; ── Fuzz-Perf Stats Table ──
-      (format t "~%  ~A┌──────────────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐~A~%"
-              +bcyan+ +reset+)
-      (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "Trace (ms)") 16)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "min") 7)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "mean") 7)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "p50") 7)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "p90") 7)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "p99") 7)
-              +bcyan+ +reset+ (pad-right (c +bwhite+ "max") 7)
-              +bcyan+ +reset+)
-      (format t "  ~A├──────────────────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────────┤~A~%"
-              +bcyan+ +reset+)
-      (dolist (r results)
-        (destructuring-bind (name _cp _cf _sp _sf _err
-                             pmin pmax mean p50 p90 p99 max-time-step
-                             &rest rest) r
-          (declare (ignore _cp _cf _sp _sf _err max-time-step rest))
-          (format t "  ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right name 16)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" pmin) 7)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" mean) 7)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p50) 7)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p90) 7)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" p99) 7)
-                  +bcyan+ +reset+ (pad-right (format nil "~,2F" pmax) 7)
-                  +bcyan+ +reset+)))
-      (format t "  ~A└──────────────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘~A~%"
-              +bcyan+ +reset+)
+      ;; ── Parity Performance Ranking ──
+      (let ((local-score (compute-parity-score results :hardware-factor 1.0))
+            (extra-score (compute-parity-score results :hardware-factor 2.2)))
+        (when local-score
+          (format t "~%  ~A┌──────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right (c +bwhite+ "JOTL Performance Ranking (Parity Formula)") 56) +bcyan+ +reset+)
+          (format t "  ~A├──────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right "Local Hardware" 56) +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F (P50: ~,2Fms | P90: ~,2Fms)"
+                                                     (getf local-score :score)
+                                                     (getf local-score :p50)
+                                                     (getf local-score :p90)) 56) +bcyan+ +reset+)
+          (format t "  ~A├──────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right "Extrapolated (Threadripper 3970X Equivalent)" 56) +bcyan+ +reset+)
+          (format t "  ~A│~A ~A ~A│~A~%"
+                  +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F (P50: ~,2Fms | P90: ~,2Fms)"
+                                                     (getf extra-score :score)
+                                                     (getf extra-score :p50)
+                                                     (getf extra-score :p90)) 56) +bcyan+ +reset+)
+          (format t "  ~A└──────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+)))
 
       ;; Result plist
       (list :chain-pass grand-cp :chain-fail grand-cf
