@@ -432,7 +432,6 @@
 (defun compute-parity-score (results &key (hardware-factor 1.0))
   "Calculate Parity performance score from the results list."
   (let ((target-tests '("safrole" "fallback" "storage" "storage_light"))
-        (scaling-factor 1.75)
         (scores nil)
         (p50s nil)
         (p90s nil))
@@ -455,7 +454,7 @@
                (raw-final (expt product (/ 1.0 (length target-tests))))
                (avg-p50 (/ (reduce #'+ p50s) (length p50s)))
                (avg-p90 (/ (reduce #'+ p90s) (length p90s))))
-          (list :score (/ (* raw-final scaling-factor) hardware-factor)
+          (list :score (/ raw-final hardware-factor)
                 :p50 (/ avg-p50 hardware-factor)
                 :p90 (/ avg-p90 hardware-factor)))
         nil)))
@@ -601,8 +600,7 @@
           (format t "~A~A~A~%" +bcyan+ border-bot +reset+)))
 
       ;; ── Parity Performance Ranking ──
-      (let ((local-score (compute-parity-score results :hardware-factor 1.0))
-            (extra-score (compute-parity-score results :hardware-factor 2.2)))
+      (let ((local-score (compute-parity-score results :hardware-factor 1.0)))
         (when local-score
           (format t "~%  ~A┌──────────────────────────────────────────────────────────┐~A~%" +bcyan+ +reset+)
           (format t "  ~A│~A ~A ~A│~A~%"
@@ -615,14 +613,6 @@
                                                      (getf local-score :score)
                                                      (getf local-score :p50)
                                                      (getf local-score :p90)) 56) +bcyan+ +reset+)
-          (format t "  ~A├──────────────────────────────────────────────────────────┤~A~%" +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right "Extrapolated (Threadripper 3970X Equivalent)" 56) +bcyan+ +reset+)
-          (format t "  ~A│~A ~A ~A│~A~%"
-                  +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F (P50: ~,2Fms | P90: ~,2Fms)"
-                                                     (getf extra-score :score)
-                                                     (getf extra-score :p50)
-                                                     (getf extra-score :p90)) 56) +bcyan+ +reset+)
           (format t "  ~A└──────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+)))
 
       ;; Result plist

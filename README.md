@@ -20,6 +20,16 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 | fuzzy | 200/200 ✓ | 200/200 ✓ | 0 |
 | **TOTAL** | **1000/1000** | **1000/1000** | **0** |
 
+## Performance
+
+JOTL is a pure Common Lisp implementation using SBCL as its engine. It implements a fully compliant internal PVM interpreter with a lazy AOT instruction decoder. 
+
+Based on Parity's official [Fuzzer Performance Scoring Methodology](https://paritytech.github.io/jam-conformance-dashboard/), JOTL achieves the following performance on a local machine (ThinkPad with Intel Core i7-10610U @ 1.80GHz):
+
+- **Score:** 25.1
+- **P50:** 12.13 ms
+- **P90:** 24.97 ms
+
 ### polkajam-fuzz traces (205 traces, 760 steps)
 
 | Metric | Value |
