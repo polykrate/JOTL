@@ -422,16 +422,52 @@
               (+ (* (- 1.0 frac) (aref sorted i))
                  (* frac (aref sorted (1+ i)))))))))
 
+(defun standard-deviation (arr mean)
+  "Calculate standard deviation of a single-float vector ARR."
+  (let ((n (length arr)))
+    (if (< n 2)
+        0.0
+        (sqrt (/ (loop for x across arr sum (expt (- x mean) 2)) n)))))
+
+(defun export-json-report (dir name steps imported min mean max p50 p75 p90 p99 std-dev max-step)
+  "Export Parity fuzz-perf JSON report."
+  (ensure-directories-exist dir)
+  (let ((path (merge-pathnames (format nil "~A.json" name) dir)))
+    (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (format out "{~%")
+      (format out "  \"info\": {~%")
+      (format out "    \"fuzz_version\": \"0.7.2\",~%")
+      (format out "    \"fuzz_features\": [],~%")
+      (format out "    \"jam_version\": \"0.1.0\",~%")
+      (format out "    \"app_version\": \"0.1.0\",~%")
+      (format out "    \"app_name\": \"JOTL\"~%")
+      (format out "  },~%")
+      (format out "  \"stats\": {~%")
+      (format out "    \"steps\": ~D,~%" steps)
+      (format out "    \"imported\": ~D,~%" imported)
+      (format out "    \"import_max_step\": ~D,~%" max-step)
+      (format out "    \"import_min\": ~,4F,~%" min)
+      (format out "    \"import_max\": ~,4F,~%" max)
+      (format out "    \"import_mean\": ~,4F,~%" mean)
+      (format out "    \"import_p50\": ~,4F,~%" p50)
+      (format out "    \"import_p75\": ~,4F,~%" p75)
+      (format out "    \"import_p90\": ~,4F,~%" p90)
+      (format out "    \"import_p99\": ~,4F,~%" p99)
+      (format out "    \"import_std_dev\": ~,4F~%" std-dev)
+      (format out "  }~%")
+      (format out "}~%"))))
+
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; RUN-ALL — aggregate all traces with summary table
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defun run-all (&key (verbose nil) (traces nil))
+(defun run-all (&key (verbose nil) (traces nil) (json-dir nil))
   "Run all traces (or a subset).  Prints a colored summary table.
 
    TRACES: optional list of trace names (e.g. '(\"storage\" \"safrole\")).
            NIL = all traces with a genesis.bin.
    VERBOSE: per-block detail + component diff on failures.
+   JSON-DIR: optional directory to export parity-compatible fuzz-perf json reports.
 
    Returns plist (:chain-pass N :chain-fail N :step-pass N :step-fail N :errors N)"
   (let ((dirs (if traces
@@ -455,10 +491,17 @@
           (let* ((n (length times))
                  (mean (if (plusp n) (/ (loop for x across times sum x) n) 0.0))
                  (p50 (percentile times 50))
+                 (p75 (percentile times 75))
                  (p90 (percentile times 90))
                  (p99 (percentile times 99))
+                 (std-dev (standard-deviation times mean))
                  (pmax (if (plusp n) (reduce #'max times) 0.0))
                  (pmin (if (plusp n) (reduce #'min times) 0.0)))
+            
+            (when json-dir
+              (export-json-report (pathname json-dir) name (+ cp cf sp sf err) (+ cp sp)
+                                  pmin mean pmax p50 p75 p90 p99 std-dev max-time-step))
+            
             (push (list name cp cf sp sf err
                         pmin pmax mean p50 p90 p99 max-time-step
                         (jotl:prof-seconds :decode)
