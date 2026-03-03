@@ -109,16 +109,23 @@ def print_leaderboard(scores, hardware_factor=1.0):
     print("  " + "-"*68)
     
     for i, (team, data) in enumerate(sorted_teams):
-        score = data['score'] / hardware_factor
-        p50 = data['p50'] / hardware_factor
-        p90 = data['p90'] / hardware_factor
+        score = data['score']
+        p50 = data['p50']
+        p90 = data['p90']
         
-        relative = score / baseline_score
+        # When printing extrapolated hardware, we just divide the values but keep the baseline relation the same
+        # relative to the new hardware scale.
+        if hardware_factor != 1.0:
+             score = score / hardware_factor
+             p50 = p50 / hardware_factor
+             p90 = p90 / hardware_factor
+        
+        relative = data['score'] / baseline_score # Relative is always based on actual data
         
         # Color coding for relative performance
-        if relative < 1.0:
+        if relative < 0.95:
             rel_str = f"\033[32m{1/relative:.1f}x faster\033[0m" # Green
-        elif abs(relative - 1.0) < 0.05:
+        elif abs(relative - 1.0) <= 0.05:
             rel_str = f"\033[35mbaseline\033[0m" # Purple
         elif relative < 2.0:
             rel_str = f"\033[33m{relative:.1f}x slower\033[0m" # Yellow
