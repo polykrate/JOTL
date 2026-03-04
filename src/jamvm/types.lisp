@@ -111,7 +111,7 @@
   ;; Avoids bitmask scanning on every step.
   (skip-table   (make-array 0 :element-type '(unsigned-byte 8))
                :type (simple-array (unsigned-byte 8) (*))) ; ℓ
-  ;; AOT pre-decoded instructions for fast execution
+  ;; Lazy-cached decoded instructions (populated on first execution per PC)
   (decoded-code #() :type simple-vector)
   ;; Reusable instruction args buffer (zero allocation per step)
   (args-buf  (make-pvm-args) :type pvm-args)
@@ -143,7 +143,7 @@
   (offset 0 :type integer))    ; PC-relative offset (resolved to absolute)
 
 (defstruct (pvm-instr (:include pvm-args) (:conc-name instr-))
-  "AOT decoded instruction."
+  "Cached decoded instruction (lazy, populated on first hit)."
   (handler nil :type (or null function))
   (skip 0 :type fixnum)
   (gas-cost 0 :type fixnum)

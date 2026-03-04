@@ -22,7 +22,7 @@ Common Lisp implementation of the **JAM state transition function** Υ(σ, B) �
 
 ## Performance
 
-JOTL is a pure Common Lisp implementation using SBCL as its engine. It implements a fully compliant internal PVM interpreter with a lazy AOT instruction decoder. 
+JOTL is a pure Common Lisp implementation using SBCL as its engine. It implements a fully compliant PVM interpreter with AOT precomputed tables (basic-block starts ω̄, skip-distance LUT) and a lazy instruction cache (decoded on first hit per PC, then cached for subsequent executions).
 
 ### polkajam-fuzz traces (205 traces, 760 steps)
 
@@ -149,7 +149,7 @@ scripts/
 ├── test.sh             Static test vectors (1000 blocks)
 ├── test-reports.sh     Polkajam fuzz-reports traces (205 traces)
 ├── fuzz-target.sh      Launch fuzzer target server
-└── load-jotl.lisp      SBCL loader script
+└── load-jotl.lisp      SBCL loader scriptb
 tests/
 ├── conformance.lisp    Static trace runner
 ├── polkajam-traces.lisp  Fuzz-reports trace runner

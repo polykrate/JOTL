@@ -148,8 +148,8 @@
         (values info skip args)))))
 
 (defun decode-single-instr (vm pc)
-  "AOT decode a single instruction at PC.
-   Returns a pvm-instr."
+  "Decode a single instruction at PC into a cached pvm-instr struct.
+   Called lazily on first execution at each PC, then cached in decoded-code."
   (let* ((code (pvm-code vm))
          (instr (make-pvm-instr)))
     (let* ((effective (pvm-opcode vm pc))
