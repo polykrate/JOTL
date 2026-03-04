@@ -113,6 +113,28 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 
 ## Run
 
+### Prerequisites
+
+JOTL scripts expect two sibling repositories for test data:
+
+```
+parent/
+├── JOTL/                  # this repository
+├── jamtestvectors/        # w3f/jamtestvectors (static test vectors)
+└── jam-conformance/       # w3f/jam-conformance (fuzz reports & minifuzz)
+```
+
+```bash
+# Clone test data next to JOTL
+git clone https://github.com/w3f/jamtestvectors.git ../jamtestvectors
+git clone https://github.com/polykrate/jam-conformance.git ../jam-conformance
+
+# Symlink jamtestvectors into tests/ (expected by conformance.lisp)
+ln -sf ../../jamtestvectors tests/jamtestvectors
+```
+
+### Build & test
+
 ```bash
 cargo build --manifest-path crypto/jam-crypto/Cargo.toml --release
 
