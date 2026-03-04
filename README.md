@@ -161,21 +161,15 @@ git clone https://github.com/w3f/jam-conformance.git ../jam-conformance
 ln -sf ../../jamtestvectors tests/jamtestvectors
 ```
 
-### Option A: Docker 
+### Option A: Docker (fuzz target)
 
 No local dependencies needed — everything is bundled in the image.
 
 ```bash
 docker build -t jotl .
 
-# Run all conformance tests (1000 blocks)
-docker run --rm jotl ./scripts/test.sh
-
-# Run polkajam fuzz-reports (205 traces)
-docker run --rm jotl ./scripts/test-reports.sh
-
 # Launch fuzz target (accessible from host via socket)
-docker run --rm -v /tmp:/tmp jotl ./scripts/fuzz-target.sh /tmp/jam_target.sock
+docker run --rm -v /tmp:/tmp jotl /tmp/jam_target.sock
 ```
 
 ### Option B: Native build

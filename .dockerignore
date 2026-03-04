@@ -1,8 +1,9 @@
 .git
-target/
+**/target/
 *.fasl
 *.pdf
 .venv/
+.venv-minifuzz/
 __pycache__/
 tests/jamtestvectors
 quicklisp/
