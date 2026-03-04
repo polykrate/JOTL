@@ -115,6 +115,34 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 
 ### Prerequisites
 
+**System dependencies:**
+
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| [SBCL](http://www.sbcl.org/) | ≥ 2.3 | Common Lisp compiler/runtime |
+| [Quicklisp](https://www.quicklisp.org/) | latest | Lisp package manager (provides `alexandria`, `cffi`) |
+| [Rust](https://rustup.rs/) | stable | Compile crypto FFI (`jam-crypto`) |
+
+```bash
+# Debian/Ubuntu
+sudo apt install sbcl
+
+# Arch/Manjaro
+sudo pacman -S sbcl
+
+# macOS
+brew install sbcl
+
+# Then install Quicklisp (one-time setup)
+curl -O https://beta.quicklisp.org/quicklisp.lisp
+sbcl --load quicklisp.lisp --eval '(quicklisp-quickstart:install)' --eval '(ql:add-to-init-file)' --quit
+
+# Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**Test data repositories:**
+
 JOTL scripts expect two sibling repositories for test data:
 
 ```
