@@ -155,13 +155,30 @@ parent/
 ```bash
 # Clone test data next to JOTL
 git clone https://github.com/w3f/jamtestvectors.git ../jamtestvectors
-git clone https://github.com/polykrate/jam-conformance.git ../jam-conformance
+git clone https://github.com/w3f/jam-conformance.git ../jam-conformance
 
 # Symlink jamtestvectors into tests/ (expected by conformance.lisp)
 ln -sf ../../jamtestvectors tests/jamtestvectors
 ```
 
-### Build & test
+### Option A: Docker 
+
+No local dependencies needed — everything is bundled in the image.
+
+```bash
+docker build -t jotl .
+
+# Run all conformance tests (1000 blocks)
+docker run --rm jotl ./scripts/test.sh
+
+# Run polkajam fuzz-reports (205 traces)
+docker run --rm jotl ./scripts/test-reports.sh
+
+# Launch fuzz target (accessible from host via socket)
+docker run --rm -v /tmp:/tmp jotl ./scripts/fuzz-target.sh /tmp/jam_target.sock
+```
+
+### Option B: Native build
 
 ```bash
 cargo build --manifest-path crypto/jam-crypto/Cargo.toml --release
