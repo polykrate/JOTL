@@ -91,11 +91,11 @@ PVM (GP Appendix A) is **pure Common Lisp** (`src/jamvm/`), with host calls
 
 ### Line count
 
-| | Code | Comments | Total |
-|-|-----:|---------:|------:|
-| **Lisp** | 11 806 | 4 394 | 18 217 |
-| **Rust** | 1 700 | 459 | 2 518 |
-| **All** | **13 506** | **4 853** | **20 735** |
+| | Code | Comments | Blank | Total |
+|-|-----:|---------:|------:|------:|
+| **Lisp** | 11 806 | 4 394 | 2 017 | 18 217 |
+| **Rust** | 1 700 | 459 | 359 | 2 518 |
+| **All** | **13 506** | **4 853** | **2 376** | **20 735** |
 
 <details><summary>Lisp breakdown</summary>
 
@@ -156,9 +156,6 @@ parent/
 # Clone test data next to JOTL
 git clone https://github.com/w3f/jamtestvectors.git ../jamtestvectors
 git clone https://github.com/w3f/jam-conformance.git ../jam-conformance
-
-# Symlink jamtestvectors into tests/ (expected by conformance.lisp)
-ln -sf ../../jamtestvectors tests/jamtestvectors
 ```
 
 ### Option A: Docker (fuzz target)

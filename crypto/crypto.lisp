@@ -183,9 +183,9 @@
   "Zcash SRS for Ring VRF (loaded from file)")
 
 (defvar *bandersnatch-srs-path* 
-  (merge-pathnames "tests/jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin"
+  (merge-pathnames "../jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin"
                    (asdf:system-source-directory :jotl))
-  "Path to the Zcash SRS file for Ring VRF (relative to JOTL project root)")
+  "Path to the Zcash SRS file for Ring VRF (sibling jamtestvectors repo)")
 
 (defun load-bandersnatch-srs ()
   "Load the Zcash SRS file for Ring VRF."

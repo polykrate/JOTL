@@ -219,8 +219,11 @@
 ;;; TRACE DISCOVERY
 ;;; ═══════════════════════════════════════════════════════════════
 
-(defvar *trace-base-dir* "tests/jamtestvectors/traces/"
-  "Base directory for trace vectors.")
+(defvar *trace-base-dir*
+  (namestring
+   (merge-pathnames "../jamtestvectors/traces/"
+                    (asdf:system-source-directory :jotl)))
+  "Base directory for trace vectors (sibling repo, no symlink needed).")
 
 ;; Desired order: simple → complex (fuzzy last)
 (defparameter +trace-order+

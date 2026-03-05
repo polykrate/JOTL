@@ -56,10 +56,11 @@ COPY --chown=jotl:jotl --from=rust-builder /build/crypto/jam-crypto/target/relea
 COPY --chown=jotl:jotl . .
 
 # Bandersnatch SRS for Ring VRF verification (577KB)
-RUN mkdir -p tests/jamtestvectors/stf/safrole \
+# Placed as sibling repo (../jamtestvectors/) — same layout as native setup
+RUN mkdir -p /home/jotl/jamtestvectors/stf/safrole \
     && curl -fsSL "https://raw.githubusercontent.com/w3f/jamtestvectors/master/stf/safrole/zcash-srs-2-11-uncompressed.bin" \
-       -o tests/jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin \
-    && test $(wc -c < tests/jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin) -gt 500000 \
+       -o /home/jotl/jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin \
+    && test $(wc -c < /home/jotl/jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin) -gt 500000 \
     || (echo "ERROR: SRS download failed or truncated" && exit 1)
 
 # Pre-compile JOTL (warm FASL cache for faster startup)
