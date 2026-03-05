@@ -161,10 +161,7 @@ tests/                  Conformance test runners
 scripts/                Shell entry points
 ```
 
-## Bugs found during conformance testing
-
-16 bugs were found via static vectors, polkajam-fuzz, and minifuzz.
-Each entry references the GP section where the expected behaviour is defined.
+## Last bugs corrected
 
 | # | Component | Root cause |
 |---|-----------|------------|
