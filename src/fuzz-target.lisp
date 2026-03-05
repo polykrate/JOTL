@@ -237,6 +237,13 @@
    Oldest states are GC'd when this limit is exceeded.
    Set high enough for fuzzer forks scenarios (up to ~50 concurrent chains).")
 
+(defconstant +gc-interval-blocks+ 1000
+  "Trigger a full GC every N block imports to bound heap growth.
+   Each import allocates O(|delta-kvs|) cons cells (copy-alist) +
+   O(|delta-kvs| log |delta-kvs|) byte vectors (Merkle recompute).
+   Without periodic collection these promote to older GC generations
+   and the heap grows monotonically over long sessions (100K+ blocks).")
+
 (defstruct fuzz-state-manager
   "Fork-aware state manager for fuzz-v1 sessions."
   ;; Hash table: header-hash (32 bytes, equalp) → sigma closure
@@ -408,7 +415,10 @@
 
 (defun fuzz-session-loop (stream mgr)
   "Main session loop: read messages, dispatch, respond.
-   Runs until the connection is closed (EOF)."
+   Runs until the connection is closed (EOF).
+   Periodic GC every +gc-interval-blocks+ imports to bound heap growth
+   over long fuzzing sessions (100K+ blocks)."
+  (let ((import-count 0))
   (loop
     (let ((raw (fuzz-recv-message stream)))
       (unless raw
@@ -444,6 +454,11 @@
                       (:import-block
                        (multiple-value-bind (status result)
                            (fuzz-handle-import-block mgr payload)
+                         ;; Periodic GC to bound heap growth over long sessions
+                         (incf import-count)
+                         (when (zerop (mod import-count +gc-interval-blocks+))
+                           (sb-ext:gc :full t)
+                           (format t "[jotl-fuzz] GC after ~D imports~%" import-count))
                          (if (eq status :ok)
                              (progn
                                (format t "[jotl-fuzz] >> state-root ~A...~%"
@@ -482,7 +497,7 @@
             (force-output)
             (handler-case
                 (fuzz-send-message stream (encode-fuzz-error msg))
-              (error () (return)))))))))
+              (error () (return))))))))))
 
 ;;; ── Main entry point ────────────────────────────────────────────
 

@@ -15,7 +15,8 @@
 (defvar *trie-zero-hash*
   (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
   "Pre-allocated 32-byte zero array for empty Merkle nodes.
-   Shared read-only — never mutate this.")
+   Shared read-only — safe because trie-branch copies inputs into a
+   fresh result array (never mutates left or right).")
 
 ;;; ============================================================================
 ;;; Helper Functions
@@ -112,9 +113,12 @@
            (type fixnum bit-index))
   
   (cond
-    ;; Empty: return shared zero array (copy to avoid mutation)
+    ;; Empty: return shared zero array directly.
+    ;; Safe: trie-branch copies left/right into a fresh 64-byte result
+    ;; via REPLACE — it never mutates the input vectors themselves.
+    ;; Saves ~N allocations of 32 bytes per Merkle recompute.
     ((null kvs)
-     (copy-seq *trie-zero-hash*))
+     *trie-zero-hash*)
     
     ;; Single leaf — O(1) check instead of O(n) length
     ((null (cdr kvs))
