@@ -23,20 +23,8 @@
 (defconstant +gas-per-page+ 10
   "Gas cost per page allocation. GP §A: memory pages are charged.")
 
-;;; ═══════════════════════════════════════════════════════════════════
-;;; Diagnostic instrumentation (declared early to avoid forward-reference warnings)
-;;; ═══════════════════════════════════════════════════════════════════
-
-(defvar *vm-last-step-pc* nil
-  "PC of the last instruction before vm-step executed.
-   Useful for diagnosing panics (vm-step sets pc=0 on panic).")
-
-(defvar *vm-opcode-counts* nil
-  "When non-NIL, a 256-element vector counting executions of each opcode.
-   Set to (make-array 256 :initial-element 0) to enable.")
-
-(defvar *vm-trap-log* nil
-  "When non-NIL, a list collecting (PC raw-opcode bitmask-bit) for each trap.")
+;;; Diagnostic vars (*vm-last-step-pc*, *vm-opcode-counts*, *vm-trap-log*)
+;;; are defined in types.lisp (loaded before instructions.lisp).
 
 (defvar *vm-trace-stream* nil
   "When non-NIL, a stream to log (step# PC opcode gas R0..R12) per instruction.")

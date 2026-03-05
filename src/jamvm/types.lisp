@@ -47,6 +47,21 @@
   "2³² − 2¹⁶ = #xFFFF0000. djump(a) halts when a equals this (GP A.18).")
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Diagnostic instrumentation (declared here — before instructions.lisp)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *vm-last-step-pc* nil
+  "PC of the last instruction before vm-step executed.
+   Useful for diagnosing panics (vm-step sets pc=0 on panic).")
+
+(defvar *vm-opcode-counts* nil
+  "When non-NIL, a 256-element vector counting executions of each opcode.
+   Set to (make-array 256 :initial-element 0) to enable.")
+
+(defvar *vm-trap-log* nil
+  "When non-NIL, a list collecting (PC raw-opcode bitmask-bit) for each trap.")
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Exit reasons  ε ∈ {■, ϡ, ∞} ∪ {∃, ℏ} × ℕ_R
 ;;; ═══════════════════════════════════════════════════════════════════
 
