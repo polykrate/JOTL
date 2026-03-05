@@ -182,22 +182,35 @@
 (defvar *bandersnatch-srs* nil
   "Zcash SRS for Ring VRF (loaded from file)")
 
-(defvar *bandersnatch-srs-path* 
-  (merge-pathnames "../jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin"
-                   (asdf:system-source-directory :jotl))
-  "Path to the Zcash SRS file for Ring VRF (sibling jamtestvectors repo)")
+(defvar *bandersnatch-srs-search-paths*
+  (let ((root (asdf:system-source-directory :jotl)))
+    (list
+     ;; 1. Bundled in JOTL/data/ (always available)
+     (merge-pathnames "data/zcash-srs-2-11-uncompressed.bin" root)
+     ;; 2. Sibling jamtestvectors repo (dev layout)
+     (merge-pathnames "../jamtestvectors/stf/safrole/zcash-srs-2-11-uncompressed.bin" root)))
+  "Ordered search paths for the Zcash SRS file.
+   First match wins.  Bundled copy in data/ is the primary path;
+   sibling jamtestvectors repo is the fallback for dev environments.")
+
+(defun find-bandersnatch-srs-path ()
+  "Return the first existing SRS file from *bandersnatch-srs-search-paths*, or NIL."
+  (dolist (path *bandersnatch-srs-search-paths*)
+    (when (probe-file path)
+      (return path))))
 
 (defun load-bandersnatch-srs ()
-  "Load the Zcash SRS file for Ring VRF."
+  "Load the Zcash SRS file for Ring VRF.
+   Searches *bandersnatch-srs-search-paths* in order; first hit is loaded."
   (unless *bandersnatch-srs*
-    (when (probe-file *bandersnatch-srs-path*)
-      (with-open-file (stream *bandersnatch-srs-path* 
-                              :element-type '(unsigned-byte 8))
-        (let* ((size (file-length stream))
-               (data (make-array size :element-type '(unsigned-byte 8))))
-          (read-sequence data stream)
-          (setf *bandersnatch-srs* data)
-          (format t "Loaded Bandersnatch SRS: ~A bytes~%" size)))))
+    (let ((path (find-bandersnatch-srs-path)))
+      (when path
+        (with-open-file (stream path :element-type '(unsigned-byte 8))
+          (let* ((size (file-length stream))
+                 (data (make-array size :element-type '(unsigned-byte 8))))
+            (read-sequence data stream)
+            (setf *bandersnatch-srs* data)
+            (format t "Loaded Bandersnatch SRS: ~A bytes from ~A~%" size path))))))
   *bandersnatch-srs*)
 
 (cffi:defcfun ("bandersnatch_verify_ring_vrf_with_commitment" 
