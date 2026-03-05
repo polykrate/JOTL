@@ -438,7 +438,10 @@
         (sqrt (/ (loop for x across arr sum (expt (- x mean) 2)) n)))))
 
 (defun compute-parity-score (results &key (hardware-factor 1.0))
-  "Calculate Parity performance score from the results list."
+  "Compute the Parity conformance dashboard performance score.
+   Per-trace score = P50×0.35 + P90×0.25 + Mean×0.20 + P99×0.10 + σ×0.10
+   Final = geometric mean of the 4 per-trace scores (safrole, fallback, storage, storage_light).
+   Lower is better.  Polkajam (interpreted) is the 1.0× baseline on the dashboard."
   (let ((target-tests '("safrole" "fallback" "storage" "storage_light"))
         (scores nil)
         (p50s nil)
@@ -591,9 +594,9 @@
                 (sp (nth 3 r)) (sf (nth 4 r)) (err (nth 5 r))
                 (mean (nth 8 r))
                 (p50 (nth 9 r))
-                (p90 (nth 11 r))
-                (p99 (nth 12 r))
-                (std-dev (nth 13 r)))
+                (p90 (nth 10 r))
+                (p99 (nth 11 r))
+                (std-dev (nth 12 r)))
             (let ((ct (+ cp cf))
                   (st (+ sp sf)))
               (format t "~A~%"
@@ -634,7 +637,9 @@
             (format t "  ~A│~A ~A ~A│~A~%"
                     +bcyan+ +reset+ (pad-right "Traces: safrole, fallback, storage, storage_light" 60) +bcyan+ +reset+)
             (format t "  ~A│~A ~A ~A│~A~%"
-                    +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F" score) 60) +bcyan+ +reset+)
+                    +bcyan+ +reset+ (pad-right (format nil "  Score: ~,1F  (geometric mean, lower is better)" score) 60) +bcyan+ +reset+)
+            (format t "  ~A│~A ~A ~A│~A~%"
+                    +bcyan+ +reset+ (pad-right "  P50×35% + P90×25% + Mean×20% + P99×10% + σ×10%" 60) +bcyan+ +reset+)
             (format t "  ~A└──────────────────────────────────────────────────────────────┘~A~%" +bcyan+ +reset+))))
 
       ;; Result plist
