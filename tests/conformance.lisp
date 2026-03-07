@@ -220,10 +220,30 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defvar *trace-base-dir*
-  (namestring
-   (merge-pathnames "../jamtestvectors/traces/"
-                    (asdf:system-source-directory :jotl)))
-  "Base directory for trace vectors (sibling repo, no symlink needed).")
+  (let ((env (uiop:getenv "JAM_TEST_VECTORS")))
+    (cond
+      ;; 1. Env var JAM_TEST_VECTORS (set by test.sh or user)
+      (env
+       (let ((path (if (char= (char env (1- (length env))) #\/)
+                       env
+                       (concatenate 'string env "/"))))
+         (namestring (truename path))))
+      ;; 2. Sibling repo (default dev layout)
+      (t
+       (let ((sibling (merge-pathnames "../jamtestvectors/traces/"
+                                       (asdf:system-source-directory :jotl))))
+         (if (probe-file sibling)
+             (namestring sibling)
+             ;; No vectors found — warn but don't crash at load time
+             (progn
+               (format *error-output*
+                       "~&[jotl/test] WARNING: Test vectors not found.~%~
+                        Tried: ~A~%~
+                        Set JAM_TEST_VECTORS or use --vectors PATH~%"
+                       (namestring sibling))
+               (namestring sibling)))))))
+  "Base directory for trace vectors.
+   Discovery order: $JAM_TEST_VECTORS → sibling ../jamtestvectors/traces/.")
 
 ;; Desired order: simple → complex (fuzzy last)
 (defparameter +trace-order+

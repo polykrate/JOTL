@@ -12,12 +12,29 @@
 (in-package #:jotl)
 
 (defvar *traces-dir*
-  (or (uiop:getenv "TRACES_DIR")
-      (let ((base (asdf:system-source-directory :jotl)))
-        (namestring
-         (merge-pathnames
-          "../jam-conformance/fuzz-reports/0.7.2/traces/"
-          base)))))
+  (let ((env (uiop:getenv "TRACES_DIR")))
+    (cond
+      ;; 1. Env var TRACES_DIR (set by test-reports.sh or user)
+      (env
+       (let ((path (if (char= (char env (1- (length env))) #\/)
+                       env
+                       (concatenate 'string env "/"))))
+         path))
+      ;; 2. Sibling jam-conformance repo (default dev layout)
+      (t
+       (let* ((base (asdf:system-source-directory :jotl))
+              (sibling (merge-pathnames
+                        "../jam-conformance/fuzz-reports/0.7.2/traces/"
+                        base)))
+         (if (probe-file sibling)
+             (namestring sibling)
+             (progn
+               (format *error-output*
+                       "~&[jotl] WARNING: fuzz-reports traces not found.~%~
+                        Tried: ~A~%~
+                        Set TRACES_DIR or use --conformance PATH~%"
+                       (namestring sibling))
+               (namestring sibling))))))))
 
 (defvar *trace-id* (uiop:getenv "TRACE_ID"))
 (defvar *max-traces* (let ((v (uiop:getenv "MAX_TRACES")))

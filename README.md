@@ -117,7 +117,19 @@ docker build -t jotl .
 docker run --rm -v /tmp:/tmp jotl /tmp/jam_target.sock
 ```
 
-### Native build
+### Standalone binary
+
+Build a self-contained executable (~100 MB, <100ms startup):
+
+```bash
+./scripts/build.sh                  # → ./jotl
+./jotl test                         # run conformance tests
+./jotl test -v storage              # single trace, verbose
+./jotl fuzz /tmp/jam_target.sock    # fuzz-v1 target server
+./jotl version
+```
+
+### Native build (development)
 
 **Prerequisites:** [SBCL](http://www.sbcl.org/) ≥ 2.3,
 [Quicklisp](https://www.quicklisp.org/),
@@ -134,13 +146,26 @@ git clone https://github.com/w3f/jam-conformance.git ../jam-conformance
 # Static test vectors (8 traces, 1000 blocks)
 ./scripts/test.sh                           # all traces
 ./scripts/test.sh storage -v                # single trace, verbose
+./scripts/test.sh --vectors /path/to/traces # explicit path
 
 # Polkajam fuzz-reports (205 traces, 760 steps)
-./scripts/test-reports.sh                   # all
+./scripts/test-reports.sh                                          # all
+./scripts/test-reports.sh --conformance /path/to/jam-conformance   # explicit path
 
 # Fuzz target server (fuzz-v1 protocol)
 ./scripts/fuzz-target.sh /tmp/jam_target.sock
 ```
+
+### Test vector discovery
+
+Scripts auto-detect test vectors in sibling directories (default dev layout).
+Override with CLI arguments or environment variables:
+
+| Method | `test.sh` | `test-reports.sh` |
+|--------|-----------|-------------------|
+| CLI | `--vectors PATH` | `--conformance PATH` |
+| Env var | `JAM_TEST_VECTORS` | `TRACES_DIR` |
+| Auto-detect | `../jamtestvectors/traces/` | `../jam-conformance/fuzz-reports/0.7.2/traces/` |
 
 ## Repository layout
 

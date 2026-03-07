@@ -38,6 +38,7 @@ tests/trace-*.lisp
 *.so
 *.dylib
 target/
+/jotl
 
 # Python (minifuzz venv etc.)
 .venv/
