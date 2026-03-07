@@ -108,6 +108,11 @@
    ;; ═══════════════════════════════════════════
    #:trie-bit #:trie-branch #:trie-leaf
    #:merkle-root #:compute-state-root #:pad-key-to-32
+   ;; Persistent Merkle trie (incremental)
+   #:merkle-tnode #:make-merkle-tnode #:mt-hash #:mt-left #:mt-right
+   #:mt-leaf-key #:mt-leaf-value #:mt-leaf-p #:mt-branch-p
+   #:trie-insert #:trie-remove #:trie-root-hash
+   #:build-merkle-trie #:diff-update-trie
    
    ;; ═══════════════════════════════════════════
    ;; Lib — MMR (GP Appendix E)

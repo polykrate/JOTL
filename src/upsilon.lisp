@@ -214,6 +214,9 @@
                                         :theta-prime commitments)))
 
               ;; ── BUILD σ' — re-encode closures back to bytes ──
+              ;; Pass parent's Merkle trie + KV index for incremental state-root.
+              ;; On σ' state-root computation, the trie is updated with only
+              ;; the changed keys (O(K log N) instead of O(N log N) full recompute).
               (make-sigma-state
                :alpha   (funcall alpha-prime :encode)
                :beta    (funcall beta-prime :encode)
@@ -233,4 +236,7 @@
                :xi      (funcall xi-prime :encode)
                :theta   (funcall theta-prime :encode)
                :delta-kvs (prof :delta-save
-                            (funcall delta-prime :encode))))))))))
+                            (funcall delta-prime :encode))
+               ;; Incremental Merkle: parent's trie + KV index for diff-update
+               :parent-trie (funcall sigma :merkle-trie)
+               :parent-kv-index (funcall sigma :merkle-kv-index)))))))))

@@ -1,6 +1,13 @@
 ;;;; Merkle Trie implementation (GP Appendix D)
 ;;;; Binary tree for state merkleization
 ;;;;
+;;;; Two implementations:
+;;;;   1. merkle-root — flat recursive function for full recompute (M1 baseline)
+;;;;   2. Persistent trie — incremental structure with cached hashes
+;;;;      Structural sharing: inserts/deletes create O(log N) new nodes,
+;;;;      unchanged subtrees are shared between versions. O(K log N) rehash
+;;;;      for K changed keys instead of O(N log N) full recompute.
+;;;;
 ;;;; Performance notes:
 ;;;;   - trie-bit inlined for tight inner loop
 ;;;;   - trie-branch/trie-leaf use replace instead of byte loops
@@ -169,4 +176,196 @@
         (dolist (kv keyvals)
           (push (cons (pad-key-to-32 (car kv)) (cdr kv)) padded-keyvals))
         (merkle-root (nreverse padded-keyvals)))))
+
+;;; ============================================================================
+;;; Persistent Merkle Trie — incremental structure with cached hashes
+;;; ============================================================================
+;;;
+;;; Each node is either:
+;;;   - NIL (empty subtree)
+;;;   - Leaf: mt-leaf-key + mt-leaf-value, hash cached in mt-hash
+;;;   - Branch: mt-left + mt-right children, hash cached in mt-hash
+;;;
+;;; Structural sharing: insert/remove create O(depth) new nodes along the
+;;; modified path, sharing unchanged subtrees via pointer equality.
+;;; Depth is bounded by 256 (32-byte keys × 8 bits).
+
+(defstruct (merkle-tnode (:conc-name mt-))
+  "A node in the persistent Merkle trie.
+   HASH: cached 32-byte Merkle hash (nil = dirty, needs recompute).
+   LEFT/RIGHT: child nodes (nil = empty subtree).
+   LEAF-KEY/LEAF-VALUE: key-value pair for leaf nodes (nil for branches)."
+  (hash nil :type (or null (simple-array (unsigned-byte 8) (*))))
+  (left nil :type (or null merkle-tnode))
+  (right nil :type (or null merkle-tnode))
+  (leaf-key nil :type (or null (simple-array (unsigned-byte 8) (*))))
+  (leaf-value nil))
+
+(declaim (inline mt-leaf-p mt-branch-p))
+
+(defun mt-leaf-p (node)
+  "Is NODE a leaf (has key+value, no children)?"
+  (and node (mt-leaf-key node)))
+
+(defun mt-branch-p (node)
+  "Is NODE a branch (has children, no key)?"
+  (and node (not (mt-leaf-key node))))
+
+;;; ── Persistent insertion ──────────────────────────────────────────
+
+(defun trie-insert (node key value bit-index)
+  "Insert or update (KEY, VALUE) in the persistent trie at BIT-INDEX.
+   Returns a new root node. Unchanged subtrees are shared (structural sharing).
+   KEY must be 32 bytes."
+  (declare (optimize (speed 3) (safety 1))
+           (type fixnum bit-index))
+  (cond
+    ;; Empty subtree: create leaf
+    ((null node)
+     (make-merkle-tnode :leaf-key key :leaf-value value))
+
+    ;; Leaf node
+    ((mt-leaf-p node)
+     (let ((existing-key (mt-leaf-key node)))
+       (if (equalp key existing-key)
+           ;; Same key: update value (new leaf, old discarded)
+           (make-merkle-tnode :leaf-key key :leaf-value value)
+           ;; Different key: split into branch
+           (let ((old-bit (trie-bit existing-key bit-index))
+                 (new-bit (trie-bit key bit-index)))
+             (if (eq old-bit new-bit)
+                 ;; Same side: recurse deeper to find divergence point
+                 (let ((child (trie-insert node key value (1+ bit-index))))
+                   (if old-bit
+                       (make-merkle-tnode :right child)
+                       (make-merkle-tnode :left child)))
+                 ;; Different sides: distribute into branch
+                 (let ((new-leaf (make-merkle-tnode :leaf-key key :leaf-value value)))
+                   (if new-bit
+                       (make-merkle-tnode :left node :right new-leaf)
+                       (make-merkle-tnode :left new-leaf :right node))))))))
+
+    ;; Branch node: route by bit, create new branch sharing unchanged child
+    (t
+     (if (trie-bit key bit-index)
+         (make-merkle-tnode :left (mt-left node)
+                            :right (trie-insert (mt-right node) key value (1+ bit-index)))
+         (make-merkle-tnode :left (trie-insert (mt-left node) key value (1+ bit-index))
+                            :right (mt-right node))))))
+
+;;; ── Persistent removal ────────────────────────────────────────────
+
+(defun trie-remove (node key bit-index)
+  "Remove KEY from the persistent trie at BIT-INDEX.
+   Returns a new root node (or NIL if empty). Unchanged subtrees are shared.
+   After removal, branches with one nil child and one leaf child are collapsed
+   to match the flat merkle-root function's behavior."
+  (declare (optimize (speed 3) (safety 1))
+           (type fixnum bit-index))
+  (cond
+    ;; Empty: nothing to remove
+    ((null node) nil)
+
+    ;; Leaf: remove if matching
+    ((mt-leaf-p node)
+     (if (equalp key (mt-leaf-key node))
+         nil   ;; removed
+         node)) ;; not found, unchanged
+
+    ;; Branch: route by bit, then potentially collapse
+    (t
+     (let ((new-left (mt-left node))
+           (new-right (mt-right node)))
+       ;; Recurse into the appropriate child
+       (if (trie-bit key bit-index)
+           (setf new-right (trie-remove new-right key (1+ bit-index)))
+           (setf new-left (trie-remove new-left key (1+ bit-index))))
+       ;; Collapse check: if one child is nil and the other is a leaf,
+       ;; the branch must collapse to the leaf to match merkle-root behavior.
+       ;; merkle-root([A]) = blake2b(trie-leaf(A)), not branch(leaf(A), zero).
+       (cond
+         ;; Both nil → empty
+         ((and (null new-left) (null new-right)) nil)
+         ;; One nil, one leaf → collapse to leaf
+         ((and (null new-right) (mt-leaf-p new-left)) new-left)
+         ((and (null new-left) (mt-leaf-p new-right)) new-right)
+         ;; Otherwise: new branch (children may have changed)
+         ((and (eq new-left (mt-left node)) (eq new-right (mt-right node)))
+          node) ;; no change: return same node (preserve cached hash)
+         (t (make-merkle-tnode :left new-left :right new-right)))))))
+
+;;; ── Hash computation with caching ─────────────────────────────────
+
+(defun trie-root-hash (node)
+  "Compute the Merkle hash of the trie rooted at NODE.
+   Uses cached hashes for unchanged subtrees (O(1) per cached node).
+   Only dirty paths (hash=nil on newly created nodes) are rehashed.
+   Compatible with merkle-root: produces identical hashes for the same KVs."
+  (cond
+    ;; Empty → zero hash
+    ((null node)
+     *trie-zero-hash*)
+
+    ;; Cached → return immediately
+    ((mt-hash node)
+     (mt-hash node))
+
+    ;; Leaf → hash the encoded leaf
+    ((mt-leaf-p node)
+     (let ((h (blake2b-256 (trie-leaf (mt-leaf-key node) (mt-leaf-value node)))))
+       (setf (mt-hash node) h)
+       h))
+
+    ;; Branch → hash(branch(left-hash, right-hash))
+    (t
+     (let* ((left-hash (trie-root-hash (mt-left node)))
+            (right-hash (trie-root-hash (mt-right node)))
+            (h (blake2b-256 (trie-branch left-hash right-hash))))
+       (setf (mt-hash node) h)
+       h))))
+
+;;; ── Trie construction and incremental update ──────────────────────
+
+(defun build-merkle-trie (kvs)
+  "Build a persistent Merkle trie from a list of (key . value) pairs.
+   Keys must be 32 bytes. Returns root tnode or NIL for empty input.
+   O(N log N) — used only for genesis/initial state. Subsequent blocks
+   use diff-update-trie for O(K log N) incremental updates."
+  (let ((root nil))
+    (dolist (kv kvs)
+      (setf root (trie-insert root (car kv) (cdr kv) 0)))
+    root))
+
+(defun diff-update-trie (parent-trie parent-kv-index current-kvs)
+  "Incrementally update PARENT-TRIE based on diff between parent and current KVs.
+   PARENT-TRIE: merkle-tnode root from the parent state.
+   PARENT-KV-INDEX: hash-table {key → value} of the parent's merkle-kvs.
+   CURRENT-KVS: list of (key . value) for the current state.
+   Returns: updated trie root.
+
+   Algorithm:
+     1. Scan current KVs: insert any new or changed entries.
+     2. Scan parent index: remove any entries not in current.
+   Only O(K) trie operations where K = number of changed + removed keys.
+   The O(N) scans are fast hash-table lookups, not blake2b hashing."
+  (let ((trie parent-trie)
+        (current-keys (make-hash-table :test 'equalp :size (length current-kvs))))
+    ;; Pass 1: insert new or changed entries
+    (dolist (kv current-kvs)
+      (let* ((key (car kv))
+             (val (cdr kv))
+             (old-val (gethash key parent-kv-index)))
+        (setf (gethash key current-keys) t)
+        ;; Insert if key is new or value changed
+        (unless (and old-val (eq old-val val))
+          ;; eq first (fast: same object from COW sharing), equalp fallback
+          (unless (and old-val (equalp old-val val))
+            (setf trie (trie-insert trie key val 0))))))
+    ;; Pass 2: remove entries that are in parent but not in current
+    (maphash (lambda (key val)
+               (declare (ignore val))
+               (unless (gethash key current-keys)
+                 (setf trie (trie-remove trie key 0))))
+             parent-kv-index)
+    trie))
 
