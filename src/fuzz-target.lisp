@@ -239,7 +239,7 @@
 
 (defconstant +gc-interval-blocks+ 1000
   "Trigger a full GC every N block imports to bound heap growth.
-   Each import allocates O(|delta-kvs|) cons cells (copy-alist) +
+   Each import allocates O(S) cons cells (COW metadata, S = services) +
    O(|delta-kvs| log |delta-kvs|) byte vectors (Merkle recompute).
    Without periodic collection these promote to older GC generations
    and the heap grows monotonically over long sessions (100K+ blocks).")

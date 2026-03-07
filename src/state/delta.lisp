@@ -507,7 +507,9 @@
      1. Validate: service s exists, lookup (h,l) exists with even-length status
      2. Store preimage blob: C(s, preimage-trie-h(h)) -> d
      3. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
-   Returns: new raw-kvs list."
+   Returns: new raw-kvs list.
+   Optimized: COW pattern — only K modified entries get fresh cons cells (K << N).
+   Unmodified entries share the original cons cells (fork-safe: no mutation)."
   ;; GP §12.36: EP must be sorted ascending by (s, d) with no duplicates
   (validate-ep-ordering preimages)
   ;; -- Annotate: compute hashes --
@@ -519,21 +521,27 @@
                      (list :sid sid :hash hash :blob blob)))
                  preimages)))
 
-    ;; -- Validate necessity + Integrate --
-    ;; Build key→cons-cell index for O(1) lookup/replace
-    ;; copy-alist (not copy-list!) so that replace-kv-val mutates only
-    ;; our copies of the cons cells, not the parent sigma's delta-kvs.
-    ;; Without this, fork scenarios corrupt the parent state.
-    (let ((new-kvs (copy-alist raw-kvs))
-          (kv-index (make-hash-table :test 'equalp :size (length raw-kvs))))
-      ;; Index all entries
-      (dolist (kv new-kvs)
+    ;; -- COW: index original (read-only), track patches + additions --
+    ;; No copy-alist: builds kv-index from the ORIGINAL raw-kvs.
+    ;; Patches record modified values; additions collect new entries.
+    ;; Materializes at the end: O(K) fresh cons cells instead of O(N).
+    (let ((kv-index (make-hash-table :test 'equalp :size (length raw-kvs)))
+          (patches  (make-hash-table :test 'equalp))   ;; key → new-value
+          (additions nil))                              ;; new (key . value) pairs
+      ;; Index original entries (read-only reference)
+      (dolist (kv raw-kvs)
         (setf (gethash (car kv) kv-index) kv))
-      (flet ((find-kv (target-key)
-               (gethash target-key kv-index))
-             (replace-kv-val (target-key new-val)
-               (let ((pair (gethash target-key kv-index)))
-                 (when pair (setf (cdr pair) new-val)))))
+      (flet ((find-kv-exists-p (target-key)
+               ;; Does the key exist in original?
+               (nth-value 1 (gethash target-key kv-index)))
+             (find-kv-val (target-key)
+               ;; Read patched value if available, else original
+               (multiple-value-bind (val found) (gethash target-key patches)
+                 (if found val
+                     (let ((pair (gethash target-key kv-index)))
+                       (when pair (cdr pair))))))
+             (patch-kv-val (target-key new-val)
+               (setf (gethash target-key patches) new-val)))
 
         (dolist (a annotated)
           (let* ((sid  (getf a :sid))
@@ -546,29 +554,37 @@
 
             ;; GP §9.2: preimage MUST be required — reject block otherwise.
             ;;   1. Service s must exist (has metadata key C(255,s))
-            (unless (find-kv meta-key)
+            (unless (find-kv-exists-p meta-key)
               (error 'preimages-error
                      :code :preimage-not-required
                      :detail (format nil "service ~D does not exist" sid)))
             ;;   2. Lookup entry (h,l) must exist with even-length status list
-            (let ((lookup-entry (find-kv lookup-key)))
-              (unless lookup-entry
+            (unless (find-kv-exists-p lookup-key)
+              (error 'preimages-error
+                     :code :preimage-not-required
+                     :detail (format nil "no lookup entry for preimage in service ~D" sid)))
+            (let* ((lookup-val (find-kv-val lookup-key))
+                   (statuses (load-lookup-value lookup-val)))
+              (unless (evenp (length statuses))
                 (error 'preimages-error
                        :code :preimage-not-required
-                       :detail (format nil "no lookup entry for preimage in service ~D" sid)))
-              (let ((statuses (load-lookup-value (cdr lookup-entry))))
-                (unless (evenp (length statuses))
-                  (error 'preimages-error
-                         :code :preimage-not-required
-                         :detail (format nil "preimage already provided for service ~D" sid)))
-                ;; Store preimage blob
-                (let ((new-kv (cons blob-key (ensure-bytes blob))))
-                  (push new-kv new-kvs)
-                  (setf (gethash blob-key kv-index) new-kv))
-                ;; Update lookup: append tau' to status list
-                (replace-kv-val lookup-key
-                                (encode-lookup-value (append statuses (list timeslot)))))))))
-      new-kvs)))
+                       :detail (format nil "preimage already provided for service ~D" sid)))
+              ;; Store preimage blob (addition — new entry)
+              (push (cons blob-key (ensure-bytes blob)) additions)
+              ;; Update lookup: append tau' to status list (patch — modify existing value)
+              (patch-kv-val lookup-key
+                            (encode-lookup-value (append statuses (list timeslot))))))))
+
+      ;; -- Materialize: original entries (with patches) + additions --
+      ;; Only patched entries get fresh cons cells; unmodified entries
+      ;; share the original (key . value) cons cells (fork-safe).
+      (let ((result additions))
+        (dolist (kv raw-kvs)
+          (multiple-value-bind (new-val found) (gethash (car kv) patches)
+            (if found
+                (push (cons (car kv) new-val) result)
+                (push kv result))))
+        result))))
 
 ;;; =====================================================================
 ;;; CROSS-SERVICE & SERVICE-ID EXTRACTION
@@ -653,17 +669,26 @@
    DELTA-RESULTS: hash-table of (sid → effects-plist)
    TIMESLOT: current timeslot for last-accumulation-slot updates
    Returns: new raw-kvs list.
-   Optimized: metadata-index for O(1) lookup, hash-table scope membership."
-  ;; copy-alist (not copy-list!) so that (setf (cdr meta-entry) ...) only
-  ;; mutates our copies, not the parent sigma's delta-kvs.
-  ;; Without this, fork scenarios corrupt the parent state.
-  (let ((current-kvs (copy-alist raw-kvs))
-        ;; Pre-build metadata index: sid → kv cons cell for O(1) lookup
+   Optimized: copy-list + selective COW for metadata entries only.
+   Non-metadata entries share original cons cells (fork-safe: never mutated).
+   Only metadata cons cells (~S entries, S << N) get fresh copies for safe mutation."
+  ;; copy-list copies the list spine (N backbone cons cells).
+  ;; Then we walk the spine and replace ONLY metadata elements with fresh
+  ;; cons cells. This saves (N - S) cons cell copies vs copy-alist.
+  ;; (setf (car tail) ...) mutates OUR spine copy, not the original.
+  ;; remove-if, push etc. create new list structure from the copied spine.
+  (let ((current-kvs (copy-list raw-kvs))
+        ;; Pre-build metadata index: sid → FRESH kv cons cell for safe mutation
         (meta-index (make-hash-table :test 'eql)))
-    ;; One pass to index all metadata entries
-    (dolist (kv current-kvs)
-      (when (service-metadata-key-p (car kv))
-        (setf (gethash (service-id-from-metadata-key (car kv)) meta-index) kv)))
+    ;; One pass: replace metadata elements with fresh cons cells in our spine copy
+    (do ((tail current-kvs (cdr tail)))
+        ((null tail))
+      (let ((kv (car tail)))
+        (when (service-metadata-key-p (car kv))
+          ;; Fresh cons cell for this metadata entry — safe to mutate via (setf (cdr ...))
+          (let ((fresh-kv (cons (car kv) (cdr kv))))
+            (setf (car tail) fresh-kv)
+            (setf (gethash (service-id-from-metadata-key (car kv)) meta-index) fresh-kv)))))
     (maphash
      (lambda (sid effects)
        ;; Update metadata entry for this service.
