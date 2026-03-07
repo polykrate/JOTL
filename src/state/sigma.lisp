@@ -139,23 +139,25 @@
   ;; ── Merkle KV pairs (memoized) ──────────────────────────────
   ;; σ already has bytes — just pair each non-nil field with C(n).
   ;; GP Appendix D — 16 fixed segments + service accounts.
-  ;; Keys are 31-byte (compute-state-root will pad to 32).
+  ;; Keys are pre-padded to 32 bytes here so compute-state-root
+  ;; skips pad-key-to-32 allocation (keys already >= 32 bytes).
   (:merkle-kvs :memo
     (let ((kvs '()))
-      ;; C(1)..C(16) — fixed segments
+      ;; C(1)..C(16) — fixed segments (32-byte keys)
       (dolist (entry +sigma-segment-order+)
         (let* ((kw (car entry))
                (cn-idx (cdr entry))
                (bytes (self :segment kw)))
           (when bytes
-            ;; Build 31-byte key: [n, 0, 0, ..., 0]
-            (let ((key (make-array 31 :element-type '(unsigned-byte 8)
+            ;; Build 32-byte key: [n, 0, 0, ..., 0] — pre-padded
+            (let ((key (make-array 32 :element-type '(unsigned-byte 8)
                                       :initial-element 0)))
               (setf (aref key 0) cn-idx)
               (push (cons key bytes) kvs)))))
       ;; δ's multi-key entries (C(255,s) service metadata + sub-keys)
+      ;; Pre-pad 31-byte keys to 32 bytes to avoid allocation in compute-state-root.
       (dolist (kv delta-kvs)
-        (push kv kvs))
+        (push (cons (pad-key-to-32 (car kv)) (cdr kv)) kvs))
       (nreverse kvs)))
 
   ;; ── State root (memoized) ──────────────────────────────────

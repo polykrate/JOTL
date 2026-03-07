@@ -157,10 +157,16 @@
   "Compute state root from a list of (key . value) pairs.
    This is the main entry point for computing Merkle root of state.
    
-   Pads all keys to 32 bytes (GP D.1 specifies 31-byte keys in state encoding,
-   but Merkle trie requires 32-byte keys as per GP D.3-D.6)."
-  (let ((padded-keyvals nil))
-    (dolist (kv keyvals)
-      (push (cons (pad-key-to-32 (car kv)) (cdr kv)) padded-keyvals))
-    (merkle-root (nreverse padded-keyvals))))
+   If keys are already 32 bytes (pre-padded by sigma :merkle-kvs),
+   passes directly to merkle-root without allocation.
+   Otherwise pads all keys to 32 bytes (GP D.1 specifies 31-byte keys
+   in state encoding, but Merkle trie requires 32-byte keys as per GP D.3-D.6)."
+  (if (and keyvals (>= (length (caar keyvals)) 32))
+      ;; Fast path: keys already pre-padded — zero allocation
+      (merkle-root keyvals)
+      ;; Slow path: pad keys (fallback for non-sigma callers)
+      (let ((padded-keyvals nil))
+        (dolist (kv keyvals)
+          (push (cons (pad-key-to-32 (car kv)) (cdr kv)) padded-keyvals))
+        (merkle-root (nreverse padded-keyvals)))))
 
