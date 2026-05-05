@@ -4,8 +4,15 @@
 # Build:
 #   docker build -t jotl .
 #
-# Run as fuzz target:
-#   docker run --rm -v /tmp:/tmp jotl /tmp/jam_target.sock
+# Run as fuzz target (standard packaging):
+#   docker run --rm \
+#     -e JAM_FUZZ=1 \
+#     -e JAM_FUZZ_SPEC=tiny \
+#     -e JAM_FUZZ_DATA_PATH=/tmp/jam/data/ \
+#     -e JAM_FUZZ_SOCK_PATH=/tmp/jam/fuzz.sock \
+#     -e JAM_FUZZ_LOG_LEVEL=info \
+#     -v /tmp/jam:/tmp/jam \
+#     jotl
 
 # ── Stage 1: Build Rust crypto FFI ──────────────────────────────────
 FROM rust:slim-bookworm AS rust-builder
@@ -62,6 +69,4 @@ RUN sbcl --noinform --non-interactive \
       --eval '(format t "JOTL loaded successfully~%")' \
     || true
 
-# Usage: docker run --rm -v /tmp:/tmp jotl /tmp/jam_target.sock
 ENTRYPOINT ["./scripts/fuzz-target.sh"]
-CMD ["/tmp/jam_target.sock"]

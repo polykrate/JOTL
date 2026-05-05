@@ -416,9 +416,11 @@
 (defun fuzz-session-loop (stream mgr)
   "Main session loop: read messages, dispatch, respond.
    Runs until the connection is closed (EOF).
+   Rejects a second Initialize within the same session (closes connection).
    Periodic GC every +gc-interval-blocks+ imports to bound heap growth
    over long fuzzing sessions (100K+ blocks)."
-  (let ((import-count 0))
+  (let ((import-count 0)
+        (initialized-p nil))
   (loop
     (let ((raw (fuzz-recv-message stream)))
       (unless raw
@@ -443,9 +445,14 @@
                          (format t "[jotl-fuzz] >> peer-info (jotl, features=3)~%")
                          (encode-fuzz-peer-info)))
 
-                      ;; ── Initialize → StateRoot ──
+                      ;; ── Initialize → StateRoot (reject double) ──
                       (:initialize
+                       (when initialized-p
+                         (format t "[jotl-fuzz] Rejecting second Initialize, closing session~%")
+                         (force-output)
+                         (return))
                        (let ((state-root (fuzz-handle-initialize mgr payload)))
+                         (setf initialized-p t)
                          (format t "[jotl-fuzz] >> state-root ~A...~%"
                                  (subseq (bytes-to-hex-string state-root) 0 16))
                          (encode-fuzz-state-root state-root)))
@@ -454,7 +461,6 @@
                       (:import-block
                        (multiple-value-bind (status result)
                            (fuzz-handle-import-block mgr payload)
-                         ;; Periodic GC to bound heap growth over long sessions
                          (incf import-count)
                          (when (zerop (mod import-count +gc-interval-blocks+))
                            (sb-ext:gc :full t)
@@ -501,45 +507,65 @@
 
 ;;; ── Main entry point ────────────────────────────────────────────
 
-(defun run-fuzz-target (&key (socket "/tmp/jam_target.sock"))
+(defun fuzz-log-level-from-keyword (kw)
+  "Map JAM_FUZZ_LOG_LEVEL keyword to *chain-log-level* value.
+   :error/:warn → NIL (silent), :info → :minimal, :debug/:trace → :normal."
+  (case kw
+    ((:error :warn) nil)
+    (:info :minimal)
+    ((:debug :trace) :normal)
+    (otherwise nil)))
+
+(defun run-fuzz-target (&key (socket "/tmp/jam_target.sock")
+                             (spec :tiny)
+                             (log-level :info))
   "Run the JOTL fuzz-v1 target server on a Unix domain socket.
-   Listens for one connection at a time. Blocks until the session ends.
+   Accepts multiple sequential sessions without restart.
+   Each session starts with a fresh handshake + one Initialize.
+
+   SPEC selects chainspec: :tiny or :full.
+   LOG-LEVEL maps to chain log verbosity.
 
    Usage:
-     (run-fuzz-target :socket \"/tmp/jam_target.sock\")
+     (run-fuzz-target :socket \"/tmp/jam/fuzz.sock\"
+                      :spec :tiny :log-level :info)"
+  ;; Switch chainspec
+  (switch-chain spec)
 
-   Then from another terminal:
-     python minifuzz/minifuzz.py -d examples/0.7.2/no_forks \\
-       --target-sock /tmp/jam_target.sock"
   ;; Clean up old socket file if present
   (when (probe-file socket)
     (delete-file socket))
 
-  (let ((server (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
+  (let ((server (make-instance 'sb-bsd-sockets:local-socket :type :stream))
+        (chain-log (fuzz-log-level-from-keyword log-level)))
     (unwind-protect
         (progn
           (sb-bsd-sockets:socket-bind server socket)
           (sb-bsd-sockets:socket-listen server 1)
-          (format t "~&[jotl-fuzz] Listening on ~A~%" socket)
-          (format t "[jotl-fuzz] Waiting for connection...~%")
+          (format t "~&[jotl-fuzz] JOTL v~A | spec=~A | log=~A~%"
+                  *jotl-version* spec log-level)
+          (format t "[jotl-fuzz] Listening on ~A~%" socket)
           (force-output)
 
-          ;; Accept one connection
-          (let ((client (sb-bsd-sockets:socket-accept server)))
-            (format t "[jotl-fuzz] Client connected~%")
+          ;; Accept connections in a loop (multi-session support)
+          (loop
+            (format t "[jotl-fuzz] Waiting for connection...~%")
             (force-output)
-            (unwind-protect
-                (let ((stream (sb-bsd-sockets:socket-make-stream
-                               client
-                               :input t :output t
-                               :element-type '(unsigned-byte 8)
-                               :buffering :full))
-                      (mgr (make-fuzz-state-manager))
-                      ;; Suppress chain logs during fuzz session
-                      (*chain-log-level* nil))
-                  (fuzz-session-loop stream mgr))
-              ;; Cleanup client
-              (sb-bsd-sockets:socket-close client))))
+            (let ((client (sb-bsd-sockets:socket-accept server)))
+              (format t "[jotl-fuzz] Client connected~%")
+              (force-output)
+              (unwind-protect
+                  (let ((stream (sb-bsd-sockets:socket-make-stream
+                                 client
+                                 :input t :output t
+                                 :element-type '(unsigned-byte 8)
+                                 :buffering :full))
+                        (mgr (make-fuzz-state-manager))
+                        (*chain-log-level* chain-log))
+                    (fuzz-session-loop stream mgr))
+                (sb-bsd-sockets:socket-close client))
+              (format t "[jotl-fuzz] Session ended, ready for next~%")
+              (force-output))))
 
       ;; Cleanup server
       (sb-bsd-sockets:socket-close server)
