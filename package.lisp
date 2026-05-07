@@ -22,6 +22,7 @@
    ;; Lib — Constants
    ;; ═══════════════════════════════════════════
    #:*chain*
+   #:*ancestry-enabled*
    #:chain
    #:switch-chain
    #:with-chain
@@ -41,7 +42,7 @@
    #:+zero-hash+ #:+mmr-peak-prefix+ #:+merkle-node-prefix+
    #:+history-size+ #:+availability-timeout+
    #:+max-work-items+ #:+max-dependencies+
-   #:+max-lookup-anchor-age+ #:+max-auth-pool+ #:+auth-queue-size+
+   #:max-lookup-anchor-age #:+max-auth-pool+ #:+auth-queue-size+
    #:+min-service-index+ #:+max-work-package-extrinsics+
    #:+accumulation-gas+ #:+is-authorized-gas+
    #:+min-balance+ #:+min-balance-per-item+ #:+min-balance-per-octet+

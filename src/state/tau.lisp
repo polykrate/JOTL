@@ -49,7 +49,7 @@
     (>= slot other-slot))
 
   (:lookup-fresh? (anchor-slot)
-    (<= (- slot anchor-slot) +max-lookup-anchor-age+))
+    (<= (- slot anchor-slot) (max-lookup-anchor-age)))
 
   (:epoch-changed? (tau-prime)
     (/= (floor slot (epoch-duration))

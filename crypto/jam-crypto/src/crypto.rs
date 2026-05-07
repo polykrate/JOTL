@@ -1355,17 +1355,17 @@ pub unsafe extern "C" fn bls_aggregate_pubkeys(
 // Ed25519 (GP Appendix A.3)
 // ============================================================================
 
-/// Verify Ed25519 signature
+/// Verify Ed25519 signature (strict RFC 8032 per GP §3.8.2)
 ///
 /// # Safety
 /// - `public_key` must point to 32 bytes
 /// - `message` must point to `message_len` bytes
 /// - `signature` must point to 64 bytes
 ///
-/// Uses ed25519-consensus (ZIP 215) for consensus-critical verification:
-/// - Cofactored equation: [8][s]B = [8]R + [8][k]A
-/// - Non-canonical point encodings permitted
-/// - Canonical scalar encoding required (s < q)
+/// Uses ed25519-dalek verify_strict (RFC 8032):
+/// - Non-cofactored single-scalar equation: [s]B = R + [k]A
+/// - Rejects non-canonical point encodings
+/// - Rejects s >= L (group order)
 #[no_mangle]
 pub unsafe extern "C" fn ed25519_verify(
     public_key: *const u8,
@@ -1373,7 +1373,7 @@ pub unsafe extern "C" fn ed25519_verify(
     message_len: usize,
     signature: *const u8,
 ) -> bool {
-    use ed25519_consensus::{Signature, VerificationKey};
+    use ed25519_dalek::{Signature, VerifyingKey};
 
     if public_key.is_null() || message.is_null() || signature.is_null() {
         return false;
@@ -1389,19 +1389,19 @@ pub unsafe extern "C" fn ed25519_verify(
         Err(_) => return false,
     };
 
-    let verifying_key = match VerificationKey::try_from(pk_bytes) {
+    let verifying_key = match VerifyingKey::from_bytes(&pk_bytes) {
         Ok(k) => k,
         Err(_) => return false,
     };
 
-    let sig = match Signature::try_from(sig_bytes) {
+    let sig = match Signature::from_slice(&sig_bytes) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
     let msg = std::slice::from_raw_parts(message, message_len);
 
-    verifying_key.verify(&sig, msg).is_ok()
+    verifying_key.verify_strict(msg, &sig).is_ok()
 }
 
 // Erasure coding FFI functions are defined below (after tests)

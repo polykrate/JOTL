@@ -45,6 +45,7 @@ FULL (production, must match Gray Paper):
       (:tickets-per-validator (getf specs :tickets-per-validator))
       (:max-tickets-per-extrinsic (getf specs :max-tickets-per-extrinsic))
       (:rotation-period (getf specs :rotation-period))
+      (:max-lookup-anchor-age (getf specs :max-lookup-anchor-age))
       (:num-ec-pieces-per-segment (getf specs :num-ec-pieces-per-segment))
       (:max-block-gas (getf specs :max-block-gas))
       (:max-refine-gas (getf specs :max-refine-gas))
@@ -64,6 +65,7 @@ FULL (production, must match Gray Paper):
      :tickets-per-validator 3
      :max-tickets-per-extrinsic 3
      :rotation-period 4
+     :max-lookup-anchor-age 24
      :num-ec-pieces-per-segment 1026
      :max-block-gas 20000000
      :max-refine-gas 1000000000))
@@ -81,6 +83,7 @@ FULL (production, must match Gray Paper):
      :tickets-per-validator 2
      :max-tickets-per-extrinsic 16
      :rotation-period 10
+     :max-lookup-anchor-age 14400
      :num-ec-pieces-per-segment 6
      :max-block-gas 3500000000
      :max-refine-gas 5000000000))
@@ -95,6 +98,11 @@ FULL (production, must match Gray Paper):
    
    Switch with: (switch-chain :full)
    Or use with-chain macro for lexical override.")
+
+(defvar *ancestry-enabled* nil
+  "When T, the lookup-anchor ancestry check (GP §11.34) is enforced.
+   Corresponds to fuzz-proto feature-ancestry (bit 0).
+   When NIL, the check is skipped per protocol spec.")
 
 (defun chain ()
   "Returns the current active chainspec"
@@ -178,6 +186,10 @@ FULL (production, must match Gray Paper):
   "R — Rotation period of validator-core assignments in timeslots (GP §11.3-11.4)."
   (funcall *chain* :rotation-period))
 
+(defun max-lookup-anchor-age ()
+  "L — Maximum age in timeslots of the lookup anchor (GP §11.34)."
+  (funcall *chain* :max-lookup-anchor-age))
+
 (defun num-ec-pieces-per-segment ()
   "WP — Number of erasure coding pieces per segment (GP H.4)."
   (funcall *chain* :num-ec-pieces-per-segment))
@@ -197,6 +209,7 @@ FULL (production, must match Gray Paper):
 ;;;  GR → (max-refine-gas)             §I.4.4  Max refine gas
 ;;;  GT → (max-block-gas)              §I.4.4  Total accumulation gas
 ;;;  K  → (max-tickets-per-extrinsic)  §6.30   Max tickets per extrinsic
+;;;  L  → (max-lookup-anchor-age)     §11.34  Max lookup anchor age (timeslots)
 ;;;  N  → (tickets-per-validator)      §6.29   Ticket entries per validator
 ;;;  P  → (slot-duration)              §4.8    Slot period (seconds, always 6)
 ;;;  R  → (rotation-period)            §11.3   Rotation period (timeslots)
@@ -235,8 +248,6 @@ FULL (production, must match Gray Paper):
 (defconstant +max-dependencies+ 8
   "J — Maximum sum of dependency items in a work-report (GP §11.3).")
 
-(defconstant +max-lookup-anchor-age+ 14400
-  "L — Maximum age in timeslots of the lookup anchor (GP §11.34).")
 
 (defconstant +max-auth-pool+ 8
   "O — Maximum number of items in the authorizations pool (GP §8.1).")

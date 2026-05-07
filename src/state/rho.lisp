@@ -312,17 +312,21 @@
       (reject-guarantee :bad-beefy-mmr-root))))
 
 (defun validate-guarantee-lookup-anchor (report tau-prime-val find-record)
-  "Lookup anchor must be recent (within L timeslots).
-   find-record: (lambda (hash) ...) → plist or NIL. Pure callback."
+  "GP §11.34-11.35: Lookup anchor must be recent.
+   §11.34 (slot check): xt ≥ HT - L. Always checked (only needs slot numbers).
+   §11.35 (hash check): anchor in ancestry set A. Only when *ancestry-enabled*."
   (let* ((ctx (getf report :context))
          (slot (getf ctx :lookup-anchor-slot))
          (anchor (ensure-bytes (getf ctx :lookup-anchor))))
+    ;; §11.34: slot-based freshness (no ancestry set needed)
     (when (and slot (> slot 0)
-               (> (- tau-prime-val slot) +max-lookup-anchor-age+))
+               (> (- tau-prime-val slot) (max-lookup-anchor-age)))
       (reject-guarantee :lookup-anchor-not-recent))
-    (when (and anchor (not (every #'zerop anchor))
-               (not (funcall find-record anchor)))
-      (reject-guarantee :lookup-anchor-not-recent))))
+    ;; §11.35: hash-based ancestry check (requires ancestry set A)
+    (when *ancestry-enabled*
+      (when (and anchor (not (every #'zerop anchor))
+                 (not (funcall find-record anchor)))
+        (reject-guarantee :lookup-anchor-not-recent)))))
 
 (defun validate-guarantee-service-ids (report delta)
   "Each work result's service must exist in δ."
@@ -353,6 +357,7 @@
       (reject-guarantee :core-unauthorized))))
 
 (defun validate-guarantee-gas (report)
+  "Each work-report's gas must not exceed GA."
   (let ((total (reduce #'+ (getf report :results)
                            :key (lambda (r) (getf r :accumulate-gas))
                            :initial-value 0)))

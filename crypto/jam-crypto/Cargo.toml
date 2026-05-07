@@ -18,8 +18,8 @@ blake2 = "0.10"
 # Keccak-256 (legacy Ethereum-style, for MMR - GP Appendix E)
 sha3 = "0.10"
 
-# Ed25519 signatures (ZIP 215 consensus-critical verification)
-ed25519-consensus = "2"
+# Ed25519 signatures (strict RFC 8032 verification per GP §3.8.2)
+ed25519-dalek = { version = "2", features = ["hazmat"] }
 
 # Bandersnatch VRF (davxy's ark-vrf)
 # Supports: IETF VRF, Pedersen VRF, Ring VRF on Bandersnatch curve
