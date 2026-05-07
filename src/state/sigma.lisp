@@ -72,15 +72,32 @@
     (:rho    (decode-rho-state bytes 0))
     (:gamma  (decode-gamma-state bytes 0))
     (:pi     (decode-pi-state bytes 0))
-    ;; Codec-only closures (no :transition — modified by accumulate.lisp):
     (:alpha  (decode-alpha-state bytes 0))
     (:phi    (decode-phi-state bytes 0))
     (:chi    (decode-chi-state bytes 0))
     (:omega  (decode-omega-state bytes 0))
     (:xi     (decode-xi-state bytes 0))
-    (:theta  (decode-theta-state bytes 0))
-    ;; δ is loaded via :load special case (uses delta-kvs, not segment).
-    ))
+    (:theta  (decode-theta-state bytes 0))))
+
+(defun sigma-default-segment (kw)
+  "Return a default empty closure for segment KW (when bytes are missing from state)."
+  (ecase kw
+    (:tau    (make-tau-state))
+    (:eta    (make-eta-state))
+    (:kappa  (make-kappa-state))
+    (:lambda (make-lambda-state))
+    (:iota   (make-iota-state))
+    (:beta   (make-beta-state))
+    (:psi    (make-psi-state))
+    (:rho    (make-rho-state))
+    (:gamma  (make-gamma-state))
+    (:pi     (make-pi-state))
+    (:alpha  (make-alpha-state))
+    (:phi    (make-phi-state))
+    (:chi    (make-chi-state))
+    (:omega  (make-omega-state))
+    (:xi     (make-xi-state))
+    (:theta  (make-theta-state))))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; STATE CLOSURE — σ (byte store)
@@ -131,15 +148,19 @@
       (otherwise nil)))
 
   ;; ── Decode segment — lazy decode from bytes ─────────────────
-  ;; (funcall sigma :decode-segment :tau) → τ closure (or NIL if no bytes)
+  ;; (funcall sigma :decode-segment :tau) → τ closure
   ;; σ fetches raw bytes and dispatches to the right decode-NAME decoder.
+  ;; If bytes are NIL (segment missing from state), returns a default empty closure.
   ;; δ is special: built from delta-kvs (multi-key), not from a segment.
   (:decode-segment (component-kw)
     (if (eq component-kw :delta)
-        (when delta-kvs (decode-delta-state delta-kvs))
+        (if delta-kvs
+            (decode-delta-state delta-kvs)
+            (make-delta-state))
         (let ((bytes (self :segment component-kw)))
-          (when bytes
-            (sigma-decode-segment component-kw bytes)))))
+          (if bytes
+              (sigma-decode-segment component-kw bytes)
+              (sigma-default-segment component-kw)))))
 
   ;; ── Merkle KV pairs (memoized) ──────────────────────────────
   ;; σ already has bytes — just pair each non-nil field with C(n).
