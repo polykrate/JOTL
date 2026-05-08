@@ -170,11 +170,12 @@
   (:merkle-kvs :memo
     (let ((kvs '()))
       ;; C(1)..C(16) — fixed segments (32-byte keys)
+      ;; Skip nil AND zero-length entries: absent segments must not appear in the trie.
       (dolist (entry +sigma-segment-order+)
         (let* ((kw (car entry))
                (cn-idx (cdr entry))
                (bytes (self :segment kw)))
-          (when bytes
+          (when (and bytes (plusp (length bytes)))
             ;; Build 32-byte key: [n, 0, 0, ..., 0] — pre-padded
             (let ((key (make-array 32 :element-type '(unsigned-byte 8)
                                       :initial-element 0)))

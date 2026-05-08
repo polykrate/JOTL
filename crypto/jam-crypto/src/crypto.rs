@@ -1745,6 +1745,39 @@ mod tests {
         assert!(!result_no_ad, "FFI verify with empty ad should fail when prove used ad");
     }
 
+    #[test]
+    fn test_y_function_output_hash() {
+        // From bandersnatch_sha-512_ell2_ietf.json vector-1
+        let gamma_hex = "e7aa5154103450f0a0525a36a441f827296ee489ef30ed8787cff8df1bef223f";
+        let proof_c_hex = "439fd9495643314fa623f2581f4b3d7d6037394468084f4ad7d8031479d9d101";
+        let proof_s_hex = "828bedd2ad95380b11f67a05ea0a76f0c3fef2bee9f043f4dffdddde09f55c01";
+        let beta_hex = "fdeb377a4ffd7f95ebe48e5b43a88d069ce62188e49493500315ad55ee04d7442b93c4c91d5475370e9380496f4bc0b838c2483bce4e133c6f18b0adbb9e4722";
+        
+        let gamma = hex::decode(gamma_hex).unwrap();
+        let proof_c = hex::decode(proof_c_hex).unwrap();
+        let proof_s = hex::decode(proof_s_hex).unwrap();
+        let beta = hex::decode(beta_hex).unwrap();
+        
+        // Construct 96-byte signature: [gamma(32)][proof_c(32)][proof_s(32)]
+        let mut sig = Vec::with_capacity(96);
+        sig.extend_from_slice(&gamma);
+        sig.extend_from_slice(&proof_c);
+        sig.extend_from_slice(&proof_s);
+        assert_eq!(sig.len(), 96);
+        
+        let mut output = [0u8; 32];
+        let result = unsafe {
+            bandersnatch_vrf_output_hash(sig.as_ptr(), sig.len(), output.as_mut_ptr())
+        };
+        
+        println!("Y function success: {}", result);
+        println!("Y output:   {}", hex::encode(&output));
+        println!("beta[0:32]: {}", hex::encode(&beta[..32]));
+        
+        assert!(result, "Y function should succeed on valid output point");
+        assert_eq!(&output[..], &beta[..32], 
+                   "Y(sig) should equal first 32 bytes of beta (VRF hash)");
+    }
 }
 
 // ============================================================================
@@ -1843,4 +1876,3 @@ pub unsafe extern "C" fn erasure_encode_full(
 // ============================================================================
 // PolkaVM (GP Section 14 - PVM)
 // ============================================================================
-

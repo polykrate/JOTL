@@ -50,6 +50,11 @@
   ;; (6.23) no change    → keep:  η'₁=η₁, η'₂=η₂, η'₃=η₃
   (:transition (&key header tau tau-prime)
     (let* ((y-hv (funcall header :vrf-entropy))              ;; header answers Y(HV)
+           (_dbg (when (null y-hv)
+                   (format t "[ETA-WARN] Y(HV) returned NIL! HV=~A~%"
+                           (jam.ffi:bytes-to-hex-string
+                            (or (funcall header :entropy-source) #())))
+                   (force-output)))
            (epoch-change-p (funcall tau :epoch-changed? tau-prime))
            (eta-0-prime (blake2b-256
                          (concatenate '(vector (unsigned-byte 8))

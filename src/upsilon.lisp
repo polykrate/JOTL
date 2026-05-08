@@ -237,6 +237,6 @@
                :theta   (funcall theta-prime :encode)
                :delta-kvs (prof :delta-save
                             (funcall delta-prime :encode))
-               ;; Incremental Merkle: parent's trie + KV index for diff-update
-               :parent-trie (funcall sigma :merkle-trie)
-               :parent-kv-index (funcall sigma :merkle-kv-index)))))))))
+               ;; DISABLED incremental Merkle for debugging — force full rebuild
+               :parent-trie nil
+               :parent-kv-index nil))))))))
