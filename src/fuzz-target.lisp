@@ -253,7 +253,9 @@
   ;; Ordered list of stored hashes (most recent first) for GC
   (hash-order nil :type list)
   ;; Ancestry: list of (:slot N :hash H) plists, most recent first
-  (ancestry nil :type list))
+  (ancestry nil :type list)
+  ;; Message sequence counter for dump
+  (msg-seq 0 :type fixnum))
 
 (defun fuzz-store-state (mgr hash sigma)
   "Store sigma by header hash in the state manager.
@@ -347,13 +349,18 @@
             (format t "[ETA-POST] ~A~%" (bytes-to-hex-string post-eta)))
           ;; TAU dump
           (format t "[TAU-POST] ~A~%" (bytes-to-hex-string (funcall sigma-prime :segment :tau)))
-          ;; Y(HV) value  
-          (let ((y-val (funcall (funcall block :header) :vrf-entropy)))
-            (format t "[Y-HV] ~A~%" (if y-val (bytes-to-hex-string y-val) "NIL")))
+          ;; Y(HV) value + raw HV bytes
+          (let ((y-val (funcall (funcall block :header) :vrf-entropy))
+                (raw-hv (funcall header :entropy-source)))
+            (format t "[Y-HV] ~A~%" (if y-val (bytes-to-hex-string y-val) "NIL"))
+            (format t "[HV-RAW len=~D] ~A~%" (length raw-hv) (bytes-to-hex-string raw-hv)))
           ;; Author index and segment details
           (format t "[AUTHOR] ~D~%" (funcall header :author-index))
           ;; PI raw bytes
-          (let ((pi-post (funcall sigma-prime :segment :pi)))
+          (let ((pi-pre (funcall parent-sigma :segment :pi))
+                (pi-post (funcall sigma-prime :segment :pi)))
+            (format t "[PI-PRE  len=~D] ~A~%"
+                    (length pi-pre) (bytes-to-hex-string pi-pre))
             (format t "[PI-POST len=~D] ~A~%"
                     (length pi-post) (bytes-to-hex-string pi-post)))
           ;; BETA pre (genesis) and post raw bytes
@@ -369,23 +376,42 @@
             (format t "[MERKLE] total-keys=~D~%" (length post-kvs))
             (format t "[VERIFY] direct-root=~A~%" (bytes-to-hex-string direct-root))
             (format t "[VERIFY] trie-root  =~A~%" (bytes-to-hex-string state-root))
-            (format t "[VERIFY] match=~A~%" (equalp direct-root state-root)))
-          (dolist (entry jotl::+sigma-segment-order+)
-            (let* ((kw (car entry))
-                   (cn (cdr entry))
-                   (pre-bytes (funcall parent-sigma :segment kw))
-                   (post-bytes (funcall sigma-prime :segment kw)))
-              (when (or pre-bytes post-bytes)
-                (let ((pre-h (if (and pre-bytes (plusp (length pre-bytes)))
-                                 (subseq (bytes-to-hex-string (blake2b-256 pre-bytes)) 0 16)
-                                 "nil"))
-                      (post-h (if (and post-bytes (plusp (length post-bytes)))
-                                  (subseq (bytes-to-hex-string (blake2b-256 post-bytes)) 0 16)
-                                  "nil"))
-                      (post-len (if post-bytes (length post-bytes) 0)))
-                  (format t "[SEG] C(~2D) ~8A pre=~A post=~A len=~D~A~%"
-                          cn kw pre-h post-h post-len
-                          (if (equalp pre-bytes post-bytes) "" " CHANGED"))))))
+            (format t "[VERIFY] match=~A~%" (equalp direct-root state-root))
+            (dolist (entry jotl::+sigma-segment-order+)
+              (let* ((kw (car entry))
+                     (cn (cdr entry))
+                     (pre-bytes (funcall parent-sigma :segment kw))
+                     (post-bytes (funcall sigma-prime :segment kw)))
+                (when (or pre-bytes post-bytes)
+                  (let ((pre-h (if (and pre-bytes (plusp (length pre-bytes)))
+                                   (subseq (bytes-to-hex-string (blake2b-256 pre-bytes)) 0 16)
+                                   "nil"))
+                        (post-h (if (and post-bytes (plusp (length post-bytes)))
+                                    (subseq (bytes-to-hex-string (blake2b-256 post-bytes)) 0 16)
+                                    "nil"))
+                        (post-len (if post-bytes (length post-bytes) 0)))
+                    (format t "[SEG] C(~2D) ~8A pre=~A post=~A len=~D~A~%"
+                            cn kw pre-h post-h post-len
+                            (if (equalp pre-bytes post-bytes) "" " CHANGED"))))))
+            ;; Segment isolation: revert each changed segment to genesis value
+            (dolist (entry jotl::+sigma-segment-order+)
+              (let* ((kw (car entry))
+                     (cn (cdr entry))
+                     (pre-bytes (funcall parent-sigma :segment kw))
+                     (post-bytes (funcall sigma-prime :segment kw)))
+                (unless (equalp pre-bytes post-bytes)
+                  (let* ((modified-kvs
+                          (mapcar (lambda (kv)
+                                    (let ((key (car kv)))
+                                      (if (and (= (aref key 0) cn)
+                                               (loop for i from 1 below 32
+                                                     always (zerop (aref key i))))
+                                          (cons key pre-bytes)
+                                          kv)))
+                                  post-kvs))
+                         (alt-root (compute-state-root modified-kvs)))
+                    (format t "[ISOLATE] revert ~8A → root=~A~%"
+                            kw (bytes-to-hex-string alt-root)))))))
           (force-output)
           ;; Store new state by block hash
           (fuzz-store-state mgr block-hash sigma-prime)
@@ -486,6 +512,16 @@
         (format t "~&[jotl-fuzz] Connection closed by peer~%")
         (force-output)
         (return))
+
+      ;; Save raw messages for replay (use wall-clock seq to avoid overwrite)
+      (let* ((dump-dir "/tmp/jam/dump/")
+             (msg-seq (incf (the fixnum (fuzz-state-manager-msg-seq mgr))))
+             (dump-path (format nil "~A/msg-~4,'0D.bin" dump-dir msg-seq)))
+        (ensure-directories-exist dump-dir)
+        (with-open-file (out dump-path :direction :output
+                         :element-type '(unsigned-byte 8)
+                         :if-exists :supersede)
+          (write-sequence raw out)))
 
       ;; Decode and dispatch
       (handler-case
