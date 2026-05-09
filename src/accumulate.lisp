@@ -487,12 +487,12 @@
         (reports r-star))
 
     (loop
-      ;; GP: n = |X| + i + |R*|  — terminate when nothing to process
+      ;; GP: n = |X| + i + |f|  — terminate when nothing to process
       (let* ((gas-limit (getf state :remaining-gas))
              (i (if (plusp gas-limit)
                     (find-report-cutoff gas-limit reports)
                     0))
-             (n-items (+ (length transfers) i (length reports))))
+             (n-items (+ (length transfers) i (length free-accum))))
 
         ;; Termination: nothing to process
         (when (zerop n-items) (return))

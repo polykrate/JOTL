@@ -179,13 +179,11 @@
             ;; ═══════════════════════════════════════════════════════════
             (let* ((pi-stats (funcall sigma :decode-segment :pi))
 
-                   ;; (4.19) α' < (H, EC, ϕ', α)
-                   ;; ρ travels through the transition — ask it directly.
+                   ;; (4.19) α'c = lastO(α*c ⌢ [ϕ'c(τ' mod Q)])
                    (offender-auth-hashes
                     (funcall rho :offender-auth-hashes e-d))
 
                    (alpha-prime (funcall alpha :transition
-                                        :tau tau
                                         :tau-prime tau-prime
                                         :phi-prime phi-prime
                                         :offender-auth-hashes offender-auth-hashes))
@@ -237,6 +235,5 @@
                :theta   (funcall theta-prime :encode)
                :delta-kvs (prof :delta-save
                             (funcall delta-prime :encode))
-               ;; DISABLED incremental Merkle for debugging — force full rebuild
-               :parent-trie nil
-               :parent-kv-index nil))))))))
+               :parent-trie (funcall sigma :merkle-trie)
+               :parent-kv-index (funcall sigma :merkle-kv-index)))))))))

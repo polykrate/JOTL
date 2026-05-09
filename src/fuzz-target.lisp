@@ -349,6 +349,28 @@
             (format t "[ETA-POST] ~A~%" (bytes-to-hex-string post-eta)))
           ;; TAU dump
           (format t "[TAU-POST] ~A~%" (bytes-to-hex-string (funcall sigma-prime :segment :tau)))
+          ;; Epoch transition diagnostics
+          (let* ((tau-pre-bytes (funcall parent-sigma :segment :tau))
+                 (tau-post-bytes (funcall sigma-prime :segment :tau))
+                 (slot-pre (logior (aref tau-pre-bytes 0) (ash (aref tau-pre-bytes 1) 8)
+                                   (ash (aref tau-pre-bytes 2) 16) (ash (aref tau-pre-bytes 3) 24)))
+                 (slot-post (logior (aref tau-post-bytes 0) (ash (aref tau-post-bytes 1) 8)
+                                    (ash (aref tau-post-bytes 2) 16) (ash (aref tau-post-bytes 3) 24)))
+                 (e-len (epoch-duration))
+                 (epoch-pre (floor slot-pre e-len))
+                 (epoch-post (floor slot-post e-len)))
+            (format t "[EPOCH] pre-slot=~D post-slot=~D epoch-pre=~D epoch-post=~D change=~A~%"
+                    slot-pre slot-post epoch-pre epoch-post (> epoch-post epoch-pre))
+            (when (> epoch-post epoch-pre)
+              ;; Show gamma sealing variant from post-state
+              (let ((gamma-post (funcall sigma-prime :segment :gamma)))
+                (format t "[GAMMA-S] variant-byte=~D (0=tickets, 1=fallback-keys)~%"
+                        (aref gamma-post 0)))
+              ;; Show chi segment (contains χ_Z always-accumulate services)
+              (let ((chi-post (funcall sigma-prime :segment :chi)))
+                (format t "[CHI] len=~D first16=~A~%"
+                        (length chi-post)
+                        (bytes-to-hex-string (subseq chi-post 0 (min 16 (length chi-post))))))))
           ;; Y(HV) value + raw HV bytes
           (let ((y-val (funcall (funcall block :header) :vrf-entropy))
                 (raw-hv (funcall header :entropy-source)))
@@ -575,7 +597,7 @@
                                (format t "[jotl-fuzz] >> error: ~A~%" result)
                                (encode-fuzz-error result)))))
 
-                      ;; ── GetState → State or Error ──
+                      ;; ── GetState → State (close on failure) ──
                       (:get-state
                        (multiple-value-bind (status result)
                            (fuzz-handle-get-state mgr payload)
@@ -585,26 +607,24 @@
                                        (length result))
                                (encode-fuzz-state result))
                              (progn
-                               (format t "[jotl-fuzz] >> error: ~A~%" result)
-                               (encode-fuzz-error result)))))
+                               (format t "[jotl-fuzz] GetState failed: ~A, closing~%" result)
+                               (force-output)
+                               (return)))))
 
-                      ;; ── Unknown message type ──
+                      ;; ── Unknown message type → close connection ──
                       (otherwise
-                       (format t "[jotl-fuzz] >> error: unexpected ~A~%" msg-type)
-                       (encode-fuzz-error
-                        (format nil "Unexpected message type: ~A" msg-type))))))
+                       (format t "[jotl-fuzz] Unexpected message type ~A, closing~%" msg-type)
+                       (force-output)
+                       (return)))))
 
               (force-output)
               (fuzz-send-message stream response)))
 
-        ;; Catch decode/processing errors — send Error and continue
+        ;; Out-of-protocol errors: close connection silently (per spec)
         (error (e)
-          (let ((msg (format nil "Internal error: ~A" e)))
-            (format t "[jotl-fuzz] !! ~A~%" msg)
-            (force-output)
-            (handler-case
-                (fuzz-send-message stream (encode-fuzz-error msg))
-              (error () (return))))))))))
+          (format t "[jotl-fuzz] !! Internal error: ~A — closing connection~%" e)
+          (force-output)
+          (return)))))))
 
 ;;; ── Main entry point ────────────────────────────────────────────
 

@@ -27,6 +27,22 @@ fi
 
 mkdir -p "$JAM_FUZZ_DATA_PATH"
 
-exec sbcl --dynamic-space-size 4096 --noinform --disable-debugger \
+# Auto-detect available memory from cgroup (Docker) or default to 1536 MB.
+# SBCL's --dynamic-space-size must fit within the container memory limit;
+# we use 75% of available memory leaving room for SBCL runtime overhead.
+if [ -f /sys/fs/cgroup/memory.max ]; then
+  mem_bytes=$(cat /sys/fs/cgroup/memory.max 2>/dev/null)
+  if [ "$mem_bytes" != "max" ] && [ -n "$mem_bytes" ]; then
+    heap_mb=$(( mem_bytes * 75 / 100 / 1024 / 1024 ))
+  fi
+elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+  mem_bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null)
+  if [ "$mem_bytes" -lt 100000000000 ]; then
+    heap_mb=$(( mem_bytes * 75 / 100 / 1024 / 1024 ))
+  fi
+fi
+HEAP_SIZE=${heap_mb:-1536}
+
+exec sbcl --dynamic-space-size "$HEAP_SIZE" --noinform --disable-debugger \
      --load scripts/load-jotl.lisp \
      --eval "(jotl:run-fuzz-target :socket \"$JAM_FUZZ_SOCK_PATH\" :spec :$JAM_FUZZ_SPEC :log-level :${JAM_FUZZ_LOG_LEVEL:-info})"

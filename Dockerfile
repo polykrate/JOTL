@@ -34,8 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sbcl curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN useradd -m -s /bin/bash jotl
+# Create non-root user with explicit UID to avoid conflicts with host UID 1000
+RUN useradd -m -s /bin/bash -u 10001 jotl
 USER jotl
 ENV HOME=/home/jotl
 WORKDIR /home/jotl

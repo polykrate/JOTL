@@ -28,11 +28,17 @@
     (when (< c (length queues))
       (nth c queues)))
 
-  ;; Head of core c's queue — used by α transition (4.19)
+  ;; Head of core c's queue (legacy, unused)
   (:head-for-core (c)
     (when (and (< c (length queues))
                (nth c queues))
       (first (nth c queues))))
+
+  ;; Element at index i of core c's queue — GP (4.19): ϕ'c(τ' mod Q)
+  (:element-at (c i)
+    (when (and (< c (length queues))
+               (nth c queues))
+      (nth (mod i +auth-queue-size+) (nth c queues))))
 
   ;; ── Transition: accept new per-core queues from accumulate ──
   ;; If per-core-queues is non-nil, replace; otherwise return self unchanged.
