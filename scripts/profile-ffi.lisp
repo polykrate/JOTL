@@ -32,6 +32,14 @@
 ;;; Also wrap the Lisp PVM entry point
 (wrap-ffi jam-host:lisp-pvm-run-accumulate   :pvm-lisp)
 
+;;; Count PVM instructions executed
+(defvar *pvm-instr-count* 0)
+(let ((orig (symbol-function 'jamvm:vm-step)))
+  (setf (symbol-function 'jamvm:vm-step)
+        (lambda (vm)
+          (incf *pvm-instr-count*)
+          (funcall orig vm))))
+
 (defun print-timings (label)
   (format t "~%=== ~A — FFI + PVM breakdown ===~%" label)
   (let ((pairs nil))
@@ -55,10 +63,18 @@
 
 (dolist (trace-name '("safrole" "fallback" "storage" "storage_light"))
   (setf *ffi-timings* (make-hash-table :test 'eq))
+  (setf *pvm-instr-count* 0)
   (let ((jotl:*prof* (make-hash-table :test 'eq)))
     (jotl/test:run-trace
      (namestring (merge-pathnames (format nil "~A/" trace-name)
                                   jotl/test::*trace-base-dir*)))
-    (print-timings trace-name)))
+    (print-timings trace-name)
+    (let ((pvm-secs (/ (or (gethash :pvm-lisp *ffi-timings*) 0)
+                       (float internal-time-units-per-second))))
+      (format t "~%  PVM instructions: ~:D (~,1F M inst/s)~%"
+              *pvm-instr-count*
+              (if (> pvm-secs 0.001)
+                  (/ *pvm-instr-count* pvm-secs 1e6)
+                  0.0)))))
 
 (sb-ext:exit)

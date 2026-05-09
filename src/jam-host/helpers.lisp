@@ -32,35 +32,30 @@
     ok))
 
 (defun read-guest-u32 (vm addr)
-  "Read a single u32 (LE) from guest memory. Returns value or NIL."
-  (let ((buf (read-guest vm addr 4)))
-    (when buf
-      (logior (aref buf 0)
-              (ash (aref buf 1) 8)
-              (ash (aref buf 2) 16)
-              (ash (aref buf 3) 24)))))
+  "Read a single u32 (LE) from guest memory. Returns value or NIL.
+   Zero-allocation: delegates to mem-read-u32 typed accessor."
+  (multiple-value-bind (val fault-addr) (mem-read-u32 (pvm-memory vm) addr)
+    (if fault-addr nil val)))
 
 (defun read-guest-u64 (vm addr)
-  "Read a single u64 (LE) from guest memory. Returns value or NIL."
-  (let ((buf (read-guest vm addr 8)))
-    (when buf
-      (let ((val 0))
-        (dotimes (i 8 val)
-          (setf val (logior val (ash (aref buf i) (* 8 i)))))))))
+  "Read a single u64 (LE) from guest memory. Returns value or NIL.
+   Zero-allocation: delegates to mem-read-u64 typed accessor."
+  (multiple-value-bind (val fault-addr) (mem-read-u64 (pvm-memory vm) addr)
+    (if fault-addr nil val)))
 
 (defun write-guest-u32 (vm addr val)
-  "Write a u32 (LE) to guest memory. Returns T or NIL."
-  (let ((buf (make-array 4 :element-type '(unsigned-byte 8))))
-    (dotimes (i 4)
-      (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
-    (write-guest vm addr buf)))
+  "Write a u32 (LE) to guest memory. Returns T or NIL.
+   Zero-allocation: delegates to mem-write-u32 typed accessor."
+  (multiple-value-bind (ok fault-addr) (mem-write-u32 (pvm-memory vm) addr val)
+    (declare (ignore fault-addr))
+    (and ok t)))
 
 (defun write-guest-u64 (vm addr val)
-  "Write a u64 (LE) to guest memory. Returns T or NIL."
-  (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
-    (dotimes (i 8)
-      (setf (aref buf i) (logand (ash val (* -8 i)) #xFF)))
-    (write-guest vm addr buf)))
+  "Write a u64 (LE) to guest memory. Returns T or NIL.
+   Zero-allocation: delegates to mem-write-u64 typed accessor."
+  (multiple-value-bind (ok fault-addr) (mem-write-u64 (pvm-memory vm) addr val)
+    (declare (ignore fault-addr))
+    (and ok t)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Storage key hashing — GP Appendix D

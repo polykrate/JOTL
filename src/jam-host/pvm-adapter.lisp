@@ -624,12 +624,11 @@
       ;; 3. Encode accumulate arguments and invoke
       (let* ((item-count (length (or accumulate-items nil)))
              (params (encode-accumulate-params timeslot service-id item-count))
-             ;; Save initial state for panic/OOG revert (GP B.9: discard all
-             ;; side-effects, reverting to the state BEFORE accumulate started).
+             ;; Save initial scalar state for panic/OOG revert (GP B.9).
+             ;; Storage/lookup/preimages are NOT deep-copied: the revert path
+             ;; uses empty hash tables so collect-effects produces NIL alists,
+             ;; causing absorb-delta-effects to skip the storage update.
              (initial-balance     (hctx-balance ctx))
-             (initial-storage     (deep-copy-hash-table (hctx-storage ctx)))
-             (initial-lookup      (copy-hash-table (hctx-lookup ctx)))
-             (initial-preimages   (deep-copy-hash-table (hctx-preimages ctx)))
              (initial-items-count (hctx-items-count ctx))
              (initial-footprint   (hctx-footprint ctx))
              (initial-code-hash   (copy-seq (hctx-code-hash ctx)))

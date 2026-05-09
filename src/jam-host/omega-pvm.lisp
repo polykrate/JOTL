@@ -203,20 +203,20 @@
           (let ((page-idx (+ p i)))
             (ecase r
               ;; r=0: make inaccessible
-              (0 (setf (aref (jamvm::mem-pages inner-mem) page-idx) nil)
-                 (setf (aref (jamvm::mem-access inner-mem) page-idx) :inaccessible))
+              (0 (remhash page-idx (jamvm::mem-pages inner-mem))
+                 (remhash page-idx (jamvm::mem-access inner-mem)))
               ;; r=1: zero + read-only
               (1 (let ((page (jamvm::ensure-page inner-mem page-idx)))
                    (fill page 0))
-                 (setf (aref (jamvm::mem-access inner-mem) page-idx) :read-only))
+                 (setf (gethash page-idx (jamvm::mem-access inner-mem)) :read-only))
               ;; r=2: zero + read-write
               (2 (let ((page (jamvm::ensure-page inner-mem page-idx)))
                    (fill page 0))
-                 (setf (aref (jamvm::mem-access inner-mem) page-idx) :read-write))
+                 (setf (gethash page-idx (jamvm::mem-access inner-mem)) :read-write))
               ;; r=3: keep data + read-only
-              (3 (setf (aref (jamvm::mem-access inner-mem) page-idx) :read-only))
+              (3 (setf (gethash page-idx (jamvm::mem-access inner-mem)) :read-only))
               ;; r=4: keep data + read-write
-              (4 (setf (aref (jamvm::mem-access inner-mem) page-idx) :read-write)))))
+              (4 (setf (gethash page-idx (jamvm::mem-access inner-mem)) :read-write)))))
 
         (set-reg vm +a0+ +hc-ok+)
         :continue))))

@@ -73,7 +73,6 @@
      :page-fault → ∃ fault  (page-addr in pvm-exit-arg)"
   (let ((pc (pvm-pc vm)))
     (declare (type (unsigned-byte 32) pc))
-    (setf *vm-last-step-pc* pc)
 
     ;; ── 1. Fetch pre-decoded instruction at ι ──
     (let* ((decoded (pvm-decoded-code vm))
@@ -89,6 +88,7 @@
       (unless instr
         ;; ── Trap diagnostic logging ──
         (when *vm-trap-log*
+          (setf *vm-last-step-pc* pc)
           (let ((raw-byte (if (< pc (length (pvm-code vm)))
                               (aref (pvm-code vm) pc) 0))
                 (bm-bit (bitmask-bit (pvm-bitmask vm) pc)))
@@ -111,17 +111,18 @@
           (return-from vm-step :panic))
 
         ;; ── Opcode counting / trace logging (skip when disabled) ──
-        (when (or *vm-opcode-counts* *vm-trace-stream*)
+        (when *vm-opcode-counts*
           (let ((raw-byte (if (< pc (length (pvm-code vm)))
                               (aref (pvm-code vm) pc) 0)))
-            (when *vm-opcode-counts*
-              (incf (aref *vm-opcode-counts* raw-byte)))
-            (when *vm-trace-stream*
-              (incf *vm-step-counter*)
-              (format *vm-trace-stream*
-                      "~D ~D ~D ~D~{ ~D~}~%"
-                      *vm-step-counter* pc raw-byte (pvm-gas vm)
-                      (coerce (pvm-regs vm) 'list)))))
+            (incf (aref *vm-opcode-counts* raw-byte))))
+        (when *vm-trace-stream*
+          (let ((raw-byte (if (< pc (length (pvm-code vm)))
+                              (aref (pvm-code vm) pc) 0)))
+            (incf *vm-step-counter*)
+            (format *vm-trace-stream*
+                    "~D ~D ~D ~D~{ ~D~}~%"
+                    *vm-step-counter* pc raw-byte (pvm-gas vm)
+                    (coerce (pvm-regs vm) 'list))))
 
         ;; ── 2. Charge gas: ϱ' = ϱ − ϱ_Δ ──
         (decf (pvm-gas vm) cost)

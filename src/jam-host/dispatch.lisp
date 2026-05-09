@@ -75,35 +75,33 @@
                 (hctx-host-call-log ctx)))
         (return-from host-dispatch :continue))
 
-      ;; ── Capture pre-call register state for debug ──
-      (let ((pre-a0 (reg vm +a0+))
-            (pre-a1 (reg vm +a1+))
-            (pre-a2 (reg vm +a2+))
-            (pre-a3 (reg vm +a3+))
-            (pre-a4 (reg vm +a4+))
-            (pre-a5 (reg vm +a5+)))
-
-        (let ((result (funcall omega-fn vm ctx)))
-
-          ;; ── Debug trace BEFORE+AFTER dispatch ──────────
-          (when (hctx-debug-trace ctx)
-            (format *error-output*
-                    "~&[HC] sid=~D id=~D a0=~D→~D a1=~D→~D a2=~D a3=~D a4=~D a5=~D result=~A~%"
-                    (hctx-service-id ctx) id
-                    pre-a0 (reg vm +a0+) pre-a1 (reg vm +a1+)
-                    pre-a2 pre-a3 pre-a4 pre-a5
-                    result)
-            (push (list :id id :gas-before gas :gas-after (- gas cost)
-                        :a0-before pre-a0 :a1-before pre-a1
-                        :a2-before pre-a2 :a3-before pre-a3
-                        :a4-before pre-a4 :a5-before pre-a5
-                        :a0-after (reg vm +a0+)
-                        :a1-after (reg vm +a1+)
-                        :storage-cnt (hash-table-count (hctx-storage ctx))
-                        :result result)
-                  (hctx-host-call-log ctx)))
-
-          result)))))
+      (if (hctx-debug-trace ctx)
+          ;; Debug path: capture registers before + after for tracing
+          (let ((pre-a0 (reg vm +a0+))
+                (pre-a1 (reg vm +a1+))
+                (pre-a2 (reg vm +a2+))
+                (pre-a3 (reg vm +a3+))
+                (pre-a4 (reg vm +a4+))
+                (pre-a5 (reg vm +a5+)))
+            (let ((result (funcall omega-fn vm ctx)))
+              (format *error-output*
+                      "~&[HC] sid=~D id=~D a0=~D→~D a1=~D→~D a2=~D a3=~D a4=~D a5=~D result=~A~%"
+                      (hctx-service-id ctx) id
+                      pre-a0 (reg vm +a0+) pre-a1 (reg vm +a1+)
+                      pre-a2 pre-a3 pre-a4 pre-a5
+                      result)
+              (push (list :id id :gas-before gas :gas-after (- gas cost)
+                          :a0-before pre-a0 :a1-before pre-a1
+                          :a2-before pre-a2 :a3-before pre-a3
+                          :a4-before pre-a4 :a5-before pre-a5
+                          :a0-after (reg vm +a0+)
+                          :a1-after (reg vm +a1+)
+                          :storage-cnt (hash-table-count (hctx-storage ctx))
+                          :result result)
+                    (hctx-host-call-log ctx))
+              result))
+          ;; Fast path: no register capture overhead
+          (funcall omega-fn vm ctx)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; host-run — Full execution with integrated host-call handling
