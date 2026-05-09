@@ -57,20 +57,16 @@
           (aref buf 7) (logand (ash value -56) #xFF))
     buf))
 
-(defun decode-fixed-le (bytes)
+(defun decode-fixed-le (bytes &optional (offset 0) (n (- (length bytes) offset)))
   "Decode little-endian bytes to natural number (Gray Paper C.12).
-   
-   Args:
-     bytes: Byte array
-   
-   Returns:
-     Natural number"
+   When OFFSET and N are supplied, reads N bytes starting at OFFSET
+   directly from BYTES, avoiding subseq allocation."
   (declare (optimize (speed 3) (safety 1)))
-  (let ((result 0)
-        (n (length bytes)))
-    (declare (type fixnum n))
+  (declare (type fixnum n offset))
+  (let ((result 0))
     (loop for i fixnum from 0 below n
-          do (setf result (logior result (ash (aref bytes i) (the fixnum (* 8 i))))))
+          do (setf result (logior result (ash (aref bytes (the fixnum (+ offset i)))
+                                             (the fixnum (* 8 i))))))
     result))
 
 ;; Convenience aliases for common sizes (Gray Paper notation)

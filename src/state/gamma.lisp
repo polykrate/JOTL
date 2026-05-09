@@ -61,11 +61,12 @@
 (defun encode-state-ticket (ticket)
   "Encode a state ticket T = (id ⌢ attempt) = 33 bytes.
    NOT the same as block extrinsic ticket (which has a VRF signature)."
-  (let ((id (getf ticket :id))
+  (let ((buf (make-array 33 :element-type '(unsigned-byte 8)))
+        (id (getf ticket :id))
         (attempt (getf ticket :attempt)))
-    (concatenate '(vector (unsigned-byte 8))
-                 (encode-hash-32 id)
-                 (vector attempt))))
+    (replace buf (encode-hash-32 id))
+    (setf (aref buf 32) attempt)
+    buf))
 
 (defun load-state-ticket (bytes offset)
   "Decode a state ticket T.
@@ -86,18 +87,23 @@
 (defun encode-gamma-sealing (sealing)
   "Encode γs. sealing = (:variant :keys/:tickets :data [...])"
   (let ((variant (getf sealing :variant))
-        (data    (getf sealing :data)))
+        (data    (getf sealing :data))
+        (e (length (getf sealing :data))))
     (ecase variant
       (:tickets
-       (concatenate '(vector (unsigned-byte 8))
-                    (vector 0)
-                    (apply #'concatenate '(vector (unsigned-byte 8))
-                           (mapcar #'encode-state-ticket data))))
+       (let ((buf (make-array (+ 1 (* e 33)) :element-type '(unsigned-byte 8))))
+         (setf (aref buf 0) 0)
+         (loop for ticket in data
+               for pos from 1 by 33
+               do (replace buf (encode-state-ticket ticket) :start1 pos))
+         buf))
       (:keys
-       (concatenate '(vector (unsigned-byte 8))
-                    (vector 1)
-                    (apply #'concatenate '(vector (unsigned-byte 8))
-                           (mapcar #'encode-bandersnatch-key data)))))))
+       (let ((buf (make-array (+ 1 (* e 32)) :element-type '(unsigned-byte 8))))
+         (setf (aref buf 0) 1)
+         (loop for key in data
+               for pos from 1 by 32
+               do (replace buf (encode-bandersnatch-key key) :start1 pos))
+         buf)))))
 
 (defun load-gamma-sealing (bytes offset)
   "Decode γs. Returns: (values plist bytes-consumed)"
@@ -342,14 +348,22 @@
 
   ;; ── Codec ──────────────────────────────────────────────────
   (:encode :memo
-    (concatenate '(vector (unsigned-byte 8))
-                 (encode-full-validator-sequence pending-keys)
-                 (if ring-commitment
-                     (ensure-bytes ring-commitment)
-                     (make-array +bls-key-size+ :element-type '(unsigned-byte 8)
-                                                :initial-element 0))
-                 (encode-gamma-sealing sealing)
-                 (encode-sequence accumulator #'encode-state-ticket)))
+    (let* ((pk-bytes  (encode-full-validator-sequence pending-keys))
+           (rc-bytes  (if ring-commitment
+                          (ensure-bytes ring-commitment)
+                          (make-array +bls-key-size+ :element-type '(unsigned-byte 8)
+                                                     :initial-element 0)))
+           (gs-bytes  (encode-gamma-sealing sealing))
+           (ga-bytes  (encode-sequence accumulator #'encode-state-ticket))
+           (total     (+ (length pk-bytes) (length rc-bytes)
+                         (length gs-bytes) (length ga-bytes)))
+           (buf       (make-array total :element-type '(unsigned-byte 8))))
+      (let ((pos 0))
+        (replace buf pk-bytes :start1 pos) (incf pos (length pk-bytes))
+        (replace buf rc-bytes :start1 pos) (incf pos (length rc-bytes))
+        (replace buf gs-bytes :start1 pos) (incf pos (length gs-bytes))
+        (replace buf ga-bytes :start1 pos))
+      buf))
 
   (:decode (bytes offset)
     (let ((pos offset))
@@ -400,7 +414,7 @@
         (let* (               ;; (6.13) γ'P = Φ(ι) — filter offenders from enqueued keys
                (gamma-p-prime (funcall iota :filter-offenders offenders))
                ;; (6.13) z = O([kb | k ≺ γ'P]) — ring commitment from new pending keys
-               (bander-keys (mapcar (lambda (k) (getf k :bandersnatch))
+               (bander-keys (mapcar #'jam-validator-bandersnatch
                                     gamma-p-prime))
                (gamma-z-prime (or (jam.ffi:bandersnatch-compute-ring-commitment
                                    (coerce bander-keys 'vector))
@@ -466,21 +480,17 @@
   (mod timeslot (epoch-duration)))
 
 (defun validate-seal-tickets (slot seal gamma-prime eta-3-prime gamma-z
-                               unsealed-header kappa-prime author-idx)
+                               unsealed-header kappa-prime author-idx seal-y)
   "GP (6.15) — Validate seal in tickets mode.
    - γ'S[HT mod E] is the ticket at this timeslot
    - iy = Y(HS): VRF output matches ticket ID
    - HS ∈ V̂^{EU(H)}_{HA}(XT ⌢ η'₃ ⌢ ie): IETF VRF (96 bytes)
      key = κ'[HI].kb (author bandersnatch key), ad = EU(H)
      input = jam_ticket_seal ⌢ η'₃ ⌢ E1(ie)
-   slot: HT (integer), seal: HS (96 bytes = output||proof).
-   unsealed-header: EU(H) bytes — additional data for VRF (GP §6.4).
-   kappa-prime: κ' closure for author key lookup.
-   author-idx: HI (integer) — author index.
+   seal-y: pre-computed Y(HS) — hoisted to avoid redundant extraction.
    Signals SAFROLE-ERROR on failure."
   (let* ((ticket   (funcall gamma-prime :seal-entry-at slot))
-         ;; (6.15) iy = Y(HS)
-         (vrf-out  (jam.ffi:Y seal)))
+         (vrf-out  seal-y))
     (unless vrf-out
       (reject-safrole :bad-seal-vrf-output "Y(HS) extraction failed (tickets mode)"))
     (unless (equalp vrf-out (getf ticket :id))
@@ -490,10 +500,14 @@
     ;; key = κ'[HI].kb, input = XT ⌢ η'₃ ⌢ E1(ie), ad = EU(H)
     (let* ((seal-key  (funcall kappa-prime :bandersnatch-key author-idx))
            (attempt   (getf ticket :attempt))
-           (vrf-input (concatenate '(vector (unsigned-byte 8))
-                                   +ctx-ticket-seal+
-                                   (ensure-bytes eta-3-prime)
-                                   (vector attempt)))
+           (ctx +ctx-ticket-seal+)
+           (eta-bytes (ensure-bytes eta-3-prime))
+           (vrf-input (let ((buf (make-array (+ (length ctx) (length eta-bytes) 1)
+                                             :element-type '(unsigned-byte 8))))
+                        (replace buf ctx)
+                        (replace buf eta-bytes :start1 (length ctx))
+                        (setf (aref buf (+ (length ctx) (length eta-bytes))) attempt)
+                        buf))
            (vrf-output (subseq seal 0 32))
            (vrf-proof  (subseq seal 32)))
       (unless seal-key
@@ -515,9 +529,13 @@
   (let* (;; i = γ'S[HT mod E] — key at timeslot position in fallback sequence
          (seal-key   (funcall gamma-prime :seal-entry-at slot))
          ;; (6.16) VRF input = XF ⌢ η'₃
-         (vrf-input  (concatenate '(vector (unsigned-byte 8))
-                                  +ctx-fallback-seal+
-                                  (ensure-bytes eta-3-prime)))
+         (ctx +ctx-fallback-seal+)
+         (eta-bytes (ensure-bytes eta-3-prime))
+         (vrf-input  (let ((buf (make-array (+ (length ctx) (length eta-bytes))
+                                            :element-type '(unsigned-byte 8))))
+                       (replace buf ctx)
+                       (replace buf eta-bytes :start1 (length ctx))
+                       buf))
          ;; HS = [output: 32 bytes] [proof: 64 bytes]
          (vrf-output (subseq seal 0 32))
          (vrf-proof  (subseq seal 32)))
@@ -531,40 +549,32 @@
                       "Bandersnatch VRF verification failed (fallback mode)"))))
 
 (defun validate-seal (slot author-idx seal gamma-prime eta-3-prime gamma-z
-                      unsealed-header &key kappa-prime)
+                      unsealed-header &key kappa-prime seal-y)
   "GP (6.15)/(6.16) — Dispatch seal validation based on γ'S variant.
-   slot: HT, author-idx: HI, seal: HS — raw values.
-   gamma-prime: γ' closure (messages :sealing-variant, :seal-entry-at).
-   unsealed-header: EU(H) bytes — additional data for VRF (GP §6.4).
-   kappa-prime: κ' closure — needed in tickets mode for author key lookup.
+   seal-y: pre-computed Y(HS), hoisted from caller.
    Signals SAFROLE-ERROR on failure."
   (let ((variant (funcall gamma-prime :sealing-variant)))
     (ecase variant
       (:tickets  (validate-seal-tickets  slot seal gamma-prime eta-3-prime gamma-z
-                                         unsealed-header kappa-prime author-idx))
+                                         unsealed-header kappa-prime author-idx seal-y))
       (:keys     (validate-seal-fallback slot seal gamma-prime eta-3-prime
                                          unsealed-header)))))
 
 (defun validate-entropy-source (slot seal entropy-source
                                  gamma-prime unsealed-header
-                                 &key kappa-prime author-idx)
+                                 &key kappa-prime author-idx seal-y)
   "GP (6.17) — Validate entropy source HV.
-   HV ∈ V̂^[]_{HA}(XE ⌢ Y(HS))
-   Key = HA (author's bandersnatch key):
-   - fallback mode: HA = γ'S[HT mod E] (slot-indexed fallback key)
-   - tickets mode:  HA = κ'[HI].kb (author's key from validator set)
-   VRF input = XE ⌢ Y(HS), ad = [] (empty).
-   slot: HT, seal: HS, entropy-source: HV — raw values.
-   gamma-prime: γ' closure (messages :sealing-variant, :seal-entry-at).
-   kappa-prime: κ' validator closure (message :bandersnatch-key).
-   author-idx: HI (integer) — author index (needed for tickets mode).
+   seal-y: pre-computed Y(HS), hoisted from caller to avoid redundant extraction.
    Signals SAFROLE-ERROR on failure."
-  (let* (;; Y(HS) — VRF output of the seal
-         (seal-vrf-out    (jam.ffi:Y seal))
+  (let* ((seal-vrf-out    seal-y)
          ;; VRF input = XE ⌢ Y(HS)
-         (vrf-input       (concatenate '(vector (unsigned-byte 8))
-                                       +ctx-entropy+
-                                       seal-vrf-out)))
+         (vrf-input       (when seal-vrf-out
+                            (let ((buf (make-array (+ (length +ctx-entropy+)
+                                                      (length seal-vrf-out))
+                                                   :element-type '(unsigned-byte 8))))
+                              (replace buf +ctx-entropy+)
+                              (replace buf seal-vrf-out :start1 (length +ctx-entropy+))
+                              buf))))
     (unless seal-vrf-out
       (reject-safrole :bad-entropy-source "Y(HS) extraction failed for entropy validation"))
     ;; Key = HA: γ'S[HT mod E] in fallback; κ'[HI].kb in tickets
@@ -622,8 +632,9 @@
        :tickets-entropy eta-1    ;; η₁
        :validators
        (mapcar (lambda (k)
-                 (list :bandersnatch (getf k :bandersnatch)
-                       :ed25519      (getf k :ed25519)))
+                 (make-jam-validator
+                  :bandersnatch (jam-validator-bandersnatch k)
+                  :ed25519      (jam-validator-ed25519 k)))
                gamma-p-prime))
       ;; No epoch change → ∅
       nil))
@@ -667,21 +678,35 @@
 
 (defun compare-epoch-marks (a b)
   "Compare two epoch marks (closures or nil).
-   Both sides are epoch-mark closures from make-epoch-mark.
-   Compares via serialized bytes for type-safe deep equality."
+   Structural comparison avoids redundant encoding."
   (cond
     ((and (null a) (null b)) t)
     ((or (null a) (null b)) nil)
-    (t (equalp (funcall a :encode) (funcall b :encode)))))
+    (t (and (equalp (funcall a :entropy) (funcall b :entropy))
+            (equalp (funcall a :tickets-entropy) (funcall b :tickets-entropy))
+            (let ((va (funcall a :validators))
+                  (vb (funcall b :validators)))
+              (and (= (length va) (length vb))
+                   (every (lambda (x y)
+                            (and (equalp (jam-validator-bandersnatch x)
+                                         (jam-validator-bandersnatch y))
+                                 (equalp (jam-validator-ed25519 x)
+                                         (jam-validator-ed25519 y))))
+                          va vb)))))))
 
 (defun compare-tickets-marks (a b)
   "Compare two tickets marks (closures or nil).
-   Both sides are tickets-mark closures from make-tickets-mark.
-   Compares via serialized bytes for type-safe deep equality."
+   Structural comparison avoids redundant encoding."
   (cond
     ((and (null a) (null b)) t)
     ((or (null a) (null b)) nil)
-    (t (equalp (funcall a :encode) (funcall b :encode)))))
+    (t (let ((ta (funcall a :tickets))
+             (tb (funcall b :tickets)))
+         (and (= (length ta) (length tb))
+              (every (lambda (x y)
+                       (and (equalp (getf x :id) (getf y :id))
+                            (eql (getf x :attempt) (getf y :attempt))))
+                     ta tb))))))
 
 (defun validate-header-safrole (header tau tau-prime gamma-prev eta eta-prime
                                  gamma-prime kappa-prime)
@@ -709,19 +734,22 @@
          (eta-1          (funcall eta :last-epoch-entropy))
          (epoch-change   (funcall tau :epoch-changed? tau-prime))
          (m              (funcall tau :phase))
-         (m-prime        (funcall tau-prime :phase)))
+         (m-prime        (funcall tau-prime :phase))
+         ;; Y(HS) — computed once, shared by seal + entropy validation
+         (seal-y         (jam.ffi:Y seal)))
     ;; ── HI: author index < V ──
     (validate-author-index author-idx)
     ;; ── HS: seal VRF verification (GP §6.15/6.16) ──
     ;; ad = EU(H) — header serialization without seal (GP §6.4)
     (let ((unsealed-header (funcall header :encode-unsealed)))
       (validate-seal slot author-idx seal gamma-prime eta-3-prime gamma-z-prime
-                     unsealed-header :kappa-prime kappa-prime)
+                     unsealed-header :kappa-prime kappa-prime :seal-y seal-y)
       ;; ── HV: entropy source VRF verification (GP §6.17) ──
       (validate-entropy-source slot seal entropy-source
                                gamma-prime unsealed-header
                                :kappa-prime kappa-prime
-                               :author-idx author-idx))
+                               :author-idx author-idx
+                               :seal-y seal-y))
     ;; ── HE: epoch mark consistency ──
     (let ((expected-he (compute-epoch-mark epoch-change eta-0 eta-1 gamma-p-prime)))
       (unless (compare-epoch-marks actual-he expected-he)

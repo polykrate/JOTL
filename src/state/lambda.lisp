@@ -30,14 +30,14 @@
 
   (:ed25519-key (index)
     (when (< index (length validators))
-      (getf (nth index validators) :ed25519)))
+      (jam-validator-ed25519 (nth index validators))))
 
   (:bandersnatch-key (index)
     (when (< index (length validators))
-      (getf (nth index validators) :bandersnatch)))
+      (jam-validator-bandersnatch (nth index validators))))
 
   (:all-ed25519-keys
-    (mapcar (lambda (v) (getf v :ed25519)) validators))
+    (mapcar #'jam-validator-ed25519 validators))
 
   ;; ── Φ(k) — Offender filter (GP 6.14) ──────────────────
   ;; Same protocol as κ/ι: validators circulate as closures.
@@ -45,7 +45,7 @@
     (if (null offenders)
         (copy-list validators)
         (loop for v in validators
-              for ed = (getf v :ed25519)
+              for ed = (jam-validator-ed25519 v)
               collect (if (member-hash ed offenders)
                          +null-validator-key+
                          v))))
@@ -55,7 +55,7 @@
         (loop for i below (length validators) collect i)
         (loop for i from 0
               for v in validators
-              for ed = (getf v :ed25519)
+              for ed = (jam-validator-ed25519 v)
               unless (member ed offenders :test #'equalp)
               collect i)))
 

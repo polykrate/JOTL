@@ -20,7 +20,7 @@
 (in-package #:jotl)
 
 (define-state-closure eta-state
-  ((eta-0 nil) (eta-1 nil) (eta-2 nil) (eta-3 nil))
+  ((eta-0 nil) (eta-1 nil) (eta-2 nil) (eta-3 nil) (raw nil))
 
   ;; ── Semantic aliases ─────────────────────────────────────
   (:accumulator         eta-0)   ;; η₀: randomness accumulator
@@ -29,12 +29,14 @@
   (:seal-entropy        eta-3)   ;; η₃: seal validation entropy
 
   ;; ── Codec ────────────────────────────────────────────────
-  (:encode :memo
-    (concatenate '(vector (unsigned-byte 8))
-                 (or eta-0 +zero-hash+)
-                 (or eta-1 +zero-hash+)
-                 (or eta-2 +zero-hash+)
-                 (or eta-3 +zero-hash+)))
+  (:encode
+    (or raw
+        (let ((buf (make-array 128 :element-type '(unsigned-byte 8))))
+          (replace buf (or eta-0 +zero-hash+))
+          (replace buf (or eta-1 +zero-hash+) :start1 32)
+          (replace buf (or eta-2 +zero-hash+) :start1 64)
+          (replace buf (or eta-3 +zero-hash+) :start1 96)
+          buf)))
 
   (:decode (bytes offset)
     (values (make-eta-state
@@ -49,17 +51,26 @@
   ;; (6.22) epoch change → shift: η'₁=η₀, η'₂=η₁, η'₃=η₂
   ;; (6.23) no change    → keep:  η'₁=η₁, η'₂=η₂, η'₃=η₃
   (:transition (&key header tau tau-prime)
-    (let* ((y-hv (funcall header :vrf-entropy))              ;; header answers Y(HV)
+    (let* ((y-hv (funcall header :vrf-entropy))
            (_dbg (when (null y-hv)
                    (format t "[ETA-WARN] Y(HV) returned NIL! HV=~A~%"
                            (jam.ffi:bytes-to-hex-string
                             (or (funcall header :entropy-source) #())))
                    (force-output)))
            (epoch-change-p (funcall tau :epoch-changed? tau-prime))
-           (eta-0-prime (blake2b-256
-                         (concatenate '(vector (unsigned-byte 8))
-                                      (or eta-0 +zero-hash+)
-                                      (or y-hv +zero-hash+)))))
-      (if epoch-change-p
-          (make-eta-state :eta-0 eta-0-prime :eta-1 eta-0 :eta-2 eta-1 :eta-3 eta-2)
-          (make-eta-state :eta-0 eta-0-prime :eta-1 eta-1 :eta-2 eta-2 :eta-3 eta-3)))))
+           (hash-input (let ((buf (make-array 64 :element-type '(unsigned-byte 8))))
+                         (replace buf (or eta-0 +zero-hash+))
+                         (replace buf (or y-hv +zero-hash+) :start1 32)
+                         buf))
+           (eta-0-prime (blake2b-256 hash-input))
+           (new-1 (if epoch-change-p eta-0 eta-1))
+           (new-2 (if epoch-change-p eta-1 eta-2))
+           (new-3 (if epoch-change-p eta-2 eta-3))
+           (enc (let ((buf (make-array 128 :element-type '(unsigned-byte 8))))
+                  (replace buf (or eta-0-prime +zero-hash+))
+                  (replace buf (or new-1 +zero-hash+) :start1 32)
+                  (replace buf (or new-2 +zero-hash+) :start1 64)
+                  (replace buf (or new-3 +zero-hash+) :start1 96)
+                  buf)))
+      (make-eta-state :eta-0 eta-0-prime :eta-1 new-1 :eta-2 new-2 :eta-3 new-3
+                      :raw enc))))

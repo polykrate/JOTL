@@ -117,6 +117,22 @@
   (values (subseq bytes offset (+ offset 96)) 96))
 
 ;;; ==========================================================================
+;;; Validator Structs (GP §6.8-6.12)
+;;; ==========================================================================
+;;; Struct-based representation for O(1) field access.
+;;; jam-validator: 64-byte format (kb, ke) for epoch marks
+;;; jam-full-validator: 336-byte format (kb, ke, kl, km) for state
+
+(defstruct (jam-validator (:constructor make-jam-validator))
+  (bandersnatch nil :read-only t)
+  (ed25519 nil :read-only t))
+
+(defstruct (jam-full-validator (:include jam-validator)
+                               (:constructor make-jam-full-validator))
+  (bls nil :read-only t)
+  (metadata nil :read-only t))
+
+;;; ==========================================================================
 ;;; Validator (Bandersnatch + Ed25519)
 ;;; ==========================================================================
 ;;; Validator ≡ (H̃, H̄) - Tuple of (Bandersnatch key, Ed25519 key)
@@ -128,22 +144,23 @@
    Used in: Epoch markers, validator sets
    
    Args:
-     validator: plist with :bandersnatch and :ed25519 keys
+     validator: jam-validator struct (or jam-full-validator via :include)
    
    Returns:
      64-byte array"
-  (concatenate '(vector (unsigned-byte 8))
-               (encode-bandersnatch-key (getf validator :bandersnatch))
-               (encode-ed25519-key (getf validator :ed25519))))
+  (let ((buf (make-array 64 :element-type '(unsigned-byte 8))))
+    (replace buf (jam-validator-bandersnatch validator))
+    (replace buf (jam-validator-ed25519 validator) :start1 32)
+    buf))
 
 (defun decode-validator (bytes offset)
   "Decode a validator (Bandersnatch + Ed25519).
    
-   Returns: (values plist bytes-consumed)
-   plist format: (:bandersnatch bytes :ed25519 bytes)"
-  (let ((bandersnatch (subseq bytes offset (+ offset 32)))
-        (ed25519 (subseq bytes (+ offset 32) (+ offset 64))))
-    (values (list :bandersnatch bandersnatch :ed25519 ed25519) 64)))
+   Returns: (values jam-validator 64)"
+  (values (make-jam-validator
+           :bandersnatch (subseq bytes offset (+ offset 32))
+           :ed25519 (subseq bytes (+ offset 32) (+ offset 64)))
+          64))
 
 ;;; ==========================================================================
 ;;; Validator Sequence (for Epoch Markers)
@@ -157,12 +174,16 @@
    determined by chainspec, NOT prefixed with compact length!
    
    Args:
-     validators: list of validator plists
+     validators: list of jam-validator structs
    
    Returns:
      byte array (NV * 64 bytes)"
-  (apply #'concatenate '(vector (unsigned-byte 8))
-         (mapcar #'encode-validator validators)))
+  (let* ((n (length validators))
+         (buf (make-array (* n 64) :element-type '(unsigned-byte 8))))
+    (loop for v in validators
+          for pos from 0 by 64
+          do (replace buf (encode-validator v) :start1 pos))
+    buf))
 
 (defun decode-validator-sequence (bytes offset num-validators)
   "Decode a FIXED-SIZE sequence of validators.
@@ -201,36 +222,38 @@
 (defun encode-full-validator (validator)
   "Encode a full state validator K ≡ B336.
    GP (6.9)-(6.12): kb(32) || ke(32) || kl(144) || km(128) = 336 bytes.
-   Args: validator plist with :bandersnatch :ed25519 :bls :metadata"
-  (let ((bn (getf validator :bandersnatch))
-        (ed (getf validator :ed25519))
-        (bl (getf validator :bls))
-        (mt (getf validator :metadata)))
-    (concatenate '(vector (unsigned-byte 8))
-                 ;; (6.9) kb: k[0..32]
-                 (encode-bandersnatch-key bn)
-                 ;; (6.10) ke: k[32..64]
-                 (encode-ed25519-key ed)
-                 ;; (6.11) kl: k[64..208]
-                 (if bl bl (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0))
-                 ;; (6.12) km: k[208..336]
-                 (if mt mt (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0)))))
+   Args: jam-full-validator struct"
+  (let ((buf (make-array 336 :element-type '(unsigned-byte 8) :initial-element 0))
+        (bn (jam-validator-bandersnatch validator))
+        (ed (jam-validator-ed25519 validator))
+        (bl (jam-full-validator-bls validator))
+        (mt (jam-full-validator-metadata validator)))
+    (when bn (replace buf bn))
+    (when ed (replace buf ed :start1 32))
+    (when bl (replace buf bl :start1 64))
+    (when mt (replace buf mt :start1 208))
+    buf))
 
 (defun decode-full-validator (bytes offset)
   "Decode a full state validator K ≡ B336.
    GP (6.9)-(6.12): kb(32) || ke(32) || kl(144) || km(128).
-   Returns: (values plist 336)"
+   Returns: (values jam-full-validator 336)"
   (values
-   (list :bandersnatch (subseq bytes offset (+ offset 32))          ;; (6.9) kb
-         :ed25519      (subseq bytes (+ offset 32) (+ offset 64))   ;; (6.10) ke
-         :bls          (subseq bytes (+ offset 64) (+ offset 208))  ;; (6.11) kl
-         :metadata     (subseq bytes (+ offset 208) (+ offset 336)));; (6.12) km
+   (make-jam-full-validator
+    :bandersnatch (subseq bytes offset (+ offset 32))
+    :ed25519      (subseq bytes (+ offset 32) (+ offset 64))
+    :bls          (subseq bytes (+ offset 64) (+ offset 208))
+    :metadata     (subseq bytes (+ offset 208) (+ offset 336)))
    336))
 
 (defun encode-full-validator-sequence (validators)
   "Encode a fixed-size sequence of full validators (V × 336 bytes, no length prefix)."
-  (apply #'concatenate '(vector (unsigned-byte 8))
-         (mapcar #'encode-full-validator validators)))
+  (let* ((n (length validators))
+         (buf (make-array (* n 336) :element-type '(unsigned-byte 8) :initial-element 0)))
+    (loop for v in validators
+          for pos from 0 by 336
+          do (replace buf (encode-full-validator v) :start1 pos))
+    buf))
 
 (defun decode-full-validator-sequence (bytes &optional (offset 0) (count (num-validators)))
   "Decode a fixed-size sequence of V full validators.
@@ -250,10 +273,11 @@
 ;;; K = [0,0,...] — 336 zero bytes. Used by Φ(k) to blank offending validators.
 
 (defparameter +null-validator-key+
-  (list :bandersnatch (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
-        :ed25519      (make-array +ed25519-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
-        :bls          (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
-        :metadata     (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0))
+  (make-jam-full-validator
+   :bandersnatch (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)
+   :ed25519      (make-array +ed25519-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+   :bls          (make-array +bls-key-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+   :metadata     (make-array +metadata-size+ :element-type '(unsigned-byte 8) :initial-element 0))
   "K = [0,0,...] — null validator key (336 zero bytes). GP (6.14).")
 
 ;;; ==========================================================================
@@ -273,7 +297,7 @@
   "Decode a service account index (u32).
    
    Returns: (values u32 bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 4))) 4))
+  (values (decode-fixed-le bytes offset 4) 4))
 
 ;;; ==========================================================================
 ;;; Validator Index (NV)
@@ -293,7 +317,7 @@
   "Decode a validator index (u16).
    
    Returns: (values u16 bytes-consumed)"
-  (values (decode-fixed-le (subseq bytes offset (+ offset 2))) 2))
+  (values (decode-fixed-le bytes offset 2) 2))
 
 ;;; ==========================================================================
 ;;; Authorization Pool Encoder (shared by α and ϕ)

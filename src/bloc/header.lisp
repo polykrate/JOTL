@@ -32,11 +32,14 @@
 
   ;; ── Save: [0x01][entropy:32][tickets-entropy:32][validators:NV*64] ──
   (:encode :memo
-        (concatenate '(vector (unsigned-byte 8))
-                #(1)
-                (encode-hash-32 entropy)
-                (encode-hash-32 tickets-entropy)
-                (encode-validator-sequence validators)))
+    (let* ((v-bytes (encode-validator-sequence validators))
+           (total   (+ 1 32 32 (length v-bytes)))
+           (buf     (make-array total :element-type '(unsigned-byte 8))))
+      (setf (aref buf 0) 1)
+      (replace buf (encode-hash-32 entropy) :start1 1)
+      (replace buf (encode-hash-32 tickets-entropy) :start1 33)
+      (replace buf v-bytes :start1 65)
+      buf))
 
   ;; ── Load: Option<EpochMarker> ──────────────────────────────
   ;; Returns nil for None (tag=0), epoch-mark closure for Some (tag=1).
@@ -72,14 +75,14 @@
 
   ;; ── Save: [0x01][{id:32, attempt:u8}]* ─────────────────────
   (:encode :memo
-   (concatenate '(vector (unsigned-byte 8))
-                #(1)
-              (apply #'concatenate '(vector (unsigned-byte 8))
-                     (mapcar (lambda (ticket)
-                               (concatenate '(vector (unsigned-byte 8))
-                                            (encode-hash-32 (getf ticket :id))
-                                            (E1 (getf ticket :attempt))))
-                               tickets))))
+    (let* ((n (length tickets))
+           (buf (make-array (+ 1 (* n 33)) :element-type '(unsigned-byte 8))))
+      (setf (aref buf 0) 1)
+      (loop for ticket in tickets
+            for pos from 1 by 33
+            do (replace buf (encode-hash-32 (getf ticket :id)) :start1 pos)
+               (setf (aref buf (+ pos 32)) (getf ticket :attempt)))
+      buf))
 
   ;; ── Load: Option<TicketsMark> ──────────────────────────────
   ;; Returns nil for None (tag=0), tickets-mark closure for Some (tag=1).

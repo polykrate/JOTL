@@ -275,18 +275,27 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (define-state-closure psi-state
-  ((good '()) (bad '()) (wonky '()) (offenders '()) (v-list nil))
+  ((good '()) (bad '()) (wonky '()) (offenders '()) (v-list nil) (raw nil))
 
   ;; v-list — transition byproduct for ρ† (10.15)
   ;; Not encoded (not part of C(5)), just carried in memory.
   ;; Accessible via auto-generated :v-list field accessor.
 
-  (:encode :memo
-    (concatenate '(vector (unsigned-byte 8))
-                 (encode-sequence good #'encode-hash-32)
-                 (encode-sequence bad #'encode-hash-32)
-                 (encode-sequence wonky #'encode-hash-32)
-                 (encode-sequence offenders #'encode-hash-32)))
+  (:encode
+    (or raw
+        (let* ((g-bytes (encode-sequence good #'encode-hash-32))
+               (b-bytes (encode-sequence bad #'encode-hash-32))
+               (w-bytes (encode-sequence wonky #'encode-hash-32))
+               (o-bytes (encode-sequence offenders #'encode-hash-32))
+               (total   (+ (length g-bytes) (length b-bytes)
+                           (length w-bytes) (length o-bytes)))
+               (buf     (make-array total :element-type '(unsigned-byte 8))))
+          (let ((pos 0))
+            (replace buf g-bytes :start1 pos) (incf pos (length g-bytes))
+            (replace buf b-bytes :start1 pos) (incf pos (length b-bytes))
+            (replace buf w-bytes :start1 pos) (incf pos (length w-bytes))
+            (replace buf o-bytes :start1 pos))
+          buf)))
 
   (:decode (bytes offset)
     (let ((hash-decoder (lambda (b o) (values (subseq b o (+ o 32)) 32)))
@@ -401,9 +410,19 @@
                       (append offenders new-offender-keys)
                       :test #'equalp)
                        #'hash<)))
-          ;; Return ψ' with v-list embedded (accessible via :v-list)
-          (make-psi-state :good  good-prime
-                                  :bad   bad-prime
-                                  :wonky wonky-prime
-                          :offenders offenders-prime
-                          :v-list v-list))))))
+          ;; Pre-encode at transition time
+          (let* ((g-bytes (encode-sequence good-prime #'encode-hash-32))
+                 (b-bytes (encode-sequence bad-prime #'encode-hash-32))
+                 (w-bytes (encode-sequence wonky-prime #'encode-hash-32))
+                 (o-bytes (encode-sequence offenders-prime #'encode-hash-32))
+                 (total   (+ (length g-bytes) (length b-bytes)
+                             (length w-bytes) (length o-bytes)))
+                 (enc     (make-array total :element-type '(unsigned-byte 8))))
+            (let ((pos 0))
+              (replace enc g-bytes :start1 pos) (incf pos (length g-bytes))
+              (replace enc b-bytes :start1 pos) (incf pos (length b-bytes))
+              (replace enc w-bytes :start1 pos) (incf pos (length w-bytes))
+              (replace enc o-bytes :start1 pos))
+            (make-psi-state :good good-prime :bad bad-prime :wonky wonky-prime
+                            :offenders offenders-prime :v-list v-list
+                            :raw enc)))))))

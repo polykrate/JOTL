@@ -60,10 +60,14 @@
    nil → [0x00], plist → [0x01] || E(report) || E4(timeout)"
   (if (null assignment)
       #(0)
-      (concatenate '(vector (unsigned-byte 8))
-                   #(1)
-                   (encode-work-report (getf assignment :report))
-                   (encode-u32 (getf assignment :timeout)))))
+      (let* ((report-bytes (encode-work-report (getf assignment :report)))
+             (timeout-bytes (encode-u32 (getf assignment :timeout)))
+             (buf (make-array (+ 1 (length report-bytes) (length timeout-bytes))
+                              :element-type '(unsigned-byte 8))))
+        (setf (aref buf 0) 1)
+        (replace buf report-bytes :start1 1)
+        (replace buf timeout-bytes :start1 (+ 1 (length report-bytes)))
+        buf)))
 
 (defun load-rho-assignment (bytes offset)
   "Decode a single core assignment (Option).
@@ -127,12 +131,19 @@
 
 (defun assurance-signing-payload (parent-hash bitfield)
   "X_A ≡ $jam_available ; message = X_A ~ H(H_P ⌢ a_f)"
-  (let ((inner (concatenate '(vector (unsigned-byte 8))
-                            (ensure-bytes parent-hash)
-                            (ensure-bytes bitfield))))
-    (concatenate '(vector (unsigned-byte 8))
-                 +ctx-available+
-                 (blake2b-256 inner))))
+  (let* ((ph (ensure-bytes parent-hash))
+         (bf (ensure-bytes bitfield))
+         (inner (make-array (+ (length ph) (length bf))
+                            :element-type '(unsigned-byte 8))))
+    (replace inner ph)
+    (replace inner bf :start1 (length ph))
+    (let* ((hash (blake2b-256 inner))
+           (ctx +ctx-available+)
+           (buf (make-array (+ (length ctx) (length hash))
+                            :element-type '(unsigned-byte 8))))
+      (replace buf ctx)
+      (replace buf hash :start1 (length ctx))
+      buf)))
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; ASSURANCE VALIDATION (§11.10-11.15)
@@ -472,8 +483,14 @@
   ;; Accessible via auto-generated :reported field accessor.
 
   (:encode :memo
-    (apply #'concatenate '(vector (unsigned-byte 8))
-           (mapcar #'encode-rho-assignment assignments)))
+    (let* ((parts (mapcar #'encode-rho-assignment assignments))
+           (total (reduce #'+ parts :key #'length :initial-value 0))
+           (buf   (make-array total :element-type '(unsigned-byte 8))))
+      (let ((pos 0))
+        (dolist (p parts)
+          (replace buf p :start1 pos)
+          (incf pos (length p))))
+      buf))
 
   (:decode (bytes offset)
     (let ((result '())

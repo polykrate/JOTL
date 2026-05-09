@@ -32,14 +32,14 @@
 
   (:ed25519-key (index)
     (when (< index (length validators))
-      (getf (nth index validators) :ed25519)))
+      (jam-validator-ed25519 (nth index validators))))
 
   (:bandersnatch-key (index)
     (when (< index (length validators))
-      (getf (nth index validators) :bandersnatch)))
+      (jam-validator-bandersnatch (nth index validators))))
 
   (:all-ed25519-keys
-    (mapcar (lambda (v) (getf v :ed25519)) validators))
+    (mapcar #'jam-validator-ed25519 validators))
 
   ;; ── Φ(k) — Offender filter (GP 6.14) ──────────────────
   ;; Replace validators whose ke ∈ offenders with +null-validator-key+.
@@ -48,7 +48,7 @@
     (if (null offenders)
         (copy-list validators)
         (loop for v in validators
-              for ed = (getf v :ed25519)
+              for ed = (jam-validator-ed25519 v)
               collect (if (member-hash ed offenders)
                          +null-validator-key+
                          v))))
@@ -60,7 +60,7 @@
         (loop for i below (length validators) collect i)
         (loop for i from 0
               for v in validators
-              for ed = (getf v :ed25519)
+              for ed = (jam-validator-ed25519 v)
               unless (member ed offenders :test #'equalp)
               collect i)))
 
@@ -70,16 +70,19 @@
   ;; Returns: list of E bandersnatch public keys (32 bytes each).
   (:fallback-keys (randomness)
     (let* ((e (epoch-duration))
-           (v (length validators)))
+           (v (length validators))
+           (rand-bytes (ensure-bytes randomness))
+           (input-buf (make-array (+ (length rand-bytes) 4)
+                                  :element-type '(unsigned-byte 8))))
       (when (zerop v)
         (error "Empty validator set (V=0) for fallback key sequence F(η'₂, κ')"))
+      (replace input-buf rand-bytes)
       (loop for i below e
             for e4-i = (E4 i)
-            for hash = (blake2b-256
-                        (concatenate '(vector (unsigned-byte 8))
-                                     (ensure-bytes randomness) e4-i))
-            for idx = (mod (decode-fixed-le (subseq hash 0 4)) v)
-            collect (getf (nth idx validators) :bandersnatch))))
+            for hash = (progn (replace input-buf e4-i :start1 (length rand-bytes))
+                              (blake2b-256 input-buf))
+            for idx = (mod (decode-fixed-le hash 0 4) v)
+            collect (jam-validator-bandersnatch (nth idx validators)))))
 
   ;; ── Codec ────────────────────────────────────────────────
   (:encode :memo (encode-full-validator-sequence validators))

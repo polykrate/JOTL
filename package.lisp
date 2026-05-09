@@ -92,6 +92,11 @@
    ;; Lib — Codec Types
    ;; ═══════════════════════════════════════════
    #:bytes<
+   ;; Validator structs (GP §6.8-6.12)
+   #:jam-validator #:make-jam-validator
+   #:jam-validator-bandersnatch #:jam-validator-ed25519 #:jam-validator-p
+   #:jam-full-validator #:make-jam-full-validator
+   #:jam-full-validator-bls #:jam-full-validator-metadata #:jam-full-validator-p
    #:encode-auth-pools
    #:encode-hash-32 #:decode-hash-32
    #:encode-ed25519-key #:decode-ed25519-key

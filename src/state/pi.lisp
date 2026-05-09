@@ -56,30 +56,35 @@
 
 (defun encode-validator-activity (record)
   "Encode one ValidatorActivityRecord: 6 × u32 = 24 bytes."
-  (concatenate '(vector (unsigned-byte 8))
-               (E4 (getf record :blocks))
-               (E4 (getf record :tickets))
-               (E4 (getf record :preimages))
-               (E4 (getf record :preimages-size))
-               (E4 (getf record :guarantees))
-               (E4 (getf record :assurances))))
+  (let ((buf (make-array 24 :element-type '(unsigned-byte 8))))
+    (replace buf (E4 (getf record :blocks))         :start1 0)
+    (replace buf (E4 (getf record :tickets))        :start1 4)
+    (replace buf (E4 (getf record :preimages))      :start1 8)
+    (replace buf (E4 (getf record :preimages-size)) :start1 12)
+    (replace buf (E4 (getf record :guarantees))     :start1 16)
+    (replace buf (E4 (getf record :assurances))     :start1 20)
+    buf))
 
 (defun load-validator-activity (bytes offset)
   "Decode one ValidatorActivityRecord: 6 × u32 = 24 bytes.
    Returns: (values plist 24)"
   (values
-   (list :blocks         (decode-fixed-le (subseq bytes offset (+ offset 4)))
-         :tickets        (decode-fixed-le (subseq bytes (+ offset 4) (+ offset 8)))
-         :preimages      (decode-fixed-le (subseq bytes (+ offset 8) (+ offset 12)))
-         :preimages-size (decode-fixed-le (subseq bytes (+ offset 12) (+ offset 16)))
-         :guarantees     (decode-fixed-le (subseq bytes (+ offset 16) (+ offset 20)))
-         :assurances     (decode-fixed-le (subseq bytes (+ offset 20) (+ offset 24))))
+   (list :blocks         (decode-fixed-le bytes offset 4)
+         :tickets        (decode-fixed-le bytes (+ offset 4) 4)
+         :preimages      (decode-fixed-le bytes (+ offset 8) 4)
+         :preimages-size (decode-fixed-le bytes (+ offset 12) 4)
+         :guarantees     (decode-fixed-le bytes (+ offset 16) 4)
+         :assurances     (decode-fixed-le bytes (+ offset 20) 4))
    24))
 
 (defun encode-validators-statistics (records)
   "Encode V ValidatorActivityRecords: V × 24 bytes (fixed-size, no length prefix)."
-  (apply #'concatenate '(vector (unsigned-byte 8))
-         (mapcar #'encode-validator-activity records)))
+  (let* ((n (length records))
+         (buf (make-array (* n 24) :element-type '(unsigned-byte 8))))
+    (loop for rec in records
+          for pos from 0 by 24
+          do (replace buf (encode-validator-activity rec) :start1 pos))
+    buf))
 
 (defun load-validators-statistics (bytes offset)
   "Decode V ValidatorActivityRecords from bytes at offset.
@@ -285,13 +290,21 @@
 
   ;; ── Codec ────────────────────────────────────────────────────
   (:encode :memo
-    (concatenate '(vector (unsigned-byte 8))
-                 (encode-validators-statistics
-                  (or vals-curr (make-zero-validator-stats)))
-                 (encode-validators-statistics
-                  (or vals-last (make-zero-validator-stats)))
-                 (or cores-raw (encode-zero-cores-stats))
-                 (or services-raw (encode-zero-services-stats))))
+    (let* ((vc-bytes  (encode-validators-statistics
+                       (or vals-curr (make-zero-validator-stats))))
+           (vl-bytes  (encode-validators-statistics
+                       (or vals-last (make-zero-validator-stats))))
+           (cr-bytes  (or cores-raw (encode-zero-cores-stats)))
+           (sr-bytes  (or services-raw (encode-zero-services-stats)))
+           (total     (+ (length vc-bytes) (length vl-bytes)
+                         (length cr-bytes) (length sr-bytes)))
+           (buf       (make-array total :element-type '(unsigned-byte 8))))
+      (let ((pos 0))
+        (replace buf vc-bytes :start1 pos) (incf pos (length vc-bytes))
+        (replace buf vl-bytes :start1 pos) (incf pos (length vl-bytes))
+        (replace buf cr-bytes :start1 pos) (incf pos (length cr-bytes))
+        (replace buf sr-bytes :start1 pos))
+      buf))
 
   (:decode (bytes offset)
     (let ((pos offset))
