@@ -139,12 +139,15 @@
                  (alpha (funcall sigma :decode-segment :alpha))
                  (delta (funcall sigma :decode-segment :delta))
 
-                 ;; (4.14) ρ'  < (EG, ρ‡, κ', τ', ψ', α, δ, β†, λ, η')
+                 ;; (4.14) ρ'  < (EG, ρ‡, κ', τ', ψ', α, δ, β†, λ', η')
+                 ;; λ' (post-safrole) is needed, not λ: at epoch boundaries,
+                 ;; λ' = old κ = validators from the previous epoch, which is
+                 ;; the correct keyset for cross-epoch guarantee verification.
                  (rho-prime (funcall rho-ddagger :transition
                                      :guarantees e-g
                                      :tau-prime tau-prime
                                      :kappa kappa-prime
-                                     :lambda-prev lambda-prev
+                                     :lambda-prev lambda-prime
                                      :eta eta-prime
                                      :psi-prime psi-prime
                                      :recent-blocks beta-dagger
@@ -194,6 +197,9 @@
                                         :tau-prime tau-prime))
 
                    ;; (4.20) π' < (EG, EP, EA, ET, τ, κ', π, H, S, κ, λ)
+                   ;; λ' (post-safrole) is needed, not λ: at epoch boundaries,
+                   ;; λ' = old κ = validators from the previous epoch, which is
+                   ;; the correct keyset for cross-epoch reporters-G lookup.
                    (pi-prime (funcall pi-stats :transition
                                       :header h
                                       :tau tau :tau-prime tau-prime
@@ -201,7 +207,7 @@
                                       :assurances e-a :guarantees e-g
                                       :kappa-prime kappa-prime
                                       :kappa kappa
-                                      :lambda-prev lambda-prev
+                                      :lambda-prev lambda-prime
                                       :accum-stats service-stats
                                       :r-star r-star))
 

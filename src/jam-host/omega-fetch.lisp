@@ -90,23 +90,27 @@
        (when (plusp (length pp)) pp)))
 
     (#.+fetch-entropy+
-     ;; GP B.5: ω₁(κ) = η'_κ — return 32-byte entropy slice at index a.
-     ;; a ∈ {0,1,2,3} selects which of the 4 entropy hashes.
-     ;; a ≥ 4 → ∅ (NIL).
-     (let ((result
-             (when (< a 4)
-               (let ((raw (hctx-entropy-raw ctx)))
-                 (if (>= (length raw) 128)
-                     (subseq raw (* a 32) (+ (* a 32) 32))
-                     ;; Fallback: use 4×32 array
-                     (let* ((ent (hctx-entropy ctx))
-                            (slice (make-array 32 :element-type '(unsigned-byte 8))))
-                       (dotimes (j 32 slice)
-                         (setf (aref slice j) (aref ent a j)))))))))
+     ;; GP B.11: In Accumulate/OnTransfer, n = η₀' (the entropy accumulator,
+     ;; a single 32-byte hash). The fetch function returns n directly — no
+     ;; register-based indexing.
+     ;; GP B.6: In Refine, n = H₀ = [0]₃₂ (zero hash).
+     ;; GP B.2: In IsAuthorized, n = ∅ (no entropy).
+     (let* ((inv (hctx-invocation ctx))
+            (result
+              (case inv
+                ((:accumulate :on-transfer)
+                 ;; n = η₀' — first 32 bytes of entropy-raw
+                 (let ((raw (hctx-entropy-raw ctx)))
+                   (when (>= (length raw) 32)
+                     (subseq raw 0 32))))
+                (:refine
+                 ;; n = H₀ = [0]₃₂
+                 (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0))
+                (t nil))))
        (when (and result (hctx-debug-trace ctx))
          (format *error-output*
-                 "~&[FETCH-1-ENTROPY] sid=~D a=~D len=~D bytes: ~{~2,'0X~}~%"
-                 (hctx-service-id ctx) a
+                 "~&[FETCH-1-ENTROPY] sid=~D ctx=~A len=~D bytes: ~{~2,'0X~}~%"
+                 (hctx-service-id ctx) inv
                  (length result)
                  (coerce result 'list)))
        result))

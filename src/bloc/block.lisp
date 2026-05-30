@@ -61,18 +61,6 @@
     (let ((pos (or offset 0)))
       (multiple-value-bind (h h-consumed)
           (decode-header bytes pos)
-        ;; DEBUG: verify header round-trip
-        (let* ((raw-header (subseq bytes pos (+ pos h-consumed)))
-               (re-encoded (funcall h :encode)))
-          (unless (equalp raw-header re-encoded)
-            (format t "[ROUNDTRIP-BUG] Header round-trip FAILED!~%")
-            (format t "  raw len=~D  re-enc len=~D~%" (length raw-header) (length re-encoded))
-            (let ((mismatch-pos (mismatch raw-header re-encoded)))
-              (format t "  first diff at byte ~D: raw=0x~2,'0X enc=0x~2,'0X~%"
-                      mismatch-pos
-                      (if (< mismatch-pos (length raw-header)) (aref raw-header mismatch-pos) -1)
-                      (if (< mismatch-pos (length re-encoded)) (aref re-encoded mismatch-pos) -1)))
-            (force-output)))
         (incf pos h-consumed)
         (multiple-value-bind (et ed ep ea eg e-consumed)
             (decode-extrinsic-data bytes pos)

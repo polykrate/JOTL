@@ -1,212 +1,194 @@
 # JOTL — JAM On The Lisp
 
-A Common Lisp implementation of the JAM state transition function Υ(σ, B) → σ',
-targeting full protocol conformance with [Gray Paper](https://graypaper.com) v0.7.2.
+Common Lisp implementation of the JAM state transition function **Υ(σ, B) → σ'**,
+conforming to [Gray Paper](https://graypaper.com) **v0.7.2**.
 
-Built on [SBCL](http://www.sbcl.org/) with cryptographic primitives delegated to
-Rust via CFFI. The PVM interpreter (GP Appendix A) and all host calls (GP Appendix B)
-are implemented in pure Common Lisp. All transition logic is annotated with the
-corresponding GP equations; overall comment ratio is 26%, rising to 33% on the PVM.
+JOTL is a **state-transition client**: it validates and applies blocks to protocol
+state. Networking, persistence, and block production are out of scope (Milestone 1).
 
-16 specification-level bugs were identified and resolved during conformance
-testing, each traced to a specific GP section ([details below](#bugs-found-during-conformance-testing)).
+| Layer | Language | Role |
+|-------|----------|------|
+| STF, PVM, host calls | Common Lisp | Protocol logic (GP §4–§13, Appendices A–B) |
+| Cryptography | Rust (CFFI) | Blake2b, Bandersnatch Ring VRF, Ed25519 |
+
+---
+
+## How it works
+
+A block **B = (H, E)** is processed in three stages:
+
+```
+  Binary block          Trust boundary              Pure STF
+  ────────────          ──────────────              ────────
+  trace / fuzz-v1  →   import-block(σ, B)   →   transition-state(σ, B)
+                              │                         │
+                              │                    dependency waves 0–4 (GP §4.2.1)
+                              │                    (accumulation in wave 3)
+                              ▼                         ▼
+                       env checks (parent,        σ'  +  state root M_r(σ')
+                       timeslot, H_r)              Merkle trie over 17 segments
+```
+
+1. **Import** (`import.lisp`) — decodes the block, checks preconditions (parent
+   hash, state root in header, timeslot), and hands a structured block to the STF.
+   This is the only place environmental context enters; everything below is
+   deterministic.
+
+2. **Transition** (`upsilon.lisp`) — runs Υ following GP §4.2.1 as **five ordered
+   waves (0–4)**. Wave **1** is a bundle of **independent** transitions (the GP
+   draws them side-by-side; JOTL runs them in one `let*` but they only depend on
+   σ and B, not on each other): β†, η′, κ′, λ′, ψ′, ρ†. Wave **2** joins outputs from
+   wave 1: γ′ (Safrole, with header checks), ρ‡, and R*. Wave **3** computes ρ′
+   from guarantees, then **§12 accumulation** (ω, ξ, δ†, χ, ι, ϕ, θ via
+   `accumulate.lisp`). Wave **4** merges β′, δ′ (preimages), α′, and π′.
+
+3. **State root** — each of the 17 GP segments is a Merkle leaf; `sigma` assembles
+   the trie and returns **M_r(σ')**, compared against test vectors or the fuzzer.
+
+The same path serves unit tests (`import-block`), trace replay (`tests/conformance.lisp`),
+and the **fuzz-v1** target (`fuzz-target.lisp`) used for official conformance runs.
+
+---
+
+## What is different
+
+**Immutable state closures.** Every GP component (τ η κ λ β ψ ρ ι γ α ϕ δ π χ ω ξ θ)
+is built by one macro, `define-state-closure`: data, codec, and `:transition` live
+behind a single message-passing interface. Transitions return new closures; nothing
+is mutated in place. Forking and fuzz sessions can keep multiple σ branches without
+defensive copying.
+
+**Sovereign components.** Orchestrators (`upsilon`, `accumulate`) wire inputs and
+outputs; they do not reach into segment internals. Multi-stage segments expose
+`:transition-dagger` / `:transition-ddagger` where the Gray Paper defines
+intermediate states (e.g. δ†, ρ†, ρ‡).
+
+**PVM in Lisp.** The interpreter (GP Appendix A) precomputes basic-block boundaries
+and a skip table; instructions decode on first use and stay cached. All host calls
+(GP Appendix B) live under `src/jam-host/`. Only cryptographic primitives sit in
+Rust — business logic stays in Lisp, per the JAM Prize language-set rules.
+
+**Spec-first codebase.** Transition code is annotated against GP equations; the
+implementation is intended to be read alongside the Gray Paper, not as a black box.
+
+---
 
 ## Conformance
 
-**1000/1000** static test vectors pass across 8 traces with zero errors.
-All fuzz suites pass without failure.
+| Suite | Scope | Result |
+|-------|-------|--------|
+| [jamtestvectors](https://github.com/w3f/jamtestvectors) | 8 traces, 1000 blocks | **1000/1000** |
+| [polkajam fuzz-reports](https://github.com/paritytech/polkajam/) | 205 traces, 760 steps | **735 pass**, 25 expected reject, **0 fail** |
+| minifuzz `no_forks` | fuzz-v1 | **102/102** |
+| minifuzz `forks` | fuzz-v1 | **102/102** |
 
-| Source | Scope | Result |
-|--------|-------|--------|
-| [jamtestvectors](https://github.com/w3f/jamtestvectors) | 8 traces, 1000 blocks | **1000/1000 ✓** |
-| [polkajam-fuzz](https://github.com/paritytech/polkajam/) | 205 traces, 760 steps | **735 pass, 25 correct reject, 0 fail** |
-| minifuzz no\_forks (fuzz-v1) | 102 inputs | **102/102 ✓** |
-| minifuzz forks (fuzz-v1) | 102 inputs | **102/102 ✓** |
-
-<details><summary>Per-trace breakdown</summary>
+<details>
+<summary>Per-trace breakdown (jamtestvectors)</summary>
 
 | Trace | Chain | Step | Errors |
 |-------|------:|-----:|-------:|
-| fallback | 100/100 ✓ | 100/100 ✓ | 0 |
-| safrole | 100/100 ✓ | 100/100 ✓ | 0 |
-| storage | 100/100 ✓ | 100/100 ✓ | 0 |
-| storage\_light | 100/100 ✓ | 100/100 ✓ | 0 |
-| preimages | 100/100 ✓ | 100/100 ✓ | 0 |
-| preimages\_light | 100/100 ✓ | 100/100 ✓ | 0 |
-| fuzzy\_light | 200/200 ✓ | 200/200 ✓ | 0 |
-| fuzzy | 200/200 ✓ | 200/200 ✓ | 0 |
+| fallback | 100/100 | 100/100 | 0 |
+| safrole | 100/100 | 100/100 | 0 |
+| storage | 100/100 | 100/100 | 0 |
+| storage_light | 100/100 | 100/100 | 0 |
+| preimages | 100/100 | 100/100 | 0 |
+| preimages_light | 100/100 | 100/100 | 0 |
+| fuzzy_light | 200/200 | 200/200 | 0 |
+| fuzzy | 200/200 | 200/200 | 0 |
 
 </details>
 
-## Architecture
+Continuous integration against the public harness:
+[![Performance](https://github.com/FluffyLabs/jam-testing/actions/workflows/jotl-performance.yml/badge.svg)](https://github.com/FluffyLabs/jam-testing/actions/workflows/jotl-performance.yml)
 
-### State model
+---
 
-Every GP state component (τ η κ λ β ψ ρ ι γ α ϕ δ π χ ω ξ θ) is an
-immutable closure generated by a single macro, `define-state-closure`.
-Each closure encapsulates its data, binary codec, and transition logic
-behind a uniform message-passing interface:
+## Quick start
 
-- **`:transition`** consumes the relevant GP inputs and returns a new closure.
-- **Transient fields** expose side-data produced during transition
-  (e.g. R\* from ω, emitted validators from χ).
-- **Multi-stage transitions** (`:transition-dagger`, `:transition-ddagger`)
-  handle components with intermediate states (δ†, ρ†, ρ‡).
+### Docker (fuzz-v1 target)
 
-Closures are immutable by construction, which makes state transitions
-inherently fork-safe: branching requires no defensive copying, and each
-closure can be retained or discarded independently. Components are sovereign —
-orchestrators coordinate data flow but never inspect internal state.
-
-### Orchestration
-
-`upsilon.lisp` implements Υ(σ, B) → σ' by executing the 4-wave dependency
-graph (GP §4.2.1). `accumulate.lisp` handles §12: R\* extraction,
-per-service PVM execution, and privilege resolution.
-
-`import-block` is the trust boundary. Below it, all computation is pure
-and deterministic. Above it, environmental context (parent hash, time) is
-applied. This separation guarantees that the STF can be tested, fuzzed, and
-audited in isolation from any networking or storage layer.
-
-### PVM
-
-The PVM interpreter (GP Appendix A) is pure Common Lisp. Initialization
-precomputes basic-block start positions (ω̄) and a skip-distance lookup
-table; instructions are decoded lazily on first execution and cached for
-subsequent hits. Host calls (GP Appendix B) are in `src/jam-host/`, with
-arguments mapped at `ARGS_SEGMENT` (0xFEFF0000) as read-only per GP A.8.
-
-### Cryptography
-
-Blake2b, Bandersnatch Ring VRF, and Ed25519 are provided by a Rust FFI
-library (`crypto/jam-crypto/`) built on `ark-vrf` 0.2.1 and exposed to
-Common Lisp through CFFI.
-
-### Codebase
-
-| Domain | Lines | Comment ratio |
-|--------|------:|--------------:|
-| **STF** (state, orchestration, codecs, Merkle) | ~12k | 27% |
-| **PVM** interpreter (GP Appendix A) | ~3k | 33% |
-| **Crypto** FFI (Rust) | ~2k | 21% |
-| **Total** | **~21k** | **26%** |
-
-<details><summary>Detailed Lisp breakdown</summary>
-
-| Module | Code | Comments |
-|--------|-----:|---------:|
-| State (17 components) | 3 092 | 1 269 |
-| Host calls (GP B) | 2 353 | 916 |
-| PVM interpreter (GP A) | 2 141 | 1 054 |
-| Orchestration (Υ, §12, import) | 1 175 | 328 |
-| Library (codecs, Merkle) | 1 133 | 367 |
-| Block/extrinsics | 840 | 236 |
-
-</details>
-
-## Getting started
-
-### Docker
-
-The Docker image bundles all dependencies (SBCL, Quicklisp, Rust FFI,
-Bandersnatch SRS) and exposes the fuzz-v1 target server.
+Image follows [standard target packaging](https://github.com/davxy/jam-conformance/tree/main/fuzz-proto#standard-target-packaging)
+(`JAM_FUZZ_*` environment variables).
 
 ```bash
 docker build -t jotl .
-docker run --rm -v /tmp:/tmp jotl /tmp/jam_target.sock
+mkdir -p /tmp/jam/data
+docker run --rm \
+  -e JAM_FUZZ=1 \
+  -e JAM_FUZZ_SPEC=tiny \
+  -e JAM_FUZZ_DATA_PATH=/tmp/jam/data/ \
+  -e JAM_FUZZ_SOCK_PATH=/tmp/jam/fuzz.sock \
+  -e JAM_FUZZ_LOG_LEVEL=info \
+  -v /tmp/jam:/tmp/jam \
+  jotl
 ```
 
 ### Standalone binary
 
-Build a self-contained executable (~100 MB, <100ms startup):
-
 ```bash
 ./scripts/build.sh                  # → ./jotl
-./jotl test                         # run conformance tests
-./jotl test -v storage              # single trace, verbose
-./jotl fuzz /tmp/jam_target.sock    # fuzz-v1 target server
+./jotl test                         # conformance (jamtestvectors)
+./jotl test -v storage              # one trace, verbose
+./jotl fuzz /tmp/jam/fuzz.sock      # fuzz-v1 server (set JAM_FUZZ_* yourself)
 ./jotl version
 ```
 
-### Native build (development)
+### Native development
 
-**Prerequisites:** [SBCL](http://www.sbcl.org/) ≥ 2.3,
-[Quicklisp](https://www.quicklisp.org/),
-[Rust](https://rustup.rs/) stable.
+**Prerequisites:** [SBCL](http://www.sbcl.org/) ≥ 2.3, [Quicklisp](https://www.quicklisp.org/), [Rust](https://rustup.rs/) stable.
 
 ```bash
-# Build the crypto FFI shared library
 cargo build --manifest-path crypto/jam-crypto/Cargo.toml --release
 
-# Clone test data as sibling repositories
 git clone https://github.com/w3f/jamtestvectors.git ../jamtestvectors
 git clone https://github.com/w3f/jam-conformance.git ../jam-conformance
 
-# Static test vectors (8 traces, 1000 blocks)
 ./scripts/test.sh                           # all traces
-./scripts/test.sh storage -v                # single trace, verbose
-./scripts/test.sh --vectors /path/to/traces # explicit path
-
-# Polkajam fuzz-reports (205 traces, 760 steps)
-./scripts/test-reports.sh                                          # all
-./scripts/test-reports.sh --conformance /path/to/jam-conformance   # explicit path
-
-# Fuzz target server (fuzz-v1 protocol)
-./scripts/fuzz-target.sh /tmp/jam_target.sock
+./scripts/test.sh storage -v                # one trace
+./scripts/test-reports.sh                   # polkajam fuzz-reports
+./scripts/fuzz-target.sh /tmp/jam/fuzz.sock # local fuzz target (needs JAM_FUZZ=1, …)
 ```
 
-### Test vector discovery
-
-Scripts auto-detect test vectors in sibling directories (default dev layout).
-Override with CLI arguments or environment variables:
+**Test data discovery**
 
 | Method | `test.sh` | `test-reports.sh` |
 |--------|-----------|-------------------|
 | CLI | `--vectors PATH` | `--conformance PATH` |
-| Env var | `JAM_TEST_VECTORS` | `TRACES_DIR` |
-| Auto-detect | `../jamtestvectors/traces/` | `../jam-conformance/fuzz-reports/0.7.2/traces/` |
+| Env | `JAM_TEST_VECTORS` | `TRACES_DIR` |
+| Default | `../jamtestvectors/traces/` | `../jam-conformance/fuzz-reports/0.7.2/traces/` |
+
+---
 
 ## Repository layout
 
 ```
 src/
-├── upsilon.lisp        Υ(σ,B)→σ'  block-level STF (GP §4)
-├── accumulate.lisp     Accumulation orchestrator (GP §12)
 ├── import.lisp         Block import / trust boundary
-├── fuzz-target.lisp    Fuzz-v1 protocol server
+├── upsilon.lisp        Υ(σ, B) → σ'  (GP §4)
+├── accumulate.lisp     Accumulation (GP §12)
+├── fuzz-target.lisp    fuzz-v1 protocol server
 ├── jamvm/              PVM interpreter (GP Appendix A)
-├── jam-host/           Host call implementations (GP Appendix B)
+├── jam-host/           Host calls (GP Appendix B)
 ├── lib/                Codecs, constants, Merkle trie, MMR
-├── bloc/               Block header, extrinsics, work reports
-└── state/              17 state components (one file each)
+├── bloc/               Header, extrinsics, work reports
+└── state/              17 state segments (one file each)
 
-crypto/jam-crypto/      Rust FFI (Blake2b, Bandersnatch, Ed25519)
-tests/                  Conformance test runners
-scripts/                Shell entry points
+crypto/jam-crypto/      Rust FFI
+tests/                  Conformance runners
+scripts/                Build and test entry points
 ```
 
-## Last bugs corrected
+### Size
 
-| # | Component | Root cause |
-|---|-----------|------------|
-| 1 | `omega-new-service` (HC 18) | Missing initial lookup entry `{((c,l) ↦ [])}` per GP B.10 |
-| 2 | `omega-provide-preimage` (HC 26) | Lookup entry not updated `[] → [τ']` after provision per GP B.6 |
-| 3 | `accumulate-service` | PVM invoked with gas=0 produced OOG; GP B.9 requires skipping PVM and crediting balance |
-| 4 | `omega-solicit-preimage` (HC 23) | `FULL` check against pre-mutation state caused u32 overflow |
-| 5 | Guarantee validation | Used κ instead of κ' (post-safrole) for validator lookup per GP §11.26 |
-| 6 | PI reporters | G set built with κ instead of κ' per GP §13.5 |
-| 7 | `reg-reg-reg` decoder | r\_D must be `min(12, b₂ mod 16)` per GP A.3 |
-| 8 | Accumulate panic reversion | Reverted to empty hash-tables instead of pre-invocation state |
-| 9 | `absorb-delta-effects` | Missing `items_count` and `footprint` updates from PVM side-effects |
-| 10 | `accumulate-all` (Δ⁺) | Report-level gas cutoff not enforced per GP §12.18 |
-| 11 | Fork handling | `copy-list` instead of `copy-alist` caused shallow-copy state corruption |
-| 12 | `import-block` | Missing H\_r ≡ M\_r(σ) pre-STF validation per GP §5.1 |
-| 13 | `import-block` | `preimages-error` condition not caught, surfaced as unhandled error |
-| 14 | `integrate-preimages` | Missing EP ordering validation per GP §12.36 |
-| 15 | `omega-ext-log` (HC 100) | Returned 0 in r7 instead of WHAT (2⁶⁴−2) per JIP-1 |
-| 16 | `encode-gp-constants` | W\_B used pre-0.7.2 value 13794305 instead of 13791360 |
+| Domain | Lines (approx.) |
+|--------|----------------:|
+| STF (state, orchestration, codecs, Merkle) | ~12k |
+| PVM + host | ~5.5k |
+| Crypto FFI | ~2k |
+| **Total** | **~21k** |
+
+---
 
 ## License
 
-GPL-3.0
+GPL-3.0 — see [LICENSE](LICENSE).

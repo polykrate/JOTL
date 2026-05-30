@@ -11,30 +11,33 @@
 
 (in-package #:jotl)
 
-(defvar *traces-dir*
-  (let ((env (uiop:getenv "TRACES_DIR")))
-    (cond
-      ;; 1. Env var TRACES_DIR (set by test-reports.sh or user)
-      (env
-       (let ((path (if (char= (char env (1- (length env))) #\/)
-                       env
-                       (concatenate 'string env "/"))))
-         path))
-      ;; 2. Sibling jam-conformance repo (default dev layout)
-      (t
-       (let* ((base (asdf:system-source-directory :jotl))
-              (sibling (merge-pathnames
-                        "../jam-conformance/fuzz-reports/0.7.2/traces/"
-                        base)))
-         (if (probe-file sibling)
-             (namestring sibling)
-             (progn
-               (format *error-output*
-                       "~&[jotl] WARNING: fuzz-reports traces not found.~%~
-                        Tried: ~A~%~
-                        Set TRACES_DIR or use --conformance PATH~%"
-                       (namestring sibling))
-               (namestring sibling))))))))
+(defvar *traces-dirs*
+  (let ((env (uiop:getenv "TRACES_DIR"))
+        (base (asdf:system-source-directory :jotl))
+        (dirs nil))
+    ;; Env var TRACES_DIR: colon-separated list of directories
+    (when env
+      (dolist (part (uiop:split-string env :separator ":"))
+        (let ((path (if (and (plusp (length part))
+                             (char= (char part (1- (length part))) #\/))
+                        part
+                        (concatenate 'string part "/"))))
+          (when (probe-file path)
+            (push path dirs)))))
+    ;; Local traces/ directory (Parity reports, manually collected traces)
+    (let ((local-traces (merge-pathnames "traces/" base)))
+      (when (probe-file local-traces)
+        (push (namestring local-traces) dirs)))
+    ;; Sibling jam-conformance repo
+    (let ((sibling (merge-pathnames
+                    "../jam-conformance/fuzz-reports/0.7.2/traces/" base)))
+      (when (probe-file sibling)
+        (push (namestring sibling) dirs)))
+    (unless dirs
+      (format *error-output*
+              "~&[jotl] WARNING: No trace directories found.~%~
+               Set TRACES_DIR or use --conformance PATH~%"))
+    (nreverse dirs)))
 
 (defvar *trace-id* (uiop:getenv "TRACE_ID"))
 (defvar *max-traces* (let ((v (uiop:getenv "MAX_TRACES")))
@@ -46,13 +49,18 @@
 ;;; ═══════════════════════════════════════════════════════════════
 
 (defun list-polkajam-traces ()
-  "List all trace directories in *traces-dir*.
-   Returns list of (trace-id . full-path) sorted by name."
-  (let ((result nil))
-    (dolist (p (directory (merge-pathnames "*/" *traces-dir*)))
-      (let ((name (car (last (pathname-directory p)))))
-        (when (and name (digit-char-p (char name 0)))
-          (push (cons name (namestring p)) result))))
+  "List all trace directories from *traces-dirs*.
+   Returns list of (trace-id . full-path) sorted by name, deduplicated."
+  (let ((result nil)
+        (seen (make-hash-table :test 'equal)))
+    (dolist (tdir *traces-dirs*)
+      (dolist (p (directory (merge-pathnames "*/" tdir)))
+        (let ((name (car (last (pathname-directory p)))))
+          (when (and name (plusp (length name))
+                     (digit-char-p (char name 0))
+                     (not (gethash name seen)))
+            (setf (gethash name seen) t)
+            (push (cons name (namestring p)) result)))))
     (sort result #'string< :key #'car)))
 
 (defun list-trace-steps (trace-dir)
@@ -183,7 +191,9 @@
 
 (defun run-polkajam-tests ()
   (format t "~%═══ JOTL vs polkajam traces ═══~%")
-  (format t "Traces dir: ~A~%" *traces-dir*)
+  (format t "Trace dirs:~%")
+  (dolist (d *traces-dirs*)
+    (format t "  ~A~%" d))
   (format t "Trace ID filter: ~A~%" (or *trace-id* "(all)"))
   (format t "Max traces: ~A~%" (or *max-traces* "(unlimited)"))
   (format t "Stop on fail: ~A~%~%" *stop-on-fail*)

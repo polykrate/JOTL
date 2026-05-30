@@ -375,7 +375,29 @@
                     "~&[ACCUM] sid=~D gas-used=~D outcome=~A yield?=~A~%"
                     sid gas-used
                     (when effects (getf effects :outcome))
-                    (and effects (getf effects :yield-output) t)))
+                    (and effects (getf effects :yield-output) t))
+            (when effects
+              (let ((sto (getf effects :storage)))
+                (format *error-output*
+                        "~&[ACCUM-EFX] sid=~D storage-type=~A storage-count=~D~%"
+                        sid (type-of sto)
+                        (cond ((hash-table-p sto) (hash-table-count sto))
+                              ((listp sto) (length sto))
+                              (t 0)))
+                (cond
+                  ((hash-table-p sto)
+                   (maphash (lambda (k v)
+                              (format *error-output*
+                                      "~&  [STO] key=~A vlen=~D~%"
+                                      (jam.ffi:bytes-to-hex-string k)
+                                      (if v (length v) 0)))
+                            sto))
+                  ((listp sto)
+                   (dolist (s sto)
+                     (format *error-output*
+                             "~&  [STO] key=~A vlen=~D~%"
+                             (jam.ffi:bytes-to-hex-string (car s))
+                             (if (cdr s) (length (cdr s)) 0))))))))
           (setf (gethash sid delta-results) effects)
 
           ;; u: gas usage — (sid n-items gas-used)g
@@ -620,10 +642,23 @@
                ;; ── χ' (12.27): χ already transitioned in Δ* ──
                (chi-prime (getf accum-state :chi))
 
-               ;; ── GP: B is a set of (s, o) pairs → sort by service-id ascending ──
-               ;; This sorted list is used for BOTH θ' encoding and β' accumulate-root.
-               (sorted-commits (sort (copy-list (or (getf accum-state :commitments) nil))
-                                     #'< :key #'car))
+               ;; ── GP: B is a set of (s, o) pairs → total order for deterministic encoding ──
+               ;; Sort by (service-id ascending, yield-hash lexicographic ascending).
+               ;; Same sid can appear multiple times when a service is re-accumulated
+               ;; via deferred transfers within the same block.
+               (sorted-commits
+                (flet ((commit< (a b)
+                         (let ((sa (car a)) (sb (car b)))
+                           (or (< sa sb)
+                               (and (= sa sb)
+                                    (loop for i below (min (length (cdr a)) (length (cdr b)))
+                                          when (< (aref (cdr a) i) (aref (cdr b) i))
+                                            return t
+                                          when (> (aref (cdr a) i) (aref (cdr b) i))
+                                            return nil
+                                          finally (return nil)))))))
+                  (sort (copy-list (or (getf accum-state :commitments) nil))
+                        #'commit<)))
 
                ;; ── θ' (12.26): accumulation output log ──
                ;; θ owns its encoding — :transition returns θ' from commitments.

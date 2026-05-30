@@ -330,120 +330,15 @@
         (let* ((sigma-prime (apply-block parent-sigma block))
                (state-root (funcall sigma-prime :state-root))
                (block-hash (funcall header :hash)))
-          ;; DEBUG: check header round-trip
-          (let* ((h-enc (funcall header :encode))
-                 (h-hash (funcall header :hash))
-                 (h-unseal (funcall header :encode-unsealed)))
-            (format t "[DEBUG] H-hash=~A~%" (bytes-to-hex-string h-hash))
-            (format t "[DEBUG] H-encode len=~D first16=~A~%"
-                    (length h-enc) (bytes-to-hex-string (subseq h-enc 0 (min 16 (length h-enc)))))
-            (format t "[DEBUG] H-unseal len=~D last16=~A~%"
-                    (length h-unseal) (bytes-to-hex-string (subseq h-unseal (max 0 (- (length h-unseal) 16))))))
-          ;; Dump per-segment hashes for divergence analysis
-          (format t "[DEBUG] genesis-root=~A~%" (bytes-to-hex-string (funcall parent-sigma :state-root)))
-          (format t "[DEBUG] post-root=~A~%" (bytes-to-hex-string state-root))
-          ;; Detailed ETA dump
-          (let ((pre-eta (funcall parent-sigma :segment :eta))
-                (post-eta (funcall sigma-prime :segment :eta)))
-            (format t "[ETA-PRE]  ~A~%" (bytes-to-hex-string pre-eta))
-            (format t "[ETA-POST] ~A~%" (bytes-to-hex-string post-eta)))
-          ;; TAU dump
-          (format t "[TAU-POST] ~A~%" (bytes-to-hex-string (funcall sigma-prime :segment :tau)))
-          ;; Epoch transition diagnostics
-          (let* ((tau-pre-bytes (funcall parent-sigma :segment :tau))
-                 (tau-post-bytes (funcall sigma-prime :segment :tau))
-                 (slot-pre (logior (aref tau-pre-bytes 0) (ash (aref tau-pre-bytes 1) 8)
-                                   (ash (aref tau-pre-bytes 2) 16) (ash (aref tau-pre-bytes 3) 24)))
-                 (slot-post (logior (aref tau-post-bytes 0) (ash (aref tau-post-bytes 1) 8)
-                                    (ash (aref tau-post-bytes 2) 16) (ash (aref tau-post-bytes 3) 24)))
-                 (e-len (epoch-duration))
-                 (epoch-pre (floor slot-pre e-len))
-                 (epoch-post (floor slot-post e-len)))
-            (format t "[EPOCH] pre-slot=~D post-slot=~D epoch-pre=~D epoch-post=~D change=~A~%"
-                    slot-pre slot-post epoch-pre epoch-post (> epoch-post epoch-pre))
-            (when (> epoch-post epoch-pre)
-              ;; Show gamma sealing variant from post-state
-              (let ((gamma-post (funcall sigma-prime :segment :gamma)))
-                (format t "[GAMMA-S] variant-byte=~D (0=tickets, 1=fallback-keys)~%"
-                        (aref gamma-post 0)))
-              ;; Show chi segment (contains χ_Z always-accumulate services)
-              (let ((chi-post (funcall sigma-prime :segment :chi)))
-                (format t "[CHI] len=~D first16=~A~%"
-                        (length chi-post)
-                        (bytes-to-hex-string (subseq chi-post 0 (min 16 (length chi-post))))))))
-          ;; Y(HV) value + raw HV bytes
-          (let ((y-val (funcall (funcall block :header) :vrf-entropy))
-                (raw-hv (funcall header :entropy-source)))
-            (format t "[Y-HV] ~A~%" (if y-val (bytes-to-hex-string y-val) "NIL"))
-            (format t "[HV-RAW len=~D] ~A~%" (length raw-hv) (bytes-to-hex-string raw-hv)))
-          ;; Author index and segment details
-          (format t "[AUTHOR] ~D~%" (funcall header :author-index))
-          ;; PI raw bytes
-          (let ((pi-pre (funcall parent-sigma :segment :pi))
-                (pi-post (funcall sigma-prime :segment :pi)))
-            (format t "[PI-PRE  len=~D] ~A~%"
-                    (length pi-pre) (bytes-to-hex-string pi-pre))
-            (format t "[PI-POST len=~D] ~A~%"
-                    (length pi-post) (bytes-to-hex-string pi-post)))
-          ;; BETA pre (genesis) and post raw bytes
-          (let ((beta-pre (funcall parent-sigma :segment :beta))
-                (beta-post (funcall sigma-prime :segment :beta)))
-            (format t "[BETA-PRE  len=~D] ~A~%"
-                    (length beta-pre) (bytes-to-hex-string beta-pre))
-            (format t "[BETA-POST len=~D] ~A~%"
-                    (length beta-post) (bytes-to-hex-string beta-post)))
-          ;; Delta and Merkle diagnostics
-          (let* ((post-kvs (funcall sigma-prime :merkle-kvs))
-                 (direct-root (compute-state-root post-kvs)))
-            (format t "[MERKLE] total-keys=~D~%" (length post-kvs))
-            (format t "[VERIFY] direct-root=~A~%" (bytes-to-hex-string direct-root))
-            (format t "[VERIFY] trie-root  =~A~%" (bytes-to-hex-string state-root))
-            (format t "[VERIFY] match=~A~%" (equalp direct-root state-root))
-            (dolist (entry jotl::+sigma-segment-order+)
-              (let* ((kw (car entry))
-                     (cn (cdr entry))
-                     (pre-bytes (funcall parent-sigma :segment kw))
-                     (post-bytes (funcall sigma-prime :segment kw)))
-                (when (or pre-bytes post-bytes)
-                  (let ((pre-h (if (and pre-bytes (plusp (length pre-bytes)))
-                                   (subseq (bytes-to-hex-string (blake2b-256 pre-bytes)) 0 16)
-                                   "nil"))
-                        (post-h (if (and post-bytes (plusp (length post-bytes)))
-                                    (subseq (bytes-to-hex-string (blake2b-256 post-bytes)) 0 16)
-                                    "nil"))
-                        (post-len (if post-bytes (length post-bytes) 0)))
-                    (format t "[SEG] C(~2D) ~8A pre=~A post=~A len=~D~A~%"
-                            cn kw pre-h post-h post-len
-                            (if (equalp pre-bytes post-bytes) "" " CHANGED"))))))
-            ;; Segment isolation: revert each changed segment to genesis value
-            (dolist (entry jotl::+sigma-segment-order+)
-              (let* ((kw (car entry))
-                     (cn (cdr entry))
-                     (pre-bytes (funcall parent-sigma :segment kw))
-                     (post-bytes (funcall sigma-prime :segment kw)))
-                (unless (equalp pre-bytes post-bytes)
-                  (let* ((modified-kvs
-                          (mapcar (lambda (kv)
-                                    (let ((key (car kv)))
-                                      (if (and (= (aref key 0) cn)
-                                               (loop for i from 1 below 32
-                                                     always (zerop (aref key i))))
-                                          (cons key pre-bytes)
-                                          kv)))
-                                  post-kvs))
-                         (alt-root (compute-state-root modified-kvs)))
-                    (format t "[ISOLATE] revert ~8A → root=~A~%"
-                            kw (bytes-to-hex-string alt-root)))))))
-          (force-output)
-          ;; Store new state by block hash
           (fuzz-store-state mgr block-hash sigma-prime)
-          ;; Update ancestry (prepend, trim to L=24)
-          (let ((slot (funcall header :slot)))
+          ;; Update ancestry (prepend, trim to L)
+          (let ((slot (funcall header :slot))
+                (max-ancestry (max-lookup-anchor-age)))
             (push (list :slot slot :hash block-hash)
                   (fuzz-state-manager-ancestry mgr))
-            (when (> (length (fuzz-state-manager-ancestry mgr)) 24)
+            (when (> (length (fuzz-state-manager-ancestry mgr)) max-ancestry)
               (setf (fuzz-state-manager-ancestry mgr)
-                    (subseq (fuzz-state-manager-ancestry mgr) 0 24))))
+                    (subseq (fuzz-state-manager-ancestry mgr) 0 max-ancestry))))
           (values :ok state-root))
       ;; GP-defined validation errors → Error message
       (guarantee-error (e)
@@ -535,16 +430,6 @@
         (force-output)
         (return))
 
-      ;; Save raw messages for replay (use wall-clock seq to avoid overwrite)
-      (let* ((dump-dir "/tmp/jam/dump/")
-             (msg-seq (incf (the fixnum (fuzz-state-manager-msg-seq mgr))))
-             (dump-path (format nil "~A/msg-~4,'0D.bin" dump-dir msg-seq)))
-        (ensure-directories-exist dump-dir)
-        (with-open-file (out dump-path :direction :output
-                         :element-type '(unsigned-byte 8)
-                         :if-exists :supersede)
-          (write-sequence raw out)))
-
       ;; Decode and dispatch
       (handler-case
           (multiple-value-bind (msg-type payload) (decode-fuzz-message raw)
@@ -555,17 +440,22 @@
                     (case msg-type
                       ;; ── PeerInfo → PeerInfo ──
                       (:peer-info
-                       (let ((fuzz-ver (getf payload :fuzz-version))
-                             (their-features (getf payload :features))
-                             (their-jam-ver (getf payload :jam-version))
-                             (their-name (getf payload :app-name)))
+                       (let* ((fuzz-ver (getf payload :fuzz-version))
+                              (their-features (getf payload :features))
+                              (their-jam-ver (getf payload :jam-version))
+                              (their-name (getf payload :app-name))
+                              (our-features (logior +feature-ancestry+ +feature-forks+))
+                              (negotiated (logand their-features our-features)))
                          (format t "[jotl-fuzz] Peer: ~A v~{~D~^.~} features=~D jam=~{~D~^.~}~%"
                                  their-name (getf payload :app-version)
                                  their-features their-jam-ver)
                          (unless (= fuzz-ver 1)
                            (format t "[jotl-fuzz] WARNING: fuzz version ~D (expected 1)~%"
                                    fuzz-ver))
-                         (format t "[jotl-fuzz] >> peer-info (jotl, features=3)~%")
+                         (setf *ancestry-enabled*
+                               (plusp (logand negotiated +feature-ancestry+)))
+                         (format t "[jotl-fuzz] >> peer-info (jotl, features=~D, ancestry=~A)~%"
+                                 our-features *ancestry-enabled*)
                          (encode-fuzz-peer-info)))
 
                       ;; ── Initialize → StateRoot (reject double) ──

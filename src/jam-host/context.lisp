@@ -197,6 +197,9 @@
   (parent-service   0 :type (unsigned-byte 32))   ; a_p — parent service ID
 
   ;; ── Storage (ΩR / ΩW) — keyed by h27 hash ──────────
+  ;; GP: x.self.storage is the full dictionary {blob → blob}.
+  ;; Pre-populated with all initial entries; Ω_W modifies in-place.
+  ;; collect-effects returns the full state — no dirty tracking needed.
   (storage         (make-hash-table :test 'equalp) :type hash-table)
 
   ;; ── Preimages (ΩL) ─────────────────────────────────

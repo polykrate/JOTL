@@ -609,7 +609,8 @@
                (guarantee-slot (getf g :slot))
                (signatures (getf g :signatures))
                (core-index (getf report :core-index))
-               (report-bytes (encode-work-report report))
+               (report-bytes (or (getf g :report-raw-bytes)
+                                 (encode-work-report report)))
                (report-hash (blake2b-256 report-bytes))
                (core-assignments
                  (assignments-for-guarantee

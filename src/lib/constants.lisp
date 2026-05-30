@@ -3,8 +3,8 @@
 
 (in-package #:jotl)
 
-(defparameter *jotl-version* "3.0.0"
-  "JOTL version")
+(defparameter *jotl-version* "5.0.0"
+  "JOTL version — must match jotl.asd :version and PeerInfo app-version.")
 
 ;;; ═══════════════════════════════════════════════════════════════
 ;;; CHAINSPEC DEFINITIONS (from jamtestvectors/README.md)
