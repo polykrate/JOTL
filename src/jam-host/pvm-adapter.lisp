@@ -299,7 +299,7 @@
                                 (creation-slot 0)
                                 (last-accum-slot 0)
                                 (parent-service 0)
-                                (storage nil)
+                                (kvs-index nil)
                                 (preimages nil)
                                 (lookup nil)
                                 (service-accounts nil)
@@ -311,7 +311,7 @@
                                 (designate-service 0)
                                 (debug-trace nil))
   "Build a host-context struct from keyword args.
-   STORAGE:          alist of (key-bytes . value-bytes)
+   KVS-INDEX:        hash-table of (h27 → value) — immutable base layer for ΩR
    PREIMAGES:        alist of (hash-32 . data-bytes)
    LOOKUP:           list of (hash-32 length . status-list)
    SERVICE-ACCOUNTS: alist of (service-id . plist {:code-hash :balance ...})
@@ -345,9 +345,10 @@
                                                             :val-count val-count)
                                        '(simple-array (unsigned-byte 8) (*))))))
 
-    ;; ── Populate storage hash table from alist ──
-    (dolist (entry (or storage nil))
-      (setf (gethash (car entry) (hctx-storage ctx)) (cdr entry)))
+    ;; ── Set kvs-index (immutable base layer for self-service ΩR/ΩW) ──
+    ;; hctx-storage starts empty (write overlay), hctx-storage-deletes starts empty
+    (when kvs-index
+      (setf (hctx-kvs-index ctx) kvs-index))
 
     ;; ── Populate preimages hash table ──
     (dolist (entry (or preimages nil))
@@ -425,6 +426,7 @@
    Returns a plist matching the format of jam.ffi:pvm-collect."
   ;; Convert storage hash table to alist
   (let ((storage-alist nil)
+        (storage-delete-list nil)
         (transfer-plists nil)
         (ejected-alist nil)
         (created-alist nil)
@@ -433,9 +435,12 @@
         (lookup-list nil)
         (provided-list nil))
 
-    ;; Storage: hash-table → alist of (key . value)
+    ;; Storage overlay: only writes (delta from initial state)
     (maphash (lambda (k v) (push (cons k v) storage-alist))
              (hctx-storage ctx))
+    ;; Explicit deletes: h27s that were removed
+    (maphash (lambda (k v) (declare (ignore v)) (push k storage-delete-list))
+             (hctx-storage-deletes ctx))
 
     ;; Transfers: list of jam-transfer structs → list of plists
     (dolist (xfer (hctx-transfers ctx))
@@ -510,6 +515,7 @@
       (list :balance          (hctx-balance ctx)
             :gas-remaining    0  ; filled by caller
             :storage          (nreverse storage-alist)
+            :storage-deletes  (nreverse storage-delete-list)
             :transfers        transfer-plists
             :ejected          ejected-alist
             :created          created-alist
@@ -569,7 +575,7 @@
                                   (creation-slot 0)
                                   (last-accum-slot 0)
                                   (parent-service 0)
-                                  (storage nil)
+                                  (kvs-index nil)
                                   (preimages nil)
                                   (lookup nil)
                                   (service-accounts nil)
@@ -581,9 +587,8 @@
                                   (designate-service 0)
                                   (debug-trace nil))
   "Execute PVM accumulate using the Lisp JamVM.
-   Returns (values effects-plist gas-used) or (values nil 0) on failure.
-
-   EFFECTS-PLIST has the same format as jam.ffi:pvm-collect."
+   KVS-INDEX: hash-table of (h27 → value) — immutable base layer for ΩR/ΩW.
+   Returns (values effects-plist gas-used) or (values nil 0) on failure."
 
   ;; 1. Create VM from code blob
   (let ((vm (make-vm (coerce code-blob '(simple-array (unsigned-byte 8) (*))))))
@@ -609,7 +614,7 @@
                 :creation-slot creation-slot
                 :last-accum-slot last-accum-slot
                 :parent-service parent-service
-                :storage storage
+                :kvs-index kvs-index
                 :preimages preimages
                 :lookup lookup
                 :service-accounts service-accounts
@@ -698,11 +703,11 @@
                   ;; 6. Apply checkpoint collapse (GP B.13) directly to ctx
                   ;; On panic/OOG: revert ctx to checkpoint snapshot (y)
                   ;; On halt: keep current ctx (x)
-                  (case outcome
+                    (case outcome
                     ((:panic :oog)
                      (let ((cp (hctx-checkpoint ctx)))
                        (if cp
-                           ;; Revert to checkpoint
+                           ;; Revert to checkpoint (overlay + deletes)
                            (progn
                              (setf (hctx-transfers ctx) (ckpt-transfers cp))
                              (setf (hctx-ejected-services ctx) (ckpt-ejected-services cp))
@@ -711,6 +716,7 @@
                              (setf (hctx-yield-output ctx) (ckpt-yield-output cp))
                              (setf (hctx-provided-preimages ctx) (ckpt-provided-preimages cp))
                              (setf (hctx-storage ctx) (ckpt-storage cp))
+                             (setf (hctx-storage-deletes ctx) (ckpt-storage-deletes cp))
                              (setf (hctx-lookup ctx) (ckpt-lookup cp))
                              (setf (hctx-preimages ctx) (ckpt-preimages cp))
                              (setf (hctx-empower ctx) (ckpt-empower cp))
@@ -721,17 +727,9 @@
                              (setf (hctx-code-hash ctx) (ckpt-code-hash cp))
                              (setf (hctx-min-accum-gas ctx) (ckpt-min-accum-gas cp))
                              (setf (hctx-min-memo-gas ctx) (ckpt-min-memo-gas cp)))
-                           ;; No checkpoint → revert to initial state (GP B.9:
-                           ;; discard all side-effects, restoring pre-accumulate values).
-                           ;;
-                           ;; IMPORTANT: storage/lookup/preimages must be EMPTY hash-tables
-                           ;; (not initial copies) so collect-effects produces NIL alists,
-                           ;; causing absorb-delta-effects to SKIP the storage update
-                           ;; (via the update-storage-p guard).  This leaves delta-kvs
-                           ;; completely unchanged — the correct semantic.
-                           ;;
-                           ;; Metadata fields (balance, code-hash, etc.) are set to initial
-                           ;; values so that absorb-delta-effects writes them back correctly.
+                           ;; No checkpoint → revert to initial state.
+                           ;; Overlay + deletes both empty → collect-effects produces
+                           ;; NIL storage/deletes, absorb-delta-effects skips storage update.
                            (progn
                              (setf (hctx-transfers ctx) nil)
                              (setf (hctx-ejected-services ctx) nil)
@@ -739,13 +737,12 @@
                              (setf (hctx-upgrades ctx) nil)
                              (setf (hctx-yield-output ctx) nil)
                              (setf (hctx-provided-preimages ctx) nil)
-                             ;; EMPTY — signals "no storage changes" to absorb-delta-effects
                              (setf (hctx-storage ctx) (make-hash-table :test 'equalp))
+                             (setf (hctx-storage-deletes ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-lookup ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-preimages ctx) (make-hash-table :test 'equalp))
                              (setf (hctx-empower ctx) nil)
                              (setf (hctx-designated-validators ctx) nil)
-                             ;; Metadata → initial values (written through to metadata by absorb-delta-effects)
                              (setf (hctx-items-count ctx) initial-items-count)
                              (setf (hctx-footprint ctx) initial-footprint)
                              (setf (hctx-balance ctx) initial-balance)

@@ -151,6 +151,9 @@
   (yield-output       nil)
   (provided-preimages nil :type list)
   (storage            (make-hash-table :test 'equalp) :type hash-table)
+  ;; Tracks h27s explicitly deleted by HC4 (v_Z=0).
+  ;; Distinguishes "not yet written" from "was deleted" in overlay mode.
+  (storage-deletes    (make-hash-table :test 'equalp) :type hash-table)
   (lookup             (make-hash-table :test 'equalp) :type hash-table)
   (preimages          (make-hash-table :test 'equalp) :type hash-table)
   (empower            nil)
@@ -196,11 +199,17 @@
   (last-accum-slot  0 :type (unsigned-byte 32))   ; a_a — last accumulation timeslot
   (parent-service   0 :type (unsigned-byte 32))   ; a_p — parent service ID
 
-  ;; ── Storage (ΩR / ΩW) — keyed by h27 hash ──────────
-  ;; GP: x.self.storage is the full dictionary {blob → blob}.
-  ;; Pre-populated with all initial entries; Ω_W modifies in-place.
-  ;; collect-effects returns the full state — no dirty tracking needed.
+  ;; ── Storage overlay (ΩR / ΩW) — keyed by h27 hash ──────────
+  ;; Write overlay: starts empty. ΩW inserts here, ΩR checks here first.
+  ;; Reads that miss the overlay fall through to kvs-index (base layer).
   (storage         (make-hash-table :test 'equalp) :type hash-table)
+  ;; Explicit deletes: h27 → T. Prevents fallback to kvs-index for deleted keys.
+  (storage-deletes (make-hash-table :test 'equalp) :type hash-table)
+
+  ;; ── KVS index (base layer for ΩR) — keyed by 31-byte trie key ──
+  ;; Built once from delta-kvs for self-service. Immutable during execution.
+  ;; Maps 31-byte interleaved trie keys to values (octet vectors).
+  (kvs-index       (make-hash-table :test 'equalp) :type hash-table)
 
   ;; ── Preimages (ΩL) ─────────────────────────────────
   (preimages       (make-hash-table :test 'equalp) :type hash-table)

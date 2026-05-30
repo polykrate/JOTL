@@ -179,7 +179,11 @@
          (svc-data  (funcall delta :service-data service-id))
          (metadata  (getf svc-data :metadata))
          (code-blob (getf svc-data :code-blob))
-         (h27-storage (getf svc-data :storage))
+         ;; Build kvs-index (h27 → value) from raw sub-kvs for pure-computation ΩR/ΩW
+         (sub-kvs   (funcall delta :sub-kvs service-id))
+         (kvs-index (let ((ht (make-hash-table :test 'equalp :size (max 1 (length sub-kvs)))))
+                      (dolist (kv sub-kvs ht)
+                        (setf (gethash (extract-sub-key-h (car kv)) ht) (cdr kv)))))
          (cross-services (funcall delta :cross-service-accounts service-id))
          (existing-services (funcall delta :all-service-ids)))
 
@@ -258,7 +262,7 @@
                :creation-slot    creation-ts
                :last-accum-slot  last-accum
                :parent-service   parent-svc
-               :storage         h27-storage
+               :kvs-index       kvs-index
                :preimages       (getf svc-data :preimages)
                :lookup          (getf svc-data :lookup)
                :service-accounts cross-services

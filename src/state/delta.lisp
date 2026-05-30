@@ -727,34 +727,34 @@
                 (update-storage-p
                  (not (and (member outcome '(1 2))
                            (null (getf effects :storage))
+                           (null (getf effects :storage-deletes))
                            (null (getf effects :lookup))))))
 
            (when update-storage-p
+             ;; ── MERGE storage: scope = overlay writes ∪ explicit deletes ──
+             ;; Pure computation: no heuristic classification needed for storage.
+             ;; Writes and deletes from the PVM overlay define the complete scope.
+             (let* ((write-h27s (mapcar #'car (or (getf effects :storage) '())))
+                    (delete-h27s (or (getf effects :storage-deletes) '()))
+                    (scope-ht (make-h27-set
+                               (remove-duplicates
+                                (nconc write-h27s (copy-list delete-h27s))
+                                :test #'equalp))))
+               (when scope-ht
+                 (setf current-kvs
+                       (remove-by-sid-and-scope current-kvs sid scope-ht))))
+
+             ;; ── Add new storage entries from overlay writes ──
+             (dolist (s-entry (getf effects :storage))
+               (let* ((h-27     (car s-entry))
+                      (val      (cdr s-entry))
+                      (trie-key (interleave-sub-key sid h-27)))
+                 (push (cons trie-key (ensure-bytes val)) current-kvs)))
+
+             ;; ── MERGE lookups: still uses classify for initial state ──
+             ;; Lookup/preimage classification is unaffected by the storage overlay change.
              (let ((initial-classified (classify-service-sub-keys sid current-kvs)))
 
-               ;; ── MERGE storage: scope-based (hash-table O(1) membership) ──
-               (let* ((initial-storage-h27s
-                       (mapcar #'car (or (getf initial-classified :storage) '())))
-                      (final-storage-h27s
-                       (mapcar #'car (or (getf effects :storage) '())))
-                      (scope-ht (make-h27-set
-                                 (remove-duplicates
-                                  (nconc initial-storage-h27s final-storage-h27s)
-                                  :test #'equalp))))
-                 (when scope-ht
-                   (setf current-kvs
-                         (remove-by-sid-and-scope current-kvs sid scope-ht))))
-
-               ;; ── Add new storage entries ──
-               (dolist (s-entry (getf effects :storage))
-                 (let* ((h-27     (car s-entry))
-                        (val      (cdr s-entry))
-                        (trie-key (interleave-sub-key sid h-27)))
-                   (push (cons trie-key (ensure-bytes val)) current-kvs)))
-
-               ;; ── MERGE lookups: scope-based (hash-table O(1) membership) ──
-               ;; Reuse initial-classified: lookup entries are unaffected by storage changes
-               ;; (different trie-h formula), so no need to re-classify.
                (let* ((initial-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (getf initial-classified :lookup)))
@@ -778,7 +778,7 @@
                         (val      (encode-lookup-value statuses)))
                    (push (cons trie-key val) current-kvs)))
 
-               ;; ── MERGE preimage blobs: scope-based (hash-table O(1) membership) ──
+               ;; ── MERGE preimage blobs ──
                (let* ((initial-preimage-h27s
                        (mapcar (lambda (p) (preimage-trie-h (car p)))
                                (or (getf initial-classified :preimages) '())))
@@ -947,6 +947,12 @@
   ;; Classified service data for PVM invocation (GP D.1) — indexed.
   (:service-data (sid)
    (classify-service-sub-keys sid raw-kvs (self :sid-index)))
+
+  ;; Raw sub-kvs for a service (list of (trie-key . value) pairs).
+  ;; Used to build kvs-index for pure-computation ΩR/ΩW.
+  (:sub-kvs (sid)
+   (let ((indexed (gethash sid (self :sid-index))))
+     (when indexed (cdr indexed))))
 
   ;; Cross-service accounts for ΩJ host call — indexed.
   (:cross-service-accounts (caller-id)

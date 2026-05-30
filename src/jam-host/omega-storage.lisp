@@ -14,8 +14,18 @@
 ;;; A3=out_ptr, A4=offset, A5=out_len
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defun %self-storage-lookup (ctx h27)
+  "Look up h27 in self-service storage: overlay → deletes → kvs-index.
+   Returns value or NIL."
+  (multiple-value-bind (v found) (gethash h27 (hctx-storage ctx))
+    (when found (return-from %self-storage-lookup v)))
+  (when (gethash h27 (hctx-storage-deletes ctx))
+    (return-from %self-storage-lookup nil))
+  (gethash h27 (hctx-kvs-index ctx)))
+
 (defomega 3 omega-read-storage (vm ctx)
-  "ΩR: Read a value from service storage."
+  "ΩR: Read a value from service storage.
+   Self-service reads use pure computation: overlay → deletes → kvs-index."
   (let* ((service-raw (reg vm +a0+))
          (key-ptr     (u32 (reg vm +a1+)))
          (key-len     (u32 (reg vm +a2+)))
@@ -23,21 +33,17 @@
          (offset      (reg vm +a4+))
          (out-len     (reg vm +a5+)))
 
-    ;; Resolve s* = s if φ₇=2⁶⁴−1, else φ₇
     (let* ((s-star (if (= service-raw +hc-none+)
                        (hctx-service-id ctx)
                        (u32 service-raw)))
            (is-self (= s-star (hctx-service-id ctx))))
 
-      ;; Read key from guest memory
       (let ((key (read-guest vm key-ptr key-len)))
         (unless key (return-from omega-read-storage :fault))
 
-        ;; Hash key → h27 (GP Appendix D)
         (let* ((h27 (storage-hash-key key))
-               ;; Look up value
                (value (if is-self
-                          (gethash h27 (hctx-storage ctx))
+                          (%self-storage-lookup ctx h27)
                           (let ((acct (gethash s-star (hctx-service-accounts ctx))))
                             (when acct (gethash h27 (sa-storage acct)))))))
 
@@ -77,60 +83,51 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defomega 4 omega-write-storage (vm ctx)
-  "ΩW: Write a value to own service storage."
+  "ΩW: Write a value to own service storage.
+   Uses overlay (hctx-storage) + explicit deletes (hctx-storage-deletes)
+   with kvs-index as immutable base layer."
   (let* ((key-ptr   (u32 (reg vm +a0+)))
          (key-len   (u32 (reg vm +a1+)))
          (value-ptr (u32 (reg vm +a2+)))
          (value-len (u32 (reg vm +a3+))))
 
-    ;; Read key from guest
     (let ((key (read-guest vm key-ptr key-len)))
       (unless key (return-from omega-write-storage :fault))
 
-      ;; Read value if v_Z > 0
       (let ((new-value (if (zerop value-len)
-                           nil  ; delete
+                           nil
                            (let ((v (read-guest vm value-ptr value-len)))
                              (unless v (return-from omega-write-storage :fault))
                              v))))
 
-        ;; Hash key → h27
         (let* ((h27 (storage-hash-key key))
-               ;; Old length — GP: l = |s_s[k]| or NONE
-               (old-val (gethash h27 (hctx-storage ctx)))
+               (old-val (%self-storage-lookup ctx h27))
                (old-len (if old-val (u64 (length old-val)) +hc-none+))
                (key-sz (length key)))
 
-          ;; GP ΩW: compute hypothetical post-mutation items/footprint
-          ;; for the FULL check.  a_t must be checked on the NEW state a,
-          ;; not the old state s.
+          ;; FULL check: hypothetical post-mutation items/footprint
           (let ((post-items (hctx-items-count ctx))
                 (post-foot  (hctx-footprint ctx)))
             (cond
-              ;; Delete — remove key entry
               ((null new-value)
                (when old-val
                  (decf post-items)
                  (decf post-foot (+ 34 key-sz (length old-val)))))
-              ;; Insert (new key)
               ((null old-val)
                (incf post-items)
                (incf post-foot (+ 34 key-sz (length new-value))))
-              ;; Update (existing key, new value)
               (t
                (incf post-foot (- (length new-value) (length old-val)))))
 
-            ;; FULL check: a_t > a_b on POST-mutation state
             (let ((a-t (compute-threshold post-items post-foot
                                           (hctx-threshold ctx))))
               (when (> a-t (hctx-balance ctx))
                 (set-reg vm +a0+ +hc-full+)
                 (return-from omega-write-storage :continue))))
 
-          ;; ── Debug trace ΩW ──────────────────────────────
+          ;; Debug trace
           (when (hctx-debug-trace ctx)
-            (let ((val-hash (when new-value
-                              (jam.ffi:blake2b-256 new-value))))
+            (let ((val-hash (when new-value (jam.ffi:blake2b-256 new-value))))
               (format *error-output*
                       "~&[HC4-WRITE] sid=~D key(~D)=~{~2,'0X~} old-len=~A new-len=~A first-8: ~{~2,'0X~} blake2=~{~2,'0X~}~%"
                       (hctx-service-id ctx) key-sz (coerce key 'list)
@@ -138,19 +135,19 @@
                       (if new-value (length new-value) "DEL")
                       (if new-value (coerce (subseq new-value 0 (min 8 (length new-value))) 'list) nil)
                       (if val-hash (coerce (subseq val-hash 0 (min 16 (length val-hash))) 'list) nil))
-              ;; Full hex dump for values ≤ 128 bytes
               (when (and new-value (<= (length new-value) 128))
                 (format *error-output*
                         "~&[HC4-FULL] sid=~D key(~D)=~{~2,'0X~} val(~D)=~{~2,'0X~}~%"
                         (hctx-service-id ctx) key-sz (coerce key 'list)
                         (length new-value) (coerce new-value 'list)))))
 
-          ;; FULL check passed — apply actual mutation
+          ;; Apply mutation to overlay + deletes
           (cond
             ;; Delete
             ((null new-value)
              (when old-val
                (remhash h27 (hctx-storage ctx))
+               (setf (gethash h27 (hctx-storage-deletes ctx)) t)
                (decf (hctx-items-count ctx))
                (decf (hctx-footprint ctx)
                      (+ 34 key-sz (length old-val)))))
@@ -158,16 +155,14 @@
             ;; Insert/Update
             (t
              (let ((new-val-len (length new-value)))
+               (setf (gethash h27 (hctx-storage ctx)) new-value)
+               (remhash h27 (hctx-storage-deletes ctx))
                (if old-val
-                   ;; Update: footprint delta = new - old
                    (let ((old-val-len (length old-val)))
-                     (setf (gethash h27 (hctx-storage ctx)) new-value)
                      (if (>= new-val-len old-val-len)
                          (incf (hctx-footprint ctx) (- new-val-len old-val-len))
                          (decf (hctx-footprint ctx) (- old-val-len new-val-len))))
-                   ;; New entry: items +1, footprint +(34+|key|+|val|)
                    (progn
-                     (setf (gethash h27 (hctx-storage ctx)) new-value)
                      (incf (hctx-items-count ctx))
                      (incf (hctx-footprint ctx) (+ 34 key-sz new-val-len)))))))
 

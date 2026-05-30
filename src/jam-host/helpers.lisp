@@ -189,9 +189,10 @@
          :yield-output       (hctx-yield-output ctx)
          :provided-preimages (copy-list (hctx-provided-preimages ctx))
          :storage            (deep-copy-hash-table (hctx-storage ctx))
+         :storage-deletes    (copy-hash-table (hctx-storage-deletes ctx))
          :lookup             (copy-hash-table (hctx-lookup ctx))
          :preimages          (deep-copy-hash-table (hctx-preimages ctx))
-         :empower            (hctx-empower ctx)  ; struct is treated as immutable snapshot
+         :empower            (hctx-empower ctx)
          :designated-validators (hctx-designated-validators ctx)
          :items-count        (hctx-items-count ctx)
          :footprint          (hctx-footprint ctx)
@@ -214,8 +215,8 @@
       :storage ... :lookup ... :preimages ... :empower ...
       :items-count ... :footprint ...)"
   (flet ((make-result (&key transfers ejected-services created-services upgrades
-                            yield-output provided-preimages storage lookup
-                            preimages empower designated-validators
+                            yield-output provided-preimages storage storage-deletes
+                            lookup preimages empower designated-validators
                             items-count footprint)
            (list :transfers          transfers
                  :ejected-services   ejected-services
@@ -225,6 +226,7 @@
                  :provided-preimages provided-preimages
                  :gas-remaining      gas-remaining
                  :storage            storage
+                 :storage-deletes    storage-deletes
                  :lookup             lookup
                  :preimages          preimages
                  :empower            empower
@@ -245,13 +247,14 @@
               :yield-output       (ckpt-yield-output cp)
               :provided-preimages (ckpt-provided-preimages cp)
               :storage            (ckpt-storage cp)
+              :storage-deletes    (ckpt-storage-deletes cp)
               :lookup             (ckpt-lookup cp)
               :preimages          (ckpt-preimages cp)
               :empower            (ckpt-empower cp)
               :designated-validators (ckpt-designated-validators cp)
               :items-count        (ckpt-items-count cp)
               :footprint          (ckpt-footprint cp))
-             ;; No checkpoint → empty side-effects
+             ;; No checkpoint → empty side-effects (overlay + deletes both empty)
              (make-result
               :transfers          nil
               :ejected-services   nil
@@ -260,6 +263,7 @@
               :yield-output       nil
               :provided-preimages nil
               :storage            (make-hash-table :test 'equalp)
+              :storage-deletes    (make-hash-table :test 'equalp)
               :lookup             (make-hash-table :test 'equalp)
               :preimages          (make-hash-table :test 'equalp)
               :empower            nil
@@ -274,9 +278,10 @@
         :ejected-services   (hctx-ejected-services ctx)
         :created-services   (hctx-created-services ctx)
         :upgrades           (hctx-upgrades ctx)
-        :yield-output       outcome  ; the 32-byte hash
+        :yield-output       outcome
         :provided-preimages (hctx-provided-preimages ctx)
         :storage            (hctx-storage ctx)
+        :storage-deletes    (hctx-storage-deletes ctx)
         :lookup             (hctx-lookup ctx)
         :preimages          (hctx-preimages ctx)
         :empower            (hctx-empower ctx)
@@ -294,6 +299,7 @@
         :yield-output       (hctx-yield-output ctx)
         :provided-preimages (hctx-provided-preimages ctx)
         :storage            (hctx-storage ctx)
+        :storage-deletes    (hctx-storage-deletes ctx)
         :lookup             (hctx-lookup ctx)
         :preimages          (hctx-preimages ctx)
         :empower            (hctx-empower ctx)
