@@ -218,6 +218,12 @@
   ;; Key: (hash . length), Value: status tuple (list of u32)
   (lookup          (make-hash-table :test 'equalp) :type hash-table)
 
+  ;; ── Candidate orphaned lookups (lazy discovery) ────
+  ;; h27 → encoded-value.  Entries from trie that look like lookup values
+  ;; but had no matching preimage blob.  HC22/24 check this fallback to
+  ;; discover orphans on demand and promote them into the lookup overlay.
+  (candidate-lookups (make-hash-table :test 'equalp) :type hash-table)
+
   ;; ── Side-effects ────────────────────────────────────
   (logs                nil :type list)
   (transfers           nil :type list)

@@ -302,6 +302,7 @@
                                 (kvs-index nil)
                                 (preimages nil)
                                 (lookup nil)
+                                (candidate-orphans nil)
                                 (service-accounts nil)
                                 (existing-services nil)
                                 (accumulate-items nil)
@@ -361,6 +362,12 @@
             (len     (second entry))
             (statuses (cddr entry)))
         (setf (gethash (cons hash-32 len) (hctx-lookup ctx)) statuses)))
+
+    ;; ── Populate candidate orphan lookups (lazy discovery) ──
+    ;; h27 → encoded-value for trie entries that look like lookups without
+    ;; a matching preimage blob.  HC22/24 will check this on cache miss.
+    (dolist (entry (or candidate-orphans nil))
+      (setf (gethash (car entry) (hctx-candidate-lookups ctx)) (cdr entry)))
 
     ;; ── Populate service accounts ──
     (dolist (entry (or service-accounts nil))
@@ -578,6 +585,7 @@
                                   (kvs-index nil)
                                   (preimages nil)
                                   (lookup nil)
+                                  (candidate-orphans nil)
                                   (service-accounts nil)
                                   (existing-services nil)
                                   (accumulate-items nil)
@@ -617,6 +625,7 @@
                 :kvs-index kvs-index
                 :preimages preimages
                 :lookup lookup
+                :candidate-orphans candidate-orphans
                 :service-accounts service-accounts
                 :existing-services existing-services
                 :accumulate-items accumulate-items

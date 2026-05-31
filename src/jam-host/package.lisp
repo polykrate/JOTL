@@ -84,6 +84,7 @@
    #:hctx-storage
    #:hctx-preimages
    #:hctx-lookup
+   #:hctx-candidate-lookups
    #:hctx-yield-output
    #:hctx-balance
    #:hctx-transfers

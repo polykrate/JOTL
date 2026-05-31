@@ -265,6 +265,7 @@
                :kvs-index       kvs-index
                :preimages       (getf svc-data :preimages)
                :lookup          (getf svc-data :lookup)
+               :candidate-orphans (getf svc-data :candidate-orphans)
                :service-accounts cross-services
                :existing-services existing-services
                :accumulate-items (encode-accumulate-items items svc-transfers)

@@ -6,6 +6,62 @@
 (in-package #:jam-host)
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Lazy orphan discovery — candidate lookup fallback
+;;;
+;;; Orphaned lookup entries (solicited but no preimage blob yet) cannot
+;;; be classified from the trie because there is no matching preimage to
+;;; compute lookup-trie-h from.  They are stored in hctx-candidate-lookups
+;;; (h27 → encoded-value).  When the PVM queries a (hash, length) via
+;;; HC22/23/24, we compute lookup-trie-h and probe this table.  On a hit
+;;; the entry is promoted into hctx-lookup so subsequent calls see it.
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun %lookup-trie-h (preimage-hash preimage-length)
+  "H(E4(length) . hash)[0:27] — same as jotl:lookup-trie-h but local to jam-host."
+  (let ((buf (make-array (+ 4 (length preimage-hash))
+                         :element-type '(unsigned-byte 8))))
+    (setf (aref buf 0) (logand preimage-length #xFF)
+          (aref buf 1) (logand (ash preimage-length -8) #xFF)
+          (aref buf 2) (logand (ash preimage-length -16) #xFF)
+          (aref buf 3) (logand (ash preimage-length -24) #xFF))
+    (replace buf preimage-hash :start1 4)
+    (subseq (jam.ffi:blake2b-256 buf) 0 27)))
+
+(defun %decode-lookup-statuses (val-bytes)
+  "Decode compact(n) . n*u32_LE → list of timeslot u32s.
+   Returns NIL for empty/invalid encodings."
+  (when (and val-bytes (plusp (length val-bytes)))
+    (let* ((b0 (aref val-bytes 0))
+           (count (cond ((<= b0 #xBF) b0)
+                        ((<= b0 #xDF) (logior (ash (logand b0 #x1F) 8)
+                                              (aref val-bytes 1)))
+                        (t 0)))
+           (consumed (cond ((<= b0 #xBF) 1)
+                           ((<= b0 #xDF) 2)
+                           (t 1))))
+      (loop for i below count
+            for off = consumed then (+ off 4)
+            collect (logior (aref val-bytes off)
+                            (ash (aref val-bytes (+ off 1)) 8)
+                            (ash (aref val-bytes (+ off 2)) 16)
+                            (ash (aref val-bytes (+ off 3)) 24))))))
+
+(defun %try-discover-orphan (ctx hash-bytes z)
+  "Check if (HASH-BYTES, Z) matches a candidate orphaned lookup.
+   If found, promote it to hctx-lookup and return (values status-list T).
+   Otherwise return (values NIL NIL)."
+  (let ((cl-ht (hctx-candidate-lookups ctx)))
+    (when (plusp (hash-table-count cl-ht))
+      (let ((h27 (%lookup-trie-h hash-bytes z)))
+        (multiple-value-bind (encoded-val found-p) (gethash h27 cl-ht)
+          (when found-p
+            (let ((statuses (%decode-lookup-statuses encoded-val))
+                  (key (cons hash-bytes z)))
+              (setf (gethash key (hctx-lookup ctx)) statuses)
+              (remhash h27 cl-ht)
+              (values statuses t))))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Λ(a, t, h) — Historical preimage lookup (GP §9.2)
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -133,39 +189,39 @@
          (z (u32 (reg vm +a1+))))
     (let ((hash-bytes (read-guest vm o 32)))
       (unless hash-bytes (return-from omega-query-preimage :fault))
-      (let* ((key (cons hash-bytes z))
-             (entry (gethash key (hctx-lookup ctx))))
-        (cond
-          ;; Not found → NONE, 0
-          ((null entry)
-           ;; Check if key is truly missing (not just empty list)
-           (multiple-value-bind (val present-p) (gethash key (hctx-lookup ctx))
-             (declare (ignore val))
-             (if present-p
-                 ;; a = [] → (0, 0)
-                 (progn (set-reg vm +a0+ 0)
-                        (set-reg vm +a1+ 0))
-                 ;; Truly missing → (NONE, 0)
-                 (progn (set-reg vm +a0+ +hc-none+)
-                        (set-reg vm +a1+ 0)))))
-          ;; [x] → (1 + 2³²·x, 0)
-          ((= (length entry) 1)
-           (let ((x (u64 (first entry))))
-             (set-reg vm +a0+ (u64 (+ 1 (ash x 32))))
-             (set-reg vm +a1+ 0)))
-          ;; [x, y] → (2 + 2³²·x, y)
-          ((= (length entry) 2)
-           (let ((x (u64 (first entry)))
-                 (y (u64 (second entry))))
-             (set-reg vm +a0+ (u64 (+ 2 (ash x 32))))
-             (set-reg vm +a1+ y)))
-          ;; [x, y, z] → (3 + 2³²·x, y + 2³²·z)
-          (t
-           (let ((x (u64 (first entry)))
-                 (y (u64 (second entry)))
-                 (zv (u64 (third entry))))
-             (set-reg vm +a0+ (u64 (+ 3 (ash x 32))))
-             (set-reg vm +a1+ (u64 (+ y (ash zv 32)))))))
+      (let ((key (cons hash-bytes z)))
+        ;; Try the overlay first, then candidate orphans on miss
+        (multiple-value-bind (val present-p) (gethash key (hctx-lookup ctx))
+          (unless present-p
+            (multiple-value-bind (orphan-status discovered-p)
+                (%try-discover-orphan ctx hash-bytes z)
+              (declare (ignore orphan-status))
+              (when discovered-p
+                (setf (values val present-p)
+                      (gethash key (hctx-lookup ctx))))))
+          (let ((entry (if present-p val nil)))
+            (cond
+              ((not present-p)
+               (set-reg vm +a0+ +hc-none+)
+               (set-reg vm +a1+ 0))
+              ((null entry)
+               (set-reg vm +a0+ 0)
+               (set-reg vm +a1+ 0))
+              ((= (length entry) 1)
+               (let ((x (u64 (first entry))))
+                 (set-reg vm +a0+ (u64 (+ 1 (ash x 32))))
+                 (set-reg vm +a1+ 0)))
+              ((= (length entry) 2)
+               (let ((x (u64 (first entry)))
+                     (y (u64 (second entry))))
+                 (set-reg vm +a0+ (u64 (+ 2 (ash x 32))))
+                 (set-reg vm +a1+ y)))
+              (t
+               (let ((x (u64 (first entry)))
+                     (y (u64 (second entry)))
+                     (zv (u64 (third entry))))
+                 (set-reg vm +a0+ (u64 (+ 3 (ash x 32))))
+                 (set-reg vm +a1+ (u64 (+ y (ash zv 32)))))))))
         :continue))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -183,6 +239,12 @@
       (unless hash-bytes (return-from omega-solicit-preimage :fault))
       (let ((key (cons hash-bytes z)))
         (multiple-value-bind (entry present-p) (gethash key (hctx-lookup ctx))
+          (unless present-p
+            (multiple-value-bind (orphan-status discovered-p)
+                (%try-discover-orphan ctx hash-bytes z)
+              (when discovered-p
+                (setf entry orphan-status
+                      present-p t))))
           (cond
             ;; (h,z) ∉ K(a_l) → create new [] entry
             ((not present-p)
@@ -238,8 +300,14 @@
       (let ((key (cons hash-bytes z)))
         (multiple-value-bind (entry present-p) (gethash key (hctx-lookup ctx))
           (unless present-p
-            (set-reg vm +a0+ +hc-huh+)
-            (return-from omega-forget-preimage :continue))
+            (multiple-value-bind (orphan-status discovered-p)
+                (%try-discover-orphan ctx hash-bytes z)
+              (if discovered-p
+                  (setf entry orphan-status
+                        present-p t)
+                  (progn
+                    (set-reg vm +a0+ +hc-huh+)
+                    (return-from omega-forget-preimage :continue)))))
           (let ((t-slot (hctx-timeslot ctx)))
             (cond
               ;; [] → full removal of lookup + preimage
