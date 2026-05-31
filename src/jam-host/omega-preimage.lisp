@@ -53,8 +53,16 @@
   (let ((cl-ht (hctx-candidate-lookups ctx)))
     (when (plusp (hash-table-count cl-ht))
       (let ((h27 (%lookup-trie-h hash-bytes z)))
+        (when (hctx-debug-trace ctx)
+          (format *error-output* "~&[ORPHAN-PROBE] sid=~D z=~D h27=~A candidates=~D~%"
+                  (hctx-service-id ctx) z
+                  (jam.ffi:bytes-to-hex-string h27)
+                  (hash-table-count cl-ht)))
         (multiple-value-bind (encoded-val found-p) (gethash h27 cl-ht)
           (when found-p
+            (when (hctx-debug-trace ctx)
+              (format *error-output* "~&[ORPHAN-HIT] sid=~D z=~D promoted!~%" 
+                      (hctx-service-id ctx) z))
             (let ((statuses (%decode-lookup-statuses encoded-val))
                   (key (cons hash-bytes z)))
               (setf (gethash key (hctx-lookup ctx)) statuses)

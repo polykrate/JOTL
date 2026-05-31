@@ -513,20 +513,47 @@
                     :code :ep-not-sorted
                     :detail (format nil "EP not sorted by blob for service ~D" s1)))))))
 
+(defun validate-ep-requirements (pre-kvs preimages)
+  "GP §12.36 line 434: ∀ (s,d) ∈ EP : Y(accounts_pre, s, d).
+   Each EP preimage must be required in the PRE-accumulation state:
+     - Service s must exist (metadata key present)
+     - Lookup (H(d), |d|) must exist with status []
+   Signals preimages-error if any check fails, making the block invalid."
+  (let ((kv-index (make-hash-table :test 'equalp :size (length pre-kvs))))
+    (dolist (kv pre-kvs) (setf (gethash (car kv) kv-index) kv))
+    (dolist (p preimages)
+      (let* ((sid  (getf p :requester))
+             (blob (ensure-bytes (getf p :blob)))
+             (hash (jam.ffi:blake2b-256 blob))
+             (len  (length blob))
+             (meta-key   (make-service-metadata-key sid))
+             (lookup-key (interleave-sub-key sid (lookup-trie-h hash len))))
+        (unless (nth-value 1 (gethash meta-key kv-index))
+          (error 'preimages-error
+                 :code :preimage-not-required
+                 :detail (format nil "service ~D does not exist" sid)))
+        (multiple-value-bind (_val found) (gethash lookup-key kv-index)
+          (declare (ignore _val))
+          (unless found
+            (error 'preimages-error
+                   :code :preimage-not-required
+                   :detail (format nil "no lookup for preimage in service ~D" sid)))
+          (let ((statuses (load-lookup-value (cdr (gethash lookup-key kv-index)))))
+            (unless (null statuses)
+              (error 'preimages-error
+                     :code :preimage-not-required
+                     :detail (format nil "status not [] for preimage in service ~D" sid)))))))))
+
 (defun integrate-preimages (raw-kvs preimages timeslot)
-  "GP S9.2 / S4.18 -- Integrate EP preimages into delta's raw key-value pairs.
-   For each (s, d) in EP:
-     h = H(d), l = |d|
-     0. Validate: EP is sorted and without duplicates (GP §12.36)
-     1. Validate: service s exists, lookup (h,l) exists with even-length status
-     2. Store preimage blob: C(s, preimage-trie-h(h)) -> d
-     3. Update lookup:       C(s, lookup-trie-h(h,l)) -> [...statuses, tau']
-   Returns: new raw-kvs list.
-   Optimized: COW pattern — only K modified entries get fresh cons cells (K << N).
-   Unmodified entries share the original cons cells (fork-safe: no mutation)."
-  ;; GP §12.36: EP must be sorted ascending by (s, d) with no duplicates
+  "GP §12.36 / Accumulation §12 -- Integrate EP preimages into delta's raw KVS.
+   GP says: 'We disregard, without prejudice, any preimages which due to the
+   effects of accumulation are no longer useful.'
+   Block-level validity of EP (Y(accounts_pre, s, d)) is checked separately
+   against the pre-accumulation state.  This function applies EP to the
+   post-accumulation state (δ†), silently skipping preimages whose request
+   was dropped or modified during accumulation.
+   Returns: new raw-kvs list."
   (validate-ep-ordering preimages)
-  ;; -- Annotate: compute hashes --
   (let ((annotated
          (mapcar (lambda (p)
                    (let* ((sid  (getf p :requester))
@@ -535,21 +562,14 @@
                      (list :sid sid :hash hash :blob blob)))
                  preimages)))
 
-    ;; -- COW: index original (read-only), track patches + additions --
-    ;; No copy-alist: builds kv-index from the ORIGINAL raw-kvs.
-    ;; Patches record modified values; additions collect new entries.
-    ;; Materializes at the end: O(K) fresh cons cells instead of O(N).
     (let ((kv-index (make-hash-table :test 'equalp :size (length raw-kvs)))
-          (patches  (make-hash-table :test 'equalp))   ;; key → new-value
-          (additions nil))                              ;; new (key . value) pairs
-      ;; Index original entries (read-only reference)
+          (patches  (make-hash-table :test 'equalp))
+          (additions nil))
       (dolist (kv raw-kvs)
         (setf (gethash (car kv) kv-index) kv))
       (flet ((find-kv-exists-p (target-key)
-               ;; Does the key exist in original?
                (nth-value 1 (gethash target-key kv-index)))
              (find-kv-val (target-key)
-               ;; Read patched value if available, else original
                (multiple-value-bind (val found) (gethash target-key patches)
                  (if found val
                      (let ((pair (gethash target-key kv-index)))
@@ -566,28 +586,17 @@
                  (lookup-key (interleave-sub-key sid (lookup-trie-h hash len)))
                  (blob-key   (interleave-sub-key sid (preimage-trie-h hash))))
 
-            ;; GP §9.2: preimage MUST be required — reject block otherwise.
-            ;;   1. Service s must exist (has metadata key C(255,s))
-            (unless (find-kv-exists-p meta-key)
-              (error 'preimages-error
-                     :code :preimage-not-required
-                     :detail (format nil "service ~D does not exist" sid)))
-            ;;   2. Lookup entry (h,l) must exist with even-length status list
-            (unless (find-kv-exists-p lookup-key)
-              (error 'preimages-error
-                     :code :preimage-not-required
-                     :detail (format nil "no lookup entry for preimage in service ~D" sid)))
-            (let* ((lookup-val (find-kv-val lookup-key))
-                   (statuses (load-lookup-value lookup-val)))
-              (unless (null statuses)
-                (error 'preimages-error
-                       :code :preimage-not-required
-                       :detail (format nil "preimage status not [] for service ~D" sid)))
-              ;; Store preimage blob (addition — new entry)
-              (push (cons blob-key (ensure-bytes blob)) additions)
-              ;; Update lookup: append tau' to status list (patch — modify existing value)
-              (patch-kv-val lookup-key
-                            (encode-lookup-value (append statuses (list timeslot))))))))
+            ;; GP: Y(d, s, i) — only integrate if the request is still live
+            ;; in the post-accumulation state.  Skip silently otherwise.
+            (when (and (find-kv-exists-p meta-key)
+                       (find-kv-exists-p lookup-key))
+              (let* ((lookup-val (find-kv-val lookup-key))
+                     (statuses (load-lookup-value lookup-val)))
+                (when (null statuses)
+                  (push (cons blob-key (ensure-bytes blob)) additions)
+                  (patch-kv-val lookup-key
+                                (encode-lookup-value
+                                 (append statuses (list timeslot))))))))))
 
       ;; -- Materialize: original entries (with patches) + additions --
       ;; Only patched entries get fresh cons cells; unmodified entries
@@ -745,30 +754,31 @@
                            (null (getf effects :lookup))))))
 
            (when update-storage-p
-             ;; ── MERGE storage: scope = overlay writes ∪ explicit deletes ──
-             ;; Pure computation: no heuristic classification needed for storage.
-             ;; Writes and deletes from the PVM overlay define the complete scope.
-             (let* ((write-h27s (mapcar #'car (or (getf effects :storage) '())))
-                    (delete-h27s (or (getf effects :storage-deletes) '()))
-                    (scope-ht (make-h27-set
-                               (remove-duplicates
-                                (nconc write-h27s (copy-list delete-h27s))
-                                :test #'equalp))))
-               (when scope-ht
-                 (setf current-kvs
-                       (remove-by-sid-and-scope current-kvs sid scope-ht))))
-
-             ;; ── Add new storage entries from overlay writes ──
-             (dolist (s-entry (getf effects :storage))
-               (let* ((h-27     (car s-entry))
-                      (val      (cdr s-entry))
-                      (trie-key (interleave-sub-key sid h-27)))
-                 (push (cons trie-key (ensure-bytes val)) current-kvs)))
-
-             ;; ── MERGE lookups: still uses classify for initial state ──
-             ;; Lookup/preimage classification is unaffected by the storage overlay change.
+             ;; ── Classify lookups/preimages BEFORE storage mutations ──
+             ;; Must classify on current-kvs BEFORE storage writes are added,
+             ;; otherwise new storage entries could be misclassified as lookup
+             ;; candidates and deleted by the lookup scope removal.
              (let ((initial-classified (classify-service-sub-keys sid current-kvs)))
 
+               ;; ── MERGE storage: scope = overlay writes ∪ explicit deletes ──
+               (let* ((write-h27s (mapcar #'car (or (getf effects :storage) '())))
+                      (delete-h27s (or (getf effects :storage-deletes) '()))
+                      (scope-ht (make-h27-set
+                                 (remove-duplicates
+                                  (nconc write-h27s (copy-list delete-h27s))
+                                  :test #'equalp))))
+                 (when scope-ht
+                   (setf current-kvs
+                         (remove-by-sid-and-scope current-kvs sid scope-ht))))
+
+               ;; ── Add new storage entries from overlay writes ──
+               (dolist (s-entry (getf effects :storage))
+                 (let* ((h-27     (car s-entry))
+                        (val      (cdr s-entry))
+                        (trie-key (interleave-sub-key sid h-27)))
+                   (push (cons trie-key (ensure-bytes val)) current-kvs)))
+
+               ;; ── MERGE lookups ──
                (let* ((initial-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (getf initial-classified :lookup)))

@@ -191,6 +191,11 @@
                                         :phi-prime phi-prime
                                         :offender-auth-hashes offender-auth-hashes))
 
+                   ;; GP §12.36 line 434: validate EP against pre-accumulation δ
+                   (_ (when e-p
+                        (validate-ep-requirements
+                         (funcall delta :raw-kvs) e-p)))
+
                    ;; (4.18) δ' < (EP, δ†, τ')
                    (delta-prime (funcall delta-dagger :transition
                                         :preimages e-p
