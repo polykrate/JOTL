@@ -199,10 +199,7 @@
 
         (let ((new-omega-queues
                (loop for i from 0 below e
-                     collect (remove-if (lambda (entry)
-                                          (let ((pkg-hash (getf (getf (getf entry :report) :package-spec) :hash)))
-                                            (member pkg-hash all-done-hashes :test #'equalp)))
-                                        (aref w-slots i)))))
+                     collect (accum-edit (aref w-slots i) all-done-hashes))))
           (values r-star new-omega-queues accumulated-hashes))))))
 
 ;;; ═══════════════════════════════════════════════════════════════
