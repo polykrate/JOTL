@@ -219,10 +219,15 @@
   (lookup          (make-hash-table :test 'equalp) :type hash-table)
 
   ;; ── Candidate orphaned lookups (lazy discovery) ────
-  ;; h27 → encoded-value.  Entries from trie that look like lookup values
-  ;; but had no matching preimage blob.  HC22/24 check this fallback to
-  ;; discover orphans on demand and promote them into the lookup overlay.
+  ;; h27 → encoded-value.  Unclassified trie entries available for
+  ;; address-based discovery.  HC22/23/24 compute lookup-trie-h(hash,len)
+  ;; and probe this table; on hit the entry is promoted to hctx-lookup.
   (candidate-lookups (make-hash-table :test 'equalp) :type hash-table)
+
+  ;; h27s of orphans actually discovered during this PVM execution.
+  ;; Needed for scope: HC24 forget may remove from hctx-lookup, but the
+  ;; trie entry must still be in the removal scope.
+  (discovered-orphan-h27s nil :type list)
 
   ;; ── Side-effects ────────────────────────────────────
   (logs                nil :type list)

@@ -313,16 +313,6 @@
                             (ash (aref val-bytes (+ off 2)) 16)
                             (ash (aref val-bytes (+ off 3)) 24))))))
 
-(defun valid-lookup-value-p (val)
-  "Check if VAL could be a valid lookup entry encoding: compact(n) . n*E4(t).
-   Used to identify candidate orphaned lookup entries in the trie."
-  (when (and val (plusp (length val)))
-    (handler-case
-        (multiple-value-bind (count consumed) (decode-compact val 0)
-          (and (<= count 3)  ;; lookups have at most 3 timeslots per GP
-               (= (length val) (+ consumed (* 4 count)))))
-      (error () nil))))
-
 ;;; =====================================================================
 ;;; SID INDEX — O(1) lookup by service-id instead of O(N) scans
 ;;; =====================================================================
@@ -433,6 +423,9 @@
                  (expected-h (lookup-trie-h pre-hash pre-len)))
             (setf (gethash expected-h lookup-map) (cons pre-hash pre-len))))
         ;; Classify remaining entries: O(|remaining|) with O(1) hash-table lookups
+        ;; Unclassified entries go to BOTH :storage (preserves trie) and
+        ;; :candidate-orphans (enables address-based HC discovery).
+        ;; Discovery is by h27 match, not value shape — no false positives.
         (let ((candidate-orphans nil))
           (dolist (entry remaining)
             (let* ((h (car entry))
@@ -441,9 +434,9 @@
               (if match
                   (let ((statuses (load-lookup-value val)))
                     (push (list* (car match) (cdr match) statuses) lookup))
-                  (if (valid-lookup-value-p val)
-                      (push entry candidate-orphans)
-                      (push entry storage)))))
+                  (progn
+                    (push entry storage)
+                    (push entry candidate-orphans)))))
           (setf lookup (nreverse lookup))
           (setf storage (nreverse storage))
           (setf candidate-orphans (nreverse candidate-orphans))
@@ -782,14 +775,15 @@
                (let* ((initial-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (getf initial-classified :lookup)))
-                      (orphan-h27s
-                       (mapcar #'car (getf initial-classified :candidate-orphans)))
+                      (discovered-h27s
+                       (or (getf effects :discovered-orphan-h27s) '()))
                       (final-lookup-h27s
                        (mapcar (lambda (l) (lookup-trie-h (first l) (second l)))
                                (or (getf effects :lookup) '())))
                       (scope-ht (make-h27-set
                                  (remove-duplicates
-                                  (nconc initial-lookup-h27s orphan-h27s
+                                  (nconc initial-lookup-h27s
+                                         (copy-list discovered-h27s)
                                          final-lookup-h27s)
                                   :test #'equalp))))
                  (when scope-ht

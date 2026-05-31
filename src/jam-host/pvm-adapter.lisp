@@ -531,6 +531,7 @@
             :designated-validators designated-validators
             :provided-preimages provided-list
             :lookup           lookup-list
+            :discovered-orphan-h27s (hctx-discovered-orphan-h27s ctx)
             :preimages        (nreverse preimages-alist)
             :yield-output     (hctx-yield-output ctx)
             :items-count      (hctx-items-count ctx)
