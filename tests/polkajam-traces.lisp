@@ -57,7 +57,7 @@
       (dolist (p (directory (merge-pathnames "*/" tdir)))
         (let ((name (car (last (pathname-directory p)))))
           (when (and name (plusp (length name))
-                     (digit-char-p (char name 0))
+                     (alphanumericp (char name 0))
                      (not (gethash name seen)))
             (setf (gethash name seen) t)
             (push (cons name (namestring p)) result)))))

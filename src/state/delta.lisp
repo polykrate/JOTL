@@ -565,10 +565,10 @@
                      :detail (format nil "no lookup entry for preimage in service ~D" sid)))
             (let* ((lookup-val (find-kv-val lookup-key))
                    (statuses (load-lookup-value lookup-val)))
-              (unless (evenp (length statuses))
+              (unless (null statuses)
                 (error 'preimages-error
                        :code :preimage-not-required
-                       :detail (format nil "preimage already provided for service ~D" sid)))
+                       :detail (format nil "preimage status not [] for service ~D" sid)))
               ;; Store preimage blob (addition — new entry)
               (push (cons blob-key (ensure-bytes blob)) additions)
               ;; Update lookup: append tau' to status list (patch — modify existing value)
