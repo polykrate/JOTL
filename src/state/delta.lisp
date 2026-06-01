@@ -680,6 +680,25 @@
                           (gethash (extract-sub-key-h key) scope-ht))))
                  kvs)))
 
+(defun update-last-accum-slots (raw-kvs accumulated-sids timeslot)
+  "GP §12.3 accountspostxfer: set last-accumulation-slot = timeslot
+   for all services in ACCUMULATED-SIDS. Applied ONCE after all batches."
+  (let ((sid-set (make-hash-table :test 'eql))
+        (result (copy-list raw-kvs)))
+    (dolist (sid accumulated-sids)
+      (setf (gethash sid sid-set) t))
+    (do ((tail result (cdr tail)))
+        ((null tail))
+      (let ((kv (car tail)))
+        (when (and (service-metadata-key-p (car kv))
+                   (gethash (service-id-from-metadata-key (car kv)) sid-set))
+          (let* ((fresh-kv (cons (car kv) (cdr kv)))
+                 (info (load-service-info (cdr fresh-kv))))
+            (setf (getf info :last-accumulation-slot) timeslot)
+            (setf (cdr fresh-kv) (encode-service-info info))
+            (setf (car tail) fresh-kv)))))
+    result))
+
 (defun absorb-delta-effects (raw-kvs delta-results timeslot)
   "Apply all PVM accumulation effects to raw key-value pairs.
    DELTA-RESULTS: hash-table of (sid → effects-plist)
@@ -716,9 +735,11 @@
              ;; Update balance if provided (always, even no-code)
              (when (and effects (getf effects :balance))
                (setf (getf info :balance) (getf effects :balance)))
-            ;; Skip last-accumulation-slot + PVM fields if no code ran
+            ;; Skip PVM fields if no code ran
+            ;; NOTE: last-accumulation-slot is NOT updated here (per-batch).
+            ;; GP §12.3: it must be set ONCE after all Δ+ batches complete,
+            ;; via :update-last-accum-slots called from transition-accumulate.
             (unless (getf effects :no-code)
-              (setf (getf info :last-accumulation-slot) timeslot)
               ;; Update code_hash, min_accum_gas, min_memo_gas from PVM final state
               (when (and effects (getf effects :final-code-hash))
                 (setf (getf info :code-hash) (getf effects :final-code-hash)))
@@ -985,6 +1006,12 @@
   (:transition-dagger (&key delta-results timeslot)
     (make-delta-state
      :raw-kvs (absorb-delta-effects raw-kvs delta-results timeslot)))
+
+  ;; GP §12.3 accountspostxfer: update last-accum-slot for accumulated services.
+  ;; Called ONCE after all Δ+ batches complete, not per-batch.
+  (:update-last-accum-slots (&key accumulated-sids timeslot)
+    (make-delta-state
+     :raw-kvs (update-last-accum-slots raw-kvs accumulated-sids timeslot)))
 
   ;; -- Transition: delta' < (EP, delta-dagger, tau') -- GP S4.18 + S9.2
   (:transition (&key preimages tau-prime)

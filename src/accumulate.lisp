@@ -318,7 +318,7 @@
    TRANSFERS:    list of deferred-transfer plists (from prior round)
    REPORTS:      list of work-reports
    FREE-ACCUM:   alist of (service-id . gas) from χ_Z
-   Returns: (values state' new-transfers commitments gas-usage)"
+   Returns: (values state' new-transfers commitments gas-usage service-set)"
   (let* (;; ── s: set of services to accumulate ──
          (s (compute-service-set reports transfers free-accum))
          ;; ── Collect operand tuples from all reports ──
@@ -474,10 +474,16 @@
                    :delta-results delta-results
                    :timeslot (getf state :timeslot)))
 
-    (values state
-            (nreverse new-transfers)
-            (nreverse commitments)
-            (nreverse gas-usage))))  ;; closes values, let*, let, defun
+    (let ((code-sids nil))
+      (maphash (lambda (sid effects)
+                 (unless (getf effects :no-code)
+                   (push sid code-sids)))
+               delta-results)
+      (values state
+              (nreverse new-transfers)
+              (nreverse commitments)
+              (nreverse gas-usage)
+              code-sids))))  ;; closes values, let, let*, let, defun
 
 (defun find-report-cutoff (gas-limit reports)
   "GP §12.18: Find max index i such that cumulative report gas ≤ gas-limit.
@@ -508,6 +514,7 @@
    Returns: updated STATE with :commitments, :gas-usage, :pending-transfers populated."
   (let ((all-commitments nil)
         (all-gas-usage nil)
+        (all-accumulated-sids (make-hash-table :test 'eql))
         (transfers (getf state :pending-transfers))
         (free-accum (funcall (getf state :chi) :always-accum))
         (n (length r-star))
@@ -541,11 +548,13 @@
 
         ;; Batch: reports[0..i) + current transfers + free-accum
         (let ((batch-reports (subseq reports 0 i)))
-          (multiple-value-bind (state* new-transfers commitments gas-usage)
+          (multiple-value-bind (state* new-transfers commitments gas-usage service-set)
               (accumulate-star state transfers batch-reports free-accum)
             (setf state state*)
             (setf all-commitments (nconc all-commitments commitments))
             (setf all-gas-usage (nconc all-gas-usage gas-usage))
+            (dolist (sid service-set)
+              (setf (gethash sid all-accumulated-sids) t))
 
             ;; GP §12.18: g' = g - u + Σ(transfer gas)
             ;; Note: accumulate-star already decremented (getf state :remaining-gas) by gas-used.
@@ -580,7 +589,9 @@
     (setf (getf state :commitments) all-commitments
           (getf state :gas-usage) all-gas-usage
           (getf state :pending-transfers) transfers
-          (getf state :n-accumulated) n)
+          (getf state :n-accumulated) n
+          (getf state :accumulated-sids)
+          (loop for sid being the hash-keys of all-accumulated-sids collect sid))
     state))
 
 ;;; ═══════════════════════════════════════════════════════════════
@@ -663,6 +674,15 @@
         (setf accum-state (accumulate-all r-star accum-state))
 
         ;; ── §12.3 Final State Integration ──
+
+        ;; GP §12.3 accountspostxfer: set last-accumulation-slot = timeslot
+        ;; for ALL accumulated services, ONCE after all Δ+ batches complete.
+        (let ((accumulated-sids (getf accum-state :accumulated-sids)))
+          (when accumulated-sids
+            (setf (getf accum-state :delta)
+                  (funcall (getf accum-state :delta) :update-last-accum-slots
+                           :accumulated-sids accumulated-sids
+                           :timeslot timeslot))))
 
         (let* ((n (or (getf accum-state :n-accumulated) 0))
 
