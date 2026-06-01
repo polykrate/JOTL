@@ -183,43 +183,45 @@
 ;;; Protocol parameters encoding — for ΩY(0) fetch
 ;;;
 ;;; Format: 134 bytes LE (GP B.2: 7×E_8 + 13×E_4 + 13×E_2)
-;;; Uses TINY chainspec defaults.
+;;; Caller (accumulate-service in JOTL package) passes chainspec values.
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun encode-gp-constants (&key
+                              ;; Fixed GP constants (same tiny/full)
                               (deposit-per-item 10)     ;; B_I
                               (deposit-per-byte 1)      ;; B_L
                               (deposit-per-account 100) ;; B_S
-                              (core-count 2)            ;; C
-                              (min-turnaround 32)       ;; D
-                              (epoch-period 12)         ;; E
                               (max-accumulate-gas 10000000)  ;; G_A
                               (max-is-authorized-gas 50000000)  ;; G_I
-                              (max-refine-gas 1000000000)       ;; G_R
-                              (block-gas-limit 20000000)        ;; G_T
                               (recent-block-count 8)    ;; H
                               (max-work-items 16)       ;; I
                               (max-dependencies 8)      ;; J
-                              (max-tickets-per-block 3) ;; K
-                              (max-lookup-anchor-age 24) ;; L  (tiny=24)
-                              (tickets-attempts 3)      ;; N
-                              (auth-window 8)           ;; O   (tiny=8)
-                              (slot-period-sec 6)       ;; P
+                              (auth-window 8)           ;; O
                               (auth-queue-len 80)       ;; Q
+                              (max-extrinsics 128)      ;; T
+                              (availability-timeout 5)  ;; U
+                              (max-authorizer-code 64000)  ;; W_A
+                              (max-input 13791360)      ;; W_B
+                              (max-service-code 4000000)   ;; W_C
+                              (max-imports 3072)        ;; W_M
+                              (max-report-elective 49152)  ;; W_R
+                              (transfer-memo-size 128)  ;; W_T
+                              (max-exports 3072)        ;; W_X
+                              ;; Chainspec-variable (caller passes)
+                              (core-count 2)            ;; C
+                              (min-turnaround 32)       ;; D
+                              (epoch-period 12)         ;; E
+                              (max-refine-gas 1000000000)       ;; G_R
+                              (block-gas-limit 20000000)        ;; G_T
+                              (max-tickets-per-block 3) ;; K
+                              (max-lookup-anchor-age 24) ;; L
+                              (tickets-attempts 3)      ;; N
+                              (slot-period-sec 6)       ;; P
                               (rotation-period 4)       ;; R
-                              (max-extrinsics 128)      ;; T   (tiny=128)
-                              (availability-timeout 5)  ;; U   (tiny=5)
                               (val-count 6)             ;; V
-                              (max-authorizer-code 64000)      ;; W_A (tiny=64000)
-                              (max-input 13791360)             ;; W_B (GP 0.7.2=13791360)
-                              (max-service-code 4000000)       ;; W_C (tiny=4000000)
-                              (basic-piece-len 4)              ;; W_E (tiny=4)
-                              (max-imports 3072)               ;; W_M (tiny=3072)
-                              (segment-piece-count 1026)       ;; W_P (tiny=1026)
-                              (max-report-elective 49152)      ;; W_R (tiny=48*1024)
-                              (transfer-memo-size 128)         ;; W_T
-                              (max-exports 3072)               ;; W_X
-                              (epoch-tail-start 10))           ;; Y  (tiny=10)
+                              (basic-piece-len 4)       ;; W_E
+                              (segment-piece-count 1026) ;; W_P
+                              (epoch-tail-start 10))    ;; Y
   "Encode protocol parameters for ΩY fetch(kind=0).
    Returns 134-byte octet vector (7×E_8 + 13×E_4 + 13×E_2 = 56+52+26)."
   (let ((buf (%make-buf 134)))
@@ -310,6 +312,8 @@
                                 (auth-queue-len 80)
                                 (val-count 6)
                                 (designate-service 0)
+                                (preimage-expunge-period 32)
+                                (protocol-params nil)
                                 (debug-trace nil))
   "Build a host-context struct from keyword args.
    KVS-INDEX:        hash-table of (h27 → value) — immutable base layer for ΩR
@@ -341,9 +345,10 @@
               :accumulate-items accumulate-items
               :designate-service designate-service
               :debug-trace debug-trace
-              :protocol-params (coerce (encode-gp-constants :core-count core-count
-                                                            :auth-queue-len auth-queue-len
-                                                            :val-count val-count)
+              :protocol-params (coerce (or protocol-params
+                                           (encode-gp-constants :core-count core-count
+                                                                :auth-queue-len auth-queue-len
+                                                                :val-count val-count))
                                        '(simple-array (unsigned-byte 8) (*))))))
 
     ;; ── Set kvs-index (immutable base layer for self-service ΩR/ΩW) ──
@@ -594,6 +599,8 @@
                                   (auth-queue-len 80)
                                   (val-count 6)
                                   (designate-service 0)
+                                  (preimage-expunge-period 32)
+                                  (protocol-params nil)
                                   (debug-trace nil))
   "Execute PVM accumulate using the Lisp JamVM.
    KVS-INDEX: hash-table of (h27 → value) — immutable base layer for ΩR/ΩW.
@@ -634,6 +641,8 @@
                 :auth-queue-len auth-queue-len
                 :val-count val-count
                 :designate-service designate-service
+                :preimage-expunge-period preimage-expunge-period
+                :protocol-params protocol-params
                 :debug-trace debug-trace)))
 
       ;; 3. Encode accumulate arguments and invoke

@@ -269,8 +269,47 @@
                :service-accounts cross-services
                :existing-services existing-services
                :accumulate-items (encode-accumulate-items items svc-transfers)
+               :core-count       (num-cores)
+               :auth-queue-len   +auth-queue-size+
+               :val-count        (num-validators)
                :designate-service (let ((chi (getf state :chi)))
                                     (if chi (funcall chi :designate) 0))
+               :preimage-expunge-period (preimage-expunge-period)
+               :protocol-params  (jam-host:encode-gp-constants
+                                  :deposit-per-item    +min-balance-per-item+
+                                  :deposit-per-byte    +min-balance-per-octet+
+                                  :deposit-per-account +min-balance+
+                                  :max-accumulate-gas  +accumulation-gas+
+                                  :max-is-authorized-gas +is-authorized-gas+
+                                  :recent-block-count  +history-size+
+                                  :max-work-items      +max-work-items+
+                                  :max-dependencies    +max-dependencies+
+                                  :auth-window         +max-auth-pool+
+                                  :auth-queue-len      +auth-queue-size+
+                                  :max-extrinsics      +max-work-package-extrinsics+
+                                  :availability-timeout +availability-timeout+
+                                  :max-authorizer-code +max-is-authorized-code+
+                                  :max-input           13791360
+                                  :max-service-code    +max-service-code+
+                                  :max-imports         +max-imports+
+                                  :max-report-elective +max-unbounded-blob-size+
+                                  :transfer-memo-size  +transfer-memo-size+
+                                  :max-exports         +max-exports+
+                                  :core-count          (num-cores)
+                                  :min-turnaround      (preimage-expunge-period)
+                                  :epoch-period        (epoch-duration)
+                                  :max-refine-gas      (max-refine-gas)
+                                  :block-gas-limit     (max-block-gas)
+                                  :max-tickets-per-block (max-tickets-per-extrinsic)
+                                  :max-lookup-anchor-age (max-lookup-anchor-age)
+                                  :tickets-attempts    (tickets-per-validator)
+                                  :slot-period-sec     (slot-duration)
+                                  :rotation-period     (rotation-period)
+                                  :val-count           (num-validators)
+                                  :segment-piece-count (num-ec-pieces-per-segment)
+                                  :basic-piece-len     (floor +segment-size+
+                                                              (num-ec-pieces-per-segment))
+                                  :epoch-tail-start    (contest-duration))
                :debug-trace *debug-pvm-trace*)
 
             ;; ── Debug: attach host-call trace ──
