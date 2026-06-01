@@ -226,25 +226,30 @@
               ;; Pass parent's Merkle trie + KV index for incremental state-root.
               ;; On σ' state-root computation, the trie is updated with only
               ;; the changed keys (O(K log N) instead of O(N log N) full recompute).
-              (make-sigma-state
-               :alpha   (funcall alpha-prime :encode)
-               :beta    (funcall beta-prime :encode)
-               :gamma   (funcall gamma-prime :encode)
-               ;; no :delta segment — δ uses multi-key delta-kvs
-               :eta     (funcall eta-prime :encode)
-               :iota    (funcall iota-prime :encode)
-               :kappa   (funcall kappa-prime :encode)
-               :lambda* (funcall lambda-prime :encode)
-               :rho     (funcall rho-prime :encode)
-               :tau     (funcall tau-prime :encode)
-               :phi     (funcall phi-prime :encode)
-               :chi     (funcall chi-prime :encode)
-               :psi     (funcall psi-prime :encode)
-               :pi*     (funcall pi-prime :encode)
-               :omega   (funcall omega-prime :encode)
-               :xi      (funcall xi-prime :encode)
-               :theta   (funcall theta-prime :encode)
-               :delta-kvs (prof :delta-save
-                            (funcall delta-prime :encode))
-               :parent-trie (funcall sigma :merkle-trie)
-               :parent-kv-index (funcall sigma :merkle-kv-index)))))))))
+              (let ((sigma-prime
+                     (make-sigma-state
+                      :alpha   (funcall alpha-prime :encode)
+                      :beta    (funcall beta-prime :encode)
+                      :gamma   (funcall gamma-prime :encode)
+                      ;; no :delta segment — δ uses multi-key delta-kvs
+                      :eta     (funcall eta-prime :encode)
+                      :iota    (funcall iota-prime :encode)
+                      :kappa   (funcall kappa-prime :encode)
+                      :lambda* (funcall lambda-prime :encode)
+                      :rho     (funcall rho-prime :encode)
+                      :tau     (funcall tau-prime :encode)
+                      :phi     (funcall phi-prime :encode)
+                      :chi     (funcall chi-prime :encode)
+                      :psi     (funcall psi-prime :encode)
+                      :pi*     (funcall pi-prime :encode)
+                      :omega   (funcall omega-prime :encode)
+                      :xi      (funcall xi-prime :encode)
+                      :theta   (funcall theta-prime :encode)
+                      :delta-kvs (prof :delta-save
+                                   (funcall delta-prime :encode))
+                      :parent-trie (funcall sigma :merkle-trie)
+                      :parent-kv-index (funcall sigma :merkle-kv-index))))
+                ;; Release parent σ's cached Merkle data so GC can reclaim
+                ;; when σ is evicted from the fuzz state table.
+                (funcall sigma :release-parent)
+                sigma-prime))))))))

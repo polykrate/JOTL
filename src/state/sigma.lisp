@@ -220,6 +220,17 @@
     (loop for (kw . _n) in +sigma-segment-order+
           when (self :segment kw) collect kw))
 
+  ;; ── Release parent references (memory optimization) ─────
+  ;; After σ's merkle-trie and merkle-kv-index have been consumed by σ',
+  ;; parent-trie and parent-kv-index are dead weight. Nil them out so GC
+  ;; can reclaim the previous block's trie nodes and KV hash table.
+  ;; Also clears memoized merkle-kvs and merkle-kv-index (the trie and
+  ;; state-root memos are kept — they're small or structurally shared).
+  (:release-parent ()
+    (self :set-field :parent-trie nil)
+    (self :set-field :parent-kv-index nil)
+    t)
+
   ;; ── Transition: Υ(σ, B) → σ' ──────────────────────────────
   ;; σ transforms itself by delegating to transition-state (upsilon.lisp).
   ;; This completes the symmetry: every closure answers :transition.

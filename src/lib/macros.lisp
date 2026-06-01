@@ -29,11 +29,14 @@
    FIELD-SPECS: (PARAM DEFAULT) or (PARAM DEFAULT :key MSG-KEY)
    EXTRA-CLAUSES:
      (:key BODY)                    — computed on every access
-     (:key :memo BODY)              — lazy-cached
+     (:key :memo BODY)              — lazy-cached (clearable via :clear-memo)
      (:decode (BYTES OFFSET) BODY)  — decoder (generates top-level decode-NAME)
      (:key (PARAMS) BODY)           — method with positional args
      (:transition (&key ...) BODY)  — STF: (funcall obj :transition :k v ...)
-     (:transition-NAME (&key ...) BODY) — multi-stage STF"
+     (:transition-NAME (&key ...) BODY) — multi-stage STF
+   Auto-generated messages:
+     :clear-memo                    — reset all memoized slots to nil
+     :set-field (field-kw value)    — mutate a captured field (for memory release)"
   (let ((fields '())
         (memo-clauses '())
         (regular-clauses '())
@@ -118,6 +121,21 @@
                                     collect `(,(getf tc :key)
                                               (destructuring-bind ,(getf tc :lambda-list) (cdr args)
                                                 ,@(getf tc :body-forms))))
+                            ,@(when memo-vars
+                                `((:clear-memo
+                                   ,@(loop for mv in memo-vars
+                                           collect `(setf ,mv nil))
+                                   t)))
+                            ,@(when fields
+                                `((:set-field
+                                   (let ((fld (cadr args))
+                                         (val (caddr args)))
+                                     (case fld
+                                       ,@(loop for f in fields
+                                               collect `(,(getf f :key)
+                                                         (setf ,(getf f :param) val)))
+                                       (otherwise
+                                        (error ,(format nil "Unknown ~A field: ~~a" name) fld)))))))
                             (otherwise
                              (error ,(format nil "Unknown ~A message: ~~a" name) msg))))))
                #'self)))

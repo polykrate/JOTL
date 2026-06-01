@@ -237,12 +237,14 @@
    Oldest states are GC'd when this limit is exceeded.
    Set high enough for fuzzer forks scenarios (up to ~50 concurrent chains).")
 
-(defconstant +gc-interval-blocks+ 1000
+(defconstant +gc-interval-blocks+ 200
   "Trigger a full GC every N block imports to bound heap growth.
    Each import allocates O(S) cons cells (COW metadata, S = services) +
    O(|delta-kvs| log |delta-kvs|) byte vectors (Merkle recompute).
    Without periodic collection these promote to older GC generations
-   and the heap grows monotonically over long sessions (100K+ blocks).")
+   and the heap grows monotonically over long sessions (100K+ blocks).
+   200 (down from 1000) keeps peak heap lower in memory-constrained
+   containers (2GB on FluffyLabs) at negligible throughput cost.")
 
 (defstruct fuzz-state-manager
   "Fork-aware state manager for fuzz-v1 sessions."

@@ -513,6 +513,7 @@
         (n (length r-star))
         (reports r-star))
 
+    (let ((batch-idx 0))
     (loop
       ;; GP: n = |X| + i + |f|  — terminate when nothing to process
       (let* ((gas-limit (getf state :remaining-gas))
@@ -520,6 +521,16 @@
                     (find-report-cutoff gas-limit reports)
                     0))
              (n-items (+ (length transfers) i (length free-accum))))
+
+        (when *debug-pvm-trace*
+          (format *error-output*
+                  "~&[ACCUM-ALL] batch=~D reports=~D cutoff=~D xfers=~D free=~D remaining-gas=~D n-items=~D~%"
+                  batch-idx (length reports) i (length transfers) (length free-accum)
+                  gas-limit n-items)
+          (dolist (x transfers)
+            (format *error-output* "~&[ACCUM-ALL]   xfer: dest=~D gas=~D amt=~D~%"
+                    (getf x :destination) (getf x :gas-limit) (getf x :amount)))
+          (force-output *error-output*))
 
         ;; Termination: nothing to process
         (when (zerop n-items) (return))
@@ -549,10 +560,21 @@
                     (setf new-remaining (1- (ash 1 64))))
                   (setf (getf state :remaining-gas) new-remaining))))
 
+            ;; DEBUG: log result
+            (when *debug-pvm-trace*
+              (format *error-output*
+                      "~&[ACCUM-ALL] batch=~D done: new-xfers=~D gas-usage=~A remaining=~D~%"
+                      batch-idx (length new-transfers) gas-usage (getf state :remaining-gas))
+              (dolist (nx new-transfers)
+                (format *error-output* "~&[ACCUM-ALL]   new-xfer: sender=~D dest=~D gas=~D~%"
+                        (getf nx :sender) (getf nx :destination) (getf nx :gas-limit)))
+              (force-output *error-output*))
+
             ;; Advance: remaining reports, new transfers, f = {} (no more free-accum)
             (setf reports (subseq reports i)
                   transfers new-transfers
-                  free-accum nil)))))
+                  free-accum nil)
+            (incf batch-idx))))))
 
     ;; Store results back in state
     (setf (getf state :commitments) all-commitments
@@ -626,6 +648,17 @@
                     :gas-usage        nil        ;; U: (sid . gas-used)
                     :pending-transfers nil)))     ;; X: deferred transfers
 
+        ;; DEBUG: log R* content
+        (when *debug-pvm-trace*
+          (format *error-output* "~&[R*] ~D reports~%" (length r-star))
+          (loop for r in r-star
+                for idx from 0
+                do (let ((results (getf r :results)))
+                     (format *error-output* "~&[R*]  report ~D: ~D results~%" idx (length results))
+                     (dolist (w results)
+                       (format *error-output* "~&[R*]    SID=~D gas=~D~%"
+                               (getf w :service-id) (getf w :accumulate-gas)))))
+          (force-output *error-output*))
         ;; Run Δ+ (sequential over R*) — GP (12.25)
         (setf accum-state (accumulate-all r-star accum-state))
 
