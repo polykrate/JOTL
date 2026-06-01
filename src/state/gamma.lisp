@@ -420,9 +420,9 @@
                                    (coerce bander-keys 'vector))
                                     ring-commitment))  ;; fallback if SRS not loaded
                ;; (6.24) γ'S — Slot key sequence
-               ;; Tickets enacted iff contest closed (m > Y) AND accumulator full
+               ;; Tickets enacted iff contest closed (m >= Y) AND accumulator full
                (gamma-s-prime
-                (if (and (> m (closing-offset))
+                (if (and (>= m (closing-offset))
                            (= (length accumulator) (epoch-duration)))
                     ;; TICKETS MODE: Z(γA)
                     (list :variant :tickets
