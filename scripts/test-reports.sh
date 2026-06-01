@@ -12,11 +12,12 @@
 #   STOP=1 ./scripts/test-reports.sh                                # stop on first failure
 #   MAX_TRACES=10 ./scripts/test-reports.sh                         # first 10 traces only
 #
-# Trace discovery (all matching sources are combined):
+# Trace discovery (all matching sources are combined, deduplicated by name):
 #   1. TRACES_DIR env var (colon-separated paths)
 #   2. --conformance PATH  (appended to TRACES_DIR)
-#   3. traces/  (local Parity/collected traces, auto-detected)
-#   4. ../jam-conformance/fuzz-reports/0.7.2/traces/  (sibling repo, auto-detected)
+#   3. ../traces-local/  (canonical local trace store, outside git)
+#   4. traces/  (legacy local traces, auto-detected)
+#   5. ../jam-conformance/fuzz-reports/0.7.2/traces/  (sibling repo, auto-detected)
 #
 # Environment:
 #   TRACES_DIR  colon-separated list of trace directories

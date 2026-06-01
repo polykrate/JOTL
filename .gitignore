@@ -48,6 +48,9 @@ __pycache__/
 # Quicklisp
 quicklisp/
 
+# Traces (local test data, not distributed)
+traces/
+
 # Test vectors (external symlink)
 tests/jamtestvectors
 
