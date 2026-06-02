@@ -151,13 +151,20 @@
 ;;; TRACE RUNNER
 ;;; ═══════════════════════════════════════════════════════════════
 
+(defun trace-chainspec (trace-id)
+  "Infer chainspec from trace name suffix: _full → :full, otherwise :tiny."
+  (if (search "_full" trace-id) :full :tiny))
+
 (defun test-trace (trace-id trace-dir)
   "Test all steps in a single trace.
+   Automatically switches chainspec based on trace name suffix.
    Returns: (values pass fail errors rejects bad-rejects)"
-  (let* ((steps (list-trace-steps trace-dir))
+  (let* ((needed-spec (trace-chainspec trace-id))
+         (steps (list-trace-steps trace-dir))
          (nsteps (length steps))
          (pass 0) (fail 0) (errs 0) (rejects 0) (bad-rejects 0)
          (failed-detail nil))
+    (switch-chain needed-spec)
     (format t "  ~A (~D steps) " trace-id nsteps)
     (force-output)
     (dolist (step-path steps)
