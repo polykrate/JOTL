@@ -934,11 +934,18 @@
                (unless (or (= pp-sid sid)
                            (some (lambda (cs) (= (getf cs :id) pp-sid))
                                  (getf effects :created-full)))
-                 ;; Remove old lookup entry and add updated one
-                 (setf current-kvs
-                       (remove-if (lambda (kv) (equalp (car kv) trie-key)) current-kvs))
-                 (push (cons trie-key (encode-lookup-value (list timeslot)))
-                       current-kvs))))
+                 ;; GP B.6: append τ' to existing lookup statuses
+                 (let* ((old-entry (find-if (lambda (kv) (equalp (car kv) trie-key))
+                                            current-kvs))
+                        (old-statuses (when old-entry
+                                        (load-lookup-value (cdr old-entry))))
+                        (new-statuses (if (member timeslot old-statuses)
+                                         old-statuses
+                                         (append old-statuses (list timeslot)))))
+                   (setf current-kvs
+                         (remove-if (lambda (kv) (equalp (car kv) trie-key)) current-kvs))
+                   (push (cons trie-key (encode-lookup-value new-statuses))
+                         current-kvs)))))
 
            ;; ── Update items/bytes from PVM-tracked values ──
            (when (and update-storage-p

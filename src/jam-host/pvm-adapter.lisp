@@ -331,6 +331,7 @@
               :core-count core-count
               :auth-queue-len auth-queue-len
               :val-count val-count
+              :min-turnaround preimage-expunge-period
               :code-hash (coerce (%ensure-hash32 code-hash) '(simple-array (unsigned-byte 8) (32)))
               :threshold threshold
               :min-accum-gas min-accum-gas
