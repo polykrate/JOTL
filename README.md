@@ -78,7 +78,7 @@ implementation is intended to be read alongside the Gray Paper, not as a black b
 | Suite | Scope | Result |
 |-------|-------|--------|
 | [jamtestvectors](https://github.com/w3f/jamtestvectors) | 8 traces, 1000 blocks | **1000/1000** |
-| [polkajam fuzz-reports](https://github.com/paritytech/polkajam/) | 205 traces, 760 steps | **735 pass**, 25 expected reject, **0 fail** |
+| [polkajam fuzz-reports](https://github.com/paritytech/polkajam/) | 362 traces, 2248+ steps (tiny + full) | **all pass**, 37 expected reject, **0 fail** |
 | minifuzz `no_forks` | fuzz-v1 | **102/102** |
 | minifuzz `forks` | fuzz-v1 | **102/102** |
 
@@ -182,10 +182,10 @@ scripts/                Build and test entry points
 
 | Domain | Lines (approx.) |
 |--------|----------------:|
-| STF (state, orchestration, codecs, Merkle) | ~12k |
-| PVM + host | ~5.5k |
-| Crypto FFI | ~2k |
-| **Total** | **~21k** |
+| STF (state, orchestration, codecs, Merkle) | ~10k |
+| PVM + host | ~7.5k |
+| Crypto FFI | ~2.5k |
+| **Total** | **~20k** |
 
 ---
 
